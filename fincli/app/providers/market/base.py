@@ -58,6 +58,27 @@ class ProviderStatus:
     message: str
 
 
+@dataclass(frozen=True, slots=True)
+class ProviderEntitlement:
+    provider: str
+    status: str
+    realtime_label: str
+    asset_classes: tuple[str, ...]
+    capabilities: tuple[str, ...]
+    limitations: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class SymbolSearchResult:
+    symbol: str
+    name: str
+    asset_class: str
+    exchange: str = ""
+    currency: str = ""
+    provider_symbols: dict[str, str] | None = None
+    notes: str = ""
+
+
 class BaseMarketProvider(Protocol):
     name: str
 

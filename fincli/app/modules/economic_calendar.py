@@ -108,6 +108,30 @@ def filter_events(events: list[EconomicEvent], country: str | None = None, impac
     return filtered
 
 
+def calendar_summary(events: list[EconomicEvent]) -> dict[str, int]:
+    summary = {"total": len(events), "high": 0, "medium": 0, "low": 0, "info": 0}
+    for event in events:
+        key = event.impact.lower()
+        summary[key] = summary.get(key, 0) + 1
+    return summary
+
+
+def economic_event_rows(events: list[EconomicEvent]) -> list[dict[str, object]]:
+    return [
+        {
+            "time": event.time.isoformat() if event.time else "",
+            "country": event.country,
+            "impact": event.impact,
+            "event": event.event,
+            "actual": event.actual or "",
+            "estimate": event.estimate or "",
+            "previous": event.previous or "",
+            "unit": event.unit or "",
+        }
+        for event in events
+    ]
+
+
 def _parse_event(item: dict[str, Any]) -> EconomicEvent:
     return EconomicEvent(
         event=str(item.get("event") or item.get("name") or "Untitled event"),

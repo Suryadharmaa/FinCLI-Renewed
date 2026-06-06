@@ -39,14 +39,16 @@ PROVIDER_LABELS = {
     "custom": "Custom API",
     "finnhub": "Finnhub",
     "twelvedata": "Twelve Data",
+    "alphavantage": "Alpha Vantage",
 }
 PROVIDER_ENV_KEYS = {
     "yfinance": (),
     "custom": ("MARKET_DATA_API_KEY", "MARKET_DATA_BASE_URL"),
     "finnhub": ("FINNHUB_API_KEY",),
     "twelvedata": ("TWELVE_DATA_API_KEY",),
+    "alphavantage": ("ALPHA_VANTAGE_API_KEY",),
 }
-DEFAULT_FALLBACK_ORDER = ("twelvedata", "finnhub", "custom", "yfinance")
+DEFAULT_FALLBACK_ORDER = ("twelvedata", "finnhub", "alphavantage", "custom", "yfinance")
 
 
 def market_provider_choices() -> tuple[MarketProviderChoice, ...]:

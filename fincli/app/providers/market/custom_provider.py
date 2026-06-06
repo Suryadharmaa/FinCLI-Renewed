@@ -43,9 +43,11 @@ class CustomMarketProvider(BaseMarketProvider):
 
     async def quote(self, symbol: str) -> Quote:
         data = await self._get(f"/quote/{symbol.upper()}")
+        data = _require_mapping(data, "quote")
+        price = _required_float(data.get("price") or data.get("last") or data.get("last_price"), "quote.price")
         return Quote(
             symbol=str(data.get("symbol") or symbol).upper(),
-            price=_safe_float(data.get("price") or data.get("last") or data.get("last_price")),
+            price=price,
             currency=str(data.get("currency") or "USD"),
             provider=self.name,
             timestamp=_parse_datetime(data.get("timestamp")) or datetime.now(),
@@ -64,10 +66,10 @@ class CustomMarketProvider(BaseMarketProvider):
             candles.append(
                 Candle(
                     timestamp=_parse_datetime(item.get("timestamp") or item.get("date")) or datetime.now(),
-                    open=float(item.get("open") or item.get("o")),
-                    high=float(item.get("high") or item.get("h")),
-                    low=float(item.get("low") or item.get("l")),
-                    close=float(item.get("close") or item.get("c")),
+                    open=_required_float(item.get("open") or item.get("o"), "history.open"),
+                    high=_required_float(item.get("high") or item.get("h"), "history.high"),
+                    low=_required_float(item.get("low") or item.get("l"), "history.low"),
+                    close=_required_float(item.get("close") or item.get("c"), "history.close"),
                     volume=float(item.get("volume") or item.get("v") or 0),
                 )
             )
@@ -97,6 +99,7 @@ class CustomMarketProvider(BaseMarketProvider):
 
     async def fundamentals(self, symbol: str) -> FundamentalSnapshot:
         data = await self._get(f"/fundamentals/{symbol.upper()}")
+        data = _require_mapping(data, "fundamentals")
         return FundamentalSnapshot(
             symbol=str(data.get("symbol") or symbol).upper(),
             provider=self.name,
@@ -135,7 +138,8 @@ class CustomMarketProvider(BaseMarketProvider):
             if response.status_code == 429:
                 raise RateLimitError("Custom market provider terkena rate limit.")
             response.raise_for_status()
-            return response.json()
+            data = response.json()
+            return data
         except httpx.TimeoutException as exc:
             raise ProviderError("Custom market provider timeout.") from exc
         except httpx.HTTPStatusError as exc:
@@ -154,6 +158,19 @@ def _safe_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _required_float(value: Any, field_name: str) -> float:
+    number = _safe_float(value)
+    if number is None:
+        raise ProviderError(f"Response custom provider tidak valid: {field_name} wajib berupa angka.")
+    return number
+
+
+def _require_mapping(value: Any, section: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ProviderError(f"Response {section} custom provider tidak valid: root JSON harus object.")
+    return value
 
 
 def _parse_datetime(value: Any) -> datetime | None:

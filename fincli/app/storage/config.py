@@ -50,6 +50,7 @@ class FinCLISettings:
             "news_data": mask_secret(os.getenv("NEWS_DATA_API_KEY")),
             "finnhub": mask_secret(os.getenv("FINNHUB_API_KEY")),
             "twelvedata": mask_secret(os.getenv("TWELVE_DATA_API_KEY")),
+            "alphavantage": mask_secret(os.getenv("ALPHA_VANTAGE_API_KEY")),
         }
         return data
 

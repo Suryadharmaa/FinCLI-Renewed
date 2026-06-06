@@ -1,8 +1,8 @@
-# FinCLI v0.1
+# FinCLI v0.2.0
 
 FinCLI is a modern financial CLI/TUI terminal for market monitoring, technical analysis, AI-assisted research, portfolio tracking, watchlists, trading journals, and configurable market/news provider workflows.
 
-Current status: FinCLI is an active MVP with a Textual TUI, provider chain, AI assistance, web research, portfolio, journal, watchlist, exports, and local session history.
+Current status: FinCLI is an active MVP moving into v0.2 with a Textual TUI, provider chain, symbol normalization, AI assistance, web research, portfolio, journal, watchlist, exports, and local session history.
 
 - Single-column Textual TUI with an inline command palette and scrollable command suggestions. The old sidebar has been removed so market output has more room.
 - Slash command router for the core FinCLI v0.1 command system.
@@ -11,6 +11,9 @@ Current status: FinCLI is an active MVP with a Textual TUI, provider chain, AI a
 - yfinance fallback for quote, OHLCV history, news, Yahoo tables, and fundamental snapshots.
 - Finnhub provider for quotes, stock candles, company news, company profile, and economic calendar via `FINNHUB_API_KEY`.
 - Twelve Data provider for multi-asset market data via `TWELVE_DATA_API_KEY`.
+- Alpha Vantage provider for stock/FX quote, daily history, news sentiment, and company overview via `ALPHA_VANTAGE_API_KEY`.
+- Symbol search and provider-specific normalization with `/symbol`.
+- Provider entitlement and realtime/delayed labeling with `/provider entitlement`.
 - Economic calendar through Finnhub when an API key is configured, with a local fallback when the provider is unavailable.
 - Technical analysis: SMA, EMA, RSI, MACD, Bollinger Bands, ATR, support/resistance, volume, trend bias, and technical signal scoring.
 - Market structure analysis: HH/HL, LH/LL, break of structure, change of character, liquidity areas, and risk zones.
@@ -138,9 +141,13 @@ python -m fincli.app.main
 /ai_model key groq <api_key>
 /news_model
 /news_model key finnhub <api_key>
+/news_model key alphavantage <api_key>
+/symbol XAUUSD
+/symbol normalize BBRI
 /market AAPL 1d
 /provider status
 /provider list
+/provider entitlement
 /provider test AAPL
 /provider key status
 /watchlist
@@ -157,6 +164,9 @@ python -m fincli.app.main
 /journal add BTC-USD bullish "Failed breakout, wait for confirmation"
 /journal stats
 /journal review
+/alert
+/alert add AAPL above 200
+/alert check
 /history
 /history sessions
 /history show <session_id>
@@ -166,6 +176,9 @@ python -m fincli.app.main
 /technical BTC-USD 1d
 /technical XAUUSD 1d
 /technical EURUSD 1d
+/mtf AAPL 1d,1h,15m
+/backtest AAPL sma_cross 1d
+/backtest EURUSD rsi_reversion 1h
 /structure BTC-USD 1d
 /news AAPL
 /web why is the rupiah weakening today
@@ -182,9 +195,13 @@ python -m fincli.app.main
 /scan watchlist rsi<30
 /scan watchlist trend=bullish
 /scan watchlist rsi>60 trend=bullish
+/scan export csv scan.csv rsi<30 1d
+/report market AAPL md report.md
+/report market AAPL json report.json
 /calendar
 /calendar today
 /calendar 2026-06-05 2026-06-12 country=US impact=high
+/calendar export csv calendar.csv week US high
 /export portfolio json C:\Users\MSI\Desktop\portfolio.json
 /export journal csv C:\Users\MSI\Desktop\journal.csv
 /cache stats
@@ -285,7 +302,7 @@ Save a key directly:
 In the TUI, this opens a selector for market/news providers and fallback priority:
 
 - Select Market/News Provider
-- Choose `Twelve Data`, `Finnhub`, `Custom API`, or `Yahoo Finance`
+- Choose `Twelve Data`, `Finnhub`, `Alpha Vantage`, `Custom API`, or `Yahoo Finance`
 - Enter API keys directly from the popup when needed
 - Choose a fallback preset: recommended, primary + yfinance, data API priority, or yfinance only
 - Search provider/preset
@@ -298,7 +315,7 @@ Primary: twelvedata
 Fallback: twelvedata -> finnhub -> custom -> yfinance
 ```
 
-`yfinance` remains a free delayed/fallback provider. API providers such as Twelve Data and Finnhub depend on API key, plan, exchange entitlement, and rate limits.
+`yfinance` remains a free delayed/fallback provider. API providers such as Twelve Data, Finnhub, and Alpha Vantage depend on API key, plan, exchange entitlement, and rate limits.
 
 ## Economic Calendar
 
@@ -307,9 +324,12 @@ Fallback: twelvedata -> finnhub -> custom -> yfinance
 /calendar today
 /calendar week US high
 /calendar 2026-06-05 2026-06-12 country=US impact=high
+/calendar export csv calendar.csv week US high
 ```
 
 When `FINNHUB_API_KEY` is configured, FinCLI pulls actual economic calendar data from Finnhub. If the key is missing or the provider fails, FinCLI shows a local fallback list of important event categories such as central bank decisions, inflation releases, labor data, GDP/PMI, and retail sales. The fallback does not claim actual event dates.
+
+Calendar output includes impact summary counts. `/calendar export` writes filtered events to CSV or JSON.
 
 ## Market Cache
 
@@ -372,6 +392,7 @@ Coverage depends on provider and symbol format:
 - `custom`: any instrument your API exposes through the FinCLI custom provider schema.
 - `finnhub`: stock quotes/candles, forex candles, crypto candles, company news, company profile, and economic calendar depending on API plan.
 - `twelvedata`: multi-asset stocks, forex, ETFs, indices, commodities, and crypto with more consistent global market symbol formatting.
+- `alphavantage`: stocks and FX quote/history plus news sentiment and company overview, with strict free-plan rate limits.
 
 Recommended provider priority for multi-asset usage:
 
@@ -448,6 +469,30 @@ The debate result is also included in AI prompts so the assistant does not reaso
 /analyze EURUSD 1d
 ```
 
+## Multi-Timeframe Analysis
+
+```text
+/mtf AAPL
+/mtf EURUSD 1d,1h,15m
+/mtf XAUUSD 1d,4h,1h
+```
+
+`/mtf` fetches multiple timeframes through the active provider chain, summarizes trend/structure/RSI/MACD/key levels for each timeframe, and returns an alignment label such as `aligned bullish`, `mostly bearish`, or `mixed`. The default timeframe set is `1d,1h,15m` for yfinance compatibility. Use `4h` when the active provider supports it.
+
+## Lightweight Backtesting
+
+```text
+/backtest AAPL sma_cross 1d
+/backtest EURUSD rsi_reversion 1h
+```
+
+The v0.2 lightweight backtester supports educational long-only rule-based strategies:
+
+- `sma_cross`: enters on fast/slow SMA bullish cross and exits on bearish cross.
+- `rsi_reversion`: enters below RSI 30 and exits above RSI 55.
+
+Output includes candles, trades, total return, win rate, max drawdown, exposure, latest trade, and risk notes. The backtest ignores fees, slippage, spreads, liquidity, and execution constraints.
+
 ## Scanner
 
 Examples:
@@ -459,9 +504,22 @@ Examples:
 /scan watchlist trend=bullish
 /scan watchlist trend=bearish 1d
 /scan watchlist rsi>60 trend=bullish
+/scan export csv scan.csv rsi<30 1d
+/scan export json scan.json trend=bullish 1d
 ```
 
 The scanner fetches history asynchronously in limited batches, calculates indicators, and only displays symbols that match the filter.
+
+Scanner exports write matched scan rows from the current watchlist to CSV or JSON.
+
+## Exportable Market Reports
+
+```text
+/report market AAPL md report.md
+/report market AAPL json report.json
+```
+
+Market reports reuse the `/market` overview pipeline and export quote, data quality, technicals, market structure, fundamentals, latest news, and disclaimer to Markdown or JSON.
 
 ## Portfolio Transaction Ledger
 
@@ -497,6 +555,18 @@ Buy transactions update quantity and average price. Sell transactions reduce pos
 ```
 
 FinCLI stores local session events in SQLite so users can review previous terminal sessions. API key commands are redacted before being saved.
+
+## Price Alerts
+
+```text
+/alert
+/alert add AAPL above 200
+/alert add EURUSD below 1.0800
+/alert check
+/alert remove <id>
+```
+
+Alerts are stored locally in SQLite. v0.2.0 checks alerts manually with `/alert check` using the active quote provider. Triggered alerts are marked inactive. This is not a background notification daemon yet.
 
 ## AI Providers
 
@@ -626,6 +696,39 @@ GET /time_series
 
 Twelve Data is useful for multi-asset symbols such as forex (`EURUSD`), metals (`XAUUSD`), global indices, ETFs, crypto, and popular US/Europe/Asia stocks. Always check provider plan and exchange entitlement for realtime vs delayed access.
 
+## Alpha Vantage Provider
+
+Open the provider selector:
+
+```text
+/news_model
+```
+
+Environment variable:
+
+```env
+ALPHA_VANTAGE_API_KEY=your-alpha-vantage-key
+```
+
+Or save it from FinCLI:
+
+```text
+/news_model key alphavantage <api_key>
+```
+
+Alpha Vantage functions used:
+
+```text
+GLOBAL_QUOTE
+TIME_SERIES_DAILY_ADJUSTED
+CURRENCY_EXCHANGE_RATE
+FX_DAILY
+NEWS_SENTIMENT
+OVERVIEW
+```
+
+Alpha Vantage is useful as an additional stocks/FX adapter. Free plans are rate-limited, and realtime/delayed availability depends on provider plan and exchange coverage.
+
 ## Provider Commands
 
 ```text
@@ -648,6 +751,27 @@ twelvedata -> finnhub -> custom -> yfinance
 ```
 
 With this chain, FinCLI tries Twelve Data first. If it fails, it tries the next provider and finally uses delayed yfinance fallback.
+
+## Symbol Search and Normalization
+
+```text
+/symbol apple
+/symbol XAUUSD
+/symbol normalize EURUSD
+/symbol normalize BBRI
+```
+
+`/symbol` searches the local symbol catalog and displays provider-specific symbol mappings for yfinance, Twelve Data, Finnhub, and custom providers. `/symbol normalize <symbol>` works for any input and shows how FinCLI will normalize the symbol before sending it to each provider.
+
+Examples:
+
+```text
+EURUSD -> EURUSD=X for yfinance, EUR/USD for Twelve Data, OANDA:EUR_USD for Finnhub
+XAUUSD -> XAUUSD=X for yfinance, XAU/USD for Twelve Data
+BBRI   -> BBRI.JK for yfinance
+```
+
+Normalization does not guarantee provider entitlement. Check `/provider entitlement` and your provider plan for realtime/delayed access and supported exchanges.
 
 ## Custom Market Provider
 
@@ -751,16 +875,16 @@ npm pack --dry-run
 
 ## Roadmap v0.2
 
-- More provider adapters.
-- Symbol search and provider-specific symbol normalization UI.
-- Economic calendar improvements.
-- Screener and scanner export.
-- Lightweight backtesting.
-- Alert system.
-- Exportable market reports.
-- Multi-timeframe analysis.
-- Stronger custom provider schema validation.
-- Provider entitlement handling and realtime/delayed labeling improvements.
+- More provider adapters. Alpha Vantage started in v0.2.0.
+- Symbol search and provider-specific symbol normalization UI. Started in v0.2.0 through `/symbol`.
+- Economic calendar improvements. Summary counts and export started in v0.2.0.
+- Screener and scanner export. Scanner export started in v0.2.0 through `/scan export`.
+- Lightweight backtesting. Started in v0.2.0 through `/backtest`.
+- Alert system. Started in v0.2.0 through local price alerts and `/alert check`.
+- Exportable market reports. Started in v0.2.0 through `/report market`.
+- Multi-timeframe analysis. Started in v0.2.0 through `/mtf`.
+- Stronger custom provider schema validation. Started in v0.2.0.
+- Provider entitlement handling and realtime/delayed labeling improvements. Started in v0.2.0 through `/provider entitlement`.
 
 ## Roadmap v0.3
 

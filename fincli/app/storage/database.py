@@ -97,6 +97,17 @@ class FinCLIDatabase:
                             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                             FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
                         );
+
+                        CREATE TABLE IF NOT EXISTS alerts (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            symbol TEXT NOT NULL,
+                            condition TEXT NOT NULL,
+                            target REAL NOT NULL,
+                            note TEXT DEFAULT '',
+                            active INTEGER DEFAULT 1,
+                            triggered_at TEXT DEFAULT '',
+                            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                        );
                         """
                     )
         except sqlite3.Error as exc:

@@ -17,6 +17,7 @@ from rich.table import Table
 
 from fincli.app.cli.commands import CommandRegistry
 from fincli.app.analysis.analyzer import build_market_analysis_prompt, build_technical_ai_summary
+from fincli.app.analysis.backtest import BacktestResult, run_backtest
 from fincli.app.analysis.assistant_context import (
     build_web_research_answer_prompt,
     build_fincli_assistant_prompt,
@@ -26,15 +27,19 @@ from fincli.app.analysis.assistant_context import (
 )
 from fincli.app.analysis.indicators import TechnicalSummary, summarize_technical_indicators
 from fincli.app.analysis.market_structure import MarketStructureSummary, analyze_market_structure
+from fincli.app.analysis.multi_timeframe import MultiTimeframeAnalysis, analyze_multi_timeframe
 from fincli.app.analysis.technical_debate import TechnicalDebate, format_debate, run_technical_debate
 from fincli.app.analysis.technical_signal import TechnicalSignal, format_signal
 from fincli.app.modules.economic_calendar import (
     EconomicCalendarService,
     EconomicEvent,
+    calendar_summary,
     default_calendar_window,
+    economic_event_rows,
     fallback_events,
     filter_events,
 )
+from fincli.app.modules.alerts import AlertCheckResult, AlertService, evaluate_alert
 from fincli.app.modules.exporter import export_rows
 from fincli.app.modules.journal_analytics import JournalStats, build_journal_review_prompt, calculate_journal_stats
 from fincli.app.modules.journal import JournalService
@@ -43,10 +48,19 @@ from fincli.app.modules.scanner import ScanResult, scan_symbols
 from fincli.app.modules.session_history import SessionHistoryService
 from fincli.app.modules.transactions import TransactionService
 from fincli.app.modules.watchlist import WatchlistService
+from fincli.app.modules.reports import write_market_report
 from fincli.app.providers.ai.base import AIRequest, AIResponse, BaseAIProvider
 from fincli.app.providers.ai.manager import AIProviderManager
-from fincli.app.providers.market.base import BaseMarketProvider, FundamentalSnapshot, NewsItem, Quote
+from fincli.app.providers.market.base import (
+    BaseMarketProvider,
+    FundamentalSnapshot,
+    NewsItem,
+    ProviderEntitlement,
+    Quote,
+    SymbolSearchResult,
+)
 from fincli.app.providers.market.manager import MarketProviderManager
+from fincli.app.providers.market.symbols import provider_symbol_matrix, search_symbol_catalog
 from fincli.app.providers.market.yfinance_provider import YahooTable, YFinanceProvider
 from fincli.app.services.market_data import MarketDataService
 from fincli.app.services.market_overview import MarketOverview, build_market_overview
@@ -95,6 +109,7 @@ class CommandRouter:
         self.ai_provider = ai_provider or AIProviderManager().create(self.config.settings.ai_provider)
         self.watchlist = WatchlistService(self.db)
         self.portfolio = PortfolioService(self.db)
+        self.alerts = AlertService(self.db)
         self.transactions = TransactionService(self.db, self.portfolio)
         self.journal = JournalService(self.db)
         self.history = SessionHistoryService(self.db)
@@ -119,7 +134,7 @@ class CommandRouter:
                 if len(export_parts) == 4:
                     return self._export(export_parts[1:])
 
-            parts = shlex.split(raw)
+            parts = _split_command(raw)
             if not parts:
                 raise CommandError("Command kosong.")
 
@@ -144,6 +159,8 @@ class CommandRouter:
                 return self._news_model(args)
             if root == "/provider":
                 return self._provider(args)
+            if root == "/symbol":
+                return self._symbol(args)
             if root == "/cache":
                 return self._cache(args)
             if root == "/watchlist":
@@ -154,12 +171,18 @@ class CommandRouter:
                 return self._tx(args)
             if root == "/journal":
                 return self._journal(args)
+            if root == "/alert":
+                return self._alert(args)
             if root == "/quote":
                 return self._quote(args)
             if root == "/market":
                 return self._market(args)
             if root == "/technical":
                 return self._technical(args)
+            if root == "/mtf":
+                return self._mtf(args)
+            if root == "/backtest":
+                return self._backtest(args)
             if root == "/structure":
                 return self._structure(args)
             if root == "/news":
@@ -176,6 +199,8 @@ class CommandRouter:
                 return self._analyze(args)
             if root == "/scan":
                 return self._scan(args)
+            if root == "/report":
+                return self._report(args)
             if root == "/calendar":
                 return self._calendar(args)
             if root == "/export":
@@ -364,6 +389,8 @@ class CommandRouter:
     def _provider(self, args: list[str]) -> CommandResult:
         if args and args[0].lower() == "list":
             return CommandResult(_format_provider_list())
+        if args and args[0].lower() in {"entitlement", "entitlements"}:
+            return CommandResult(_format_provider_entitlements(self.market_manager.entitlements()))
         if args and args[0].lower() == "key" and len(args) >= 2 and args[1].lower() == "status":
             return CommandResult(_format_provider_key_status(self.market_manager))
         if args and args[0].lower() == "use":
@@ -403,9 +430,21 @@ class CommandRouter:
                 quote = self._get_quote(args[1])
             return CommandResult(_format_quote(quote))
         raise CommandError(
-            "Format: /provider status, /provider list, /provider key status, /provider use <provider>, "
+            "Format: /provider status, /provider list, /provider entitlement, /provider key status, /provider use <provider>, "
             "/provider priority finnhub,yfinance, atau /provider test [provider] <symbol>"
         )
+
+    def _symbol(self, args: list[str]) -> CommandResult:
+        if not args:
+            raise CommandError("Format: /symbol <query> atau /symbol normalize <symbol>")
+        action = args[0].lower()
+        if action in {"normalize", "norm"}:
+            if len(args) < 2:
+                raise CommandError("Format: /symbol normalize <symbol>")
+            return CommandResult(_format_symbol_matrix(args[1]))
+        query = " ".join(args)
+        results = search_symbol_catalog(query)
+        return CommandResult(_format_symbol_search(query, results))
 
     def _cache(self, args: list[str]) -> CommandResult:
         if args and args[0].lower() == "stats":
@@ -596,6 +635,38 @@ class CommandRouter:
             table.add_row("-", "-", "-", 'Belum ada journal. Gunakan /journal add BTC-USD bullish "Alasan entry"', "-")
         return table
 
+    def _alert(self, args: list[str]) -> CommandResult:
+        action = args[0].lower() if args else "list"
+        if action in {"list", "ls"}:
+            return CommandResult(_format_alerts(self.alerts.list()))
+        if action == "add":
+            if len(args) < 4:
+                raise CommandError("Format: /alert add <symbol> <above|below|>|< > <price> [note]")
+            symbol = args[1]
+            condition = args[2]
+            try:
+                target = float(args[3])
+            except ValueError as exc:
+                raise CommandError("Target alert harus angka.") from exc
+            note = " ".join(args[4:]).strip()
+            self.alerts.add(symbol, condition, target, note)
+            return CommandResult(Panel(f"Alert ditambahkan: {symbol.upper()} {condition} {target:g}", title="Alert"))
+        if action in {"remove", "delete", "rm"}:
+            if len(args) < 2:
+                raise CommandError("Format: /alert remove <id>")
+            self.alerts.remove(int(args[1]))
+            return CommandResult(Panel(f"Alert dihapus: {args[1]}", title="Alert"))
+        if action == "check":
+            checked: list[AlertCheckResult] = []
+            for alert in self.alerts.list(active_only=True):
+                quote = self._safe_quote(str(alert["symbol"]))
+                result = evaluate_alert(alert, quote.price if quote else None)
+                checked.append(result)
+                if result.triggered:
+                    self.alerts.mark_triggered(result.id)
+            return CommandResult(_format_alert_checks(checked))
+        raise CommandError("Format: /alert, /alert add <symbol> <above|below> <price>, /alert remove <id>, /alert check")
+
     def _quote(self, args: list[str]) -> CommandResult:
         if not args:
             raise CommandError("Format: /quote <symbol>")
@@ -622,6 +693,24 @@ class CommandRouter:
         signal = debate.judge_signal
         ai_summary = build_technical_ai_summary(symbol, interval, candles)
         return CommandResult(_format_technical(symbol, interval, summary, signal, ai_summary, debate))
+
+    def _mtf(self, args: list[str]) -> CommandResult:
+        if not args:
+            raise CommandError("Format: /mtf <symbol> [timeframes comma-separated]")
+        symbol = args[0].upper()
+        timeframes = _parse_timeframes(args[1] if len(args) >= 2 else "1d,1h,15m")
+        analysis = self._run_async(analyze_multi_timeframe(symbol, self.market_service, timeframes=timeframes))
+        return CommandResult(_format_multi_timeframe(analysis))
+
+    def _backtest(self, args: list[str]) -> CommandResult:
+        if not args:
+            raise CommandError("Format: /backtest <symbol> [sma_cross|rsi_reversion] [interval]")
+        symbol = args[0].upper()
+        strategy = args[1].lower() if len(args) >= 2 else "sma_cross"
+        interval = args[2].lower() if len(args) >= 3 else "1d"
+        candles = self._run_async(self.market_service.history(symbol, period="2y", interval=interval))
+        result = run_backtest(symbol, candles, strategy=strategy, interval=interval)
+        return CommandResult(_format_backtest(result))
 
     def _market(self, args: list[str]) -> CommandResult:
         if not args:
@@ -731,6 +820,8 @@ class CommandRouter:
         )
 
     def _scan(self, args: list[str]) -> CommandResult:
+        if args and args[0].lower() == "export":
+            return self._scan_export(args[1:])
         if not args or args[0].lower() != "watchlist":
             raise CommandError("Format: /scan watchlist [filter] [interval]")
         rows = self.watchlist.list()
@@ -742,7 +833,35 @@ class CommandRouter:
         results = self._run_async(scan_symbols(symbols, self.market_service, filter_expression, interval=interval))
         return CommandResult(_format_scan_results(results, filter_expression or "all", interval))
 
+    def _scan_export(self, args: list[str]) -> CommandResult:
+        if len(args) < 2:
+            raise CommandError("Format: /scan export <csv|json> <path> [filter] [interval]")
+        export_format = args[0].lower()
+        target = args[1]
+        filter_expression = args[2] if len(args) >= 3 else ""
+        interval = args[3] if len(args) >= 4 else "1d"
+        rows = self.watchlist.list()
+        symbols = [str(row["symbol"]) for row in rows]
+        if not symbols:
+            raise CommandError("Watchlist kosong. Gunakan /watchlist add AAPL.")
+        results = self._run_async(scan_symbols(symbols, self.market_service, filter_expression, interval=interval))
+        written = export_rows(_scan_result_rows(results), export_format, target)
+        return CommandResult(Panel(f"Scan export selesai: {written}", title="Scan Export", border_style="green"))
+
+    def _report(self, args: list[str]) -> CommandResult:
+        if len(args) < 4 or args[0].lower() != "market":
+            raise CommandError("Format: /report market <symbol> <md|json> <path> [interval]")
+        symbol = args[1].upper()
+        report_format = args[2].lower()
+        target = args[3]
+        interval = args[4] if len(args) >= 5 else "1d"
+        overview = self._run_async(build_market_overview(symbol, self.market_service, interval))
+        written = write_market_report(overview, report_format, target)
+        return CommandResult(Panel(f"Market report selesai: {written}", title="Market Report", border_style="green"))
+
     def _calendar(self, args: list[str]) -> CommandResult:
+        if args and args[0].lower() == "export":
+            return self._calendar_export(args[1:])
         start, end, country, impact = _parse_calendar_args(args)
         service = EconomicCalendarService(api_key=os.getenv("FINNHUB_API_KEY"))
         source = "finnhub"
@@ -755,6 +874,21 @@ class CommandRouter:
             note = f"{exc} Menggunakan fallback kategori event; isi FINNHUB_API_KEY untuk data aktual."
         events = filter_events(events, country=country, impact=impact)
         return CommandResult(_format_calendar(events, start, end, source, note))
+
+    def _calendar_export(self, args: list[str]) -> CommandResult:
+        if len(args) < 2:
+            raise CommandError("Format: /calendar export <csv|json> <path> [today|week|from to] [country=US] [impact=high]")
+        export_format = args[0].lower()
+        target = args[1]
+        start, end, country, impact = _parse_calendar_args(args[2:])
+        service = EconomicCalendarService(api_key=os.getenv("FINNHUB_API_KEY"))
+        try:
+            events = self._run_async(service.events(start, end))
+        except FinCLIError:
+            events = fallback_events(start, end)
+        events = filter_events(events, country=country, impact=impact)
+        written = export_rows(economic_event_rows(events), export_format, target)
+        return CommandResult(Panel(f"Calendar export selesai: {written}", title="Calendar Export", border_style="green"))
 
     def _run_async(self, awaitable: Any) -> Any:
         try:
@@ -1228,6 +1362,110 @@ def _format_structure(symbol: str, interval: str, structure: MarketStructureSumm
     )
 
 
+def _format_multi_timeframe(analysis: MultiTimeframeAnalysis) -> Table:
+    table = Table(title=f"Multi-Timeframe Analysis: {analysis.symbol}", expand=True)
+    table.add_column("Timeframe", style="cyan", no_wrap=True)
+    table.add_column("Status", no_wrap=True)
+    table.add_column("Candles", justify="right")
+    table.add_column("Close", justify="right")
+    table.add_column("Trend")
+    table.add_column("Structure")
+    table.add_column("RSI", justify="right")
+    table.add_column("MACD", justify="right")
+    table.add_column("Support / Resistance", overflow="fold")
+    table.add_column("Note", overflow="fold")
+    for frame in analysis.frames:
+        table.add_row(
+            frame.timeframe,
+            frame.status,
+            str(frame.candles),
+            _fmt(frame.latest_close),
+            frame.trend_bias,
+            frame.structure_trend,
+            _fmt(frame.rsi),
+            _fmt(frame.macd),
+            f"{_fmt(frame.support)} / {_fmt(frame.resistance)}",
+            frame.note or "-",
+        )
+    table.caption = (
+        f"Alignment: {analysis.alignment} | Bias: {analysis.bias} | Score: {analysis.score} | "
+        f"Risk: {analysis.risk_note}"
+    )
+    return table
+
+
+def _format_backtest(result: BacktestResult) -> Table:
+    table = Table(title=f"Backtest: {result.symbol} | {result.strategy} | {result.interval}", expand=True)
+    table.add_column("Metric", style="cyan", no_wrap=True)
+    table.add_column("Value", style="white")
+    table.add_row("Candles", str(result.candles))
+    table.add_row("Trades", str(len(result.trades)))
+    table.add_row("Total Return", f"{result.total_return_percent:.2f}%")
+    table.add_row("Win Rate", f"{result.win_rate:.2f}%")
+    table.add_row("Max Drawdown", f"{result.max_drawdown_percent:.2f}%")
+    table.add_row("Exposure", f"{result.exposure_percent:.2f}%")
+    if result.trades:
+        latest = result.trades[-1]
+        table.add_row(
+            "Latest Trade",
+            (
+                f"entry={latest.entry_price:.4f}; exit={latest.exit_price:.4f}; "
+                f"pnl={latest.pnl_percent:.2f}%; reason={latest.reason}"
+            ),
+        )
+    table.add_row("Notes", " ".join(result.notes))
+    table.caption = "Educational backtest only. Fees, slippage, spreads, liquidity, and execution risk are not modeled."
+    return table
+
+
+def _format_alerts(rows: list[dict[str, object]]) -> Table:
+    table = Table(title="Price Alerts", expand=True)
+    table.add_column("ID", justify="right", no_wrap=True)
+    table.add_column("Symbol", style="cyan", no_wrap=True)
+    table.add_column("Condition")
+    table.add_column("Target", justify="right")
+    table.add_column("Status")
+    table.add_column("Note", overflow="fold")
+    table.add_column("Created")
+    for row in rows:
+        table.add_row(
+            str(row["id"]),
+            str(row["symbol"]),
+            str(row["condition"]),
+            _fmt(float(row["target"])),
+            "active" if int(row["active"]) else f"triggered {row['triggered_at']}",
+            str(row["note"] or "-"),
+            str(row["created_at"]),
+        )
+    if not rows:
+        table.add_row("-", "-", "-", "-", "-", "No alerts. Use /alert add AAPL above 200.", "-")
+    return table
+
+
+def _format_alert_checks(results: list[AlertCheckResult]) -> Table:
+    table = Table(title="Alert Check", expand=True)
+    table.add_column("ID", justify="right", no_wrap=True)
+    table.add_column("Symbol", style="cyan")
+    table.add_column("Condition")
+    table.add_column("Target", justify="right")
+    table.add_column("Current", justify="right")
+    table.add_column("Triggered", justify="center")
+    table.add_column("Note", overflow="fold")
+    for result in results:
+        table.add_row(
+            str(result.id),
+            result.symbol,
+            result.condition,
+            _fmt(result.target),
+            _fmt(result.current_price),
+            "YES" if result.triggered else "no",
+            result.note or "-",
+        )
+    if not results:
+        table.add_row("-", "-", "-", "-", "-", "-", "No active alerts.")
+    return table
+
+
 def _format_scan_results(results: list[ScanResult], filter_expression: str, interval: str) -> Table:
     table = Table(title=f"Scan Watchlist | {filter_expression} | {interval}", expand=True)
     table.add_column("Symbol", style="cyan")
@@ -1250,6 +1488,31 @@ def _format_scan_results(results: list[ScanResult], filter_expression: str, inte
     if not results:
         table.add_row("-", "-", "-", "-", "-", "-", "Tidak ada symbol yang match.")
     return table
+
+
+def _scan_result_rows(results: list[ScanResult]) -> list[dict[str, object]]:
+    return [
+        {
+            "symbol": item.symbol,
+            "latest_close": item.latest_close,
+            "rsi": item.rsi,
+            "trend_bias": item.trend_bias,
+            "support": item.support,
+            "resistance": item.resistance,
+            "matched": item.matched,
+            "reason": item.reason,
+        }
+        for item in results
+    ]
+
+
+def _parse_timeframes(value: str) -> tuple[str, ...]:
+    frames = tuple(frame.strip().lower() for frame in value.split(",") if frame.strip())
+    if not frames:
+        raise CommandError("Timeframe tidak valid. Contoh: /mtf AAPL 1d,1h,15m")
+    if len(frames) > 6:
+        raise CommandError("Maksimal 6 timeframe dalam satu /mtf.")
+    return frames
 
 
 def _parse_calendar_args(args: list[str]) -> tuple[date, date, str | None, str | None]:
@@ -1316,6 +1579,16 @@ def _format_calendar(events: list[EconomicEvent], start: date, end: date, source
 
     if not events:
         table.add_row("-", "-", "-", "Tidak ada event yang cocok dengan filter.", "-", "-", "-")
+    summary = calendar_summary(events)
+    table.add_row(
+        "Summary",
+        source,
+        "-",
+        f"total={summary['total']}; high={summary.get('high', 0)}; medium={summary.get('medium', 0)}; low={summary.get('low', 0)}",
+        "-",
+        "-",
+        "-",
+    )
     table.add_row("Note", source, "-", note, "-", "-", "-")
     return table
 
@@ -1331,6 +1604,26 @@ def _format_provider_list() -> Table:
     return table
 
 
+def _format_provider_entitlements(items: list[ProviderEntitlement]) -> Table:
+    table = Table(title="Provider Entitlements and Data Labels", expand=True)
+    table.add_column("Provider", style="cyan", no_wrap=True)
+    table.add_column("Status", no_wrap=True)
+    table.add_column("Realtime Label", style="yellow", no_wrap=True)
+    table.add_column("Asset Classes", overflow="fold")
+    table.add_column("Capabilities", overflow="fold")
+    table.add_column("Limitations", overflow="fold")
+    for item in items:
+        table.add_row(
+            item.provider,
+            item.status,
+            item.realtime_label,
+            ", ".join(item.asset_classes),
+            ", ".join(item.capabilities),
+            "; ".join(item.limitations),
+        )
+    return table
+
+
 def _format_provider_key_status(manager: MarketProviderManager) -> Table:
     table = Table(title="Market Provider API Key Status", expand=True)
     table.add_column("Provider", style="cyan")
@@ -1342,11 +1635,54 @@ def _format_provider_key_status(manager: MarketProviderManager) -> Table:
     return table
 
 
+def _format_symbol_search(query: str, results: list[SymbolSearchResult]) -> Table:
+    table = Table(title=f"Symbol Search: {query}", expand=True)
+    table.add_column("Symbol", style="cyan", no_wrap=True)
+    table.add_column("Name", overflow="fold")
+    table.add_column("Class", no_wrap=True)
+    table.add_column("Exchange", no_wrap=True)
+    table.add_column("Currency", no_wrap=True)
+    table.add_column("Provider Symbols", overflow="fold")
+    table.add_column("Notes", overflow="fold")
+    for result in results:
+        table.add_row(
+            result.symbol,
+            result.name,
+            result.asset_class,
+            result.exchange or "-",
+            result.currency or "-",
+            _provider_symbol_text(result.provider_symbols or {}),
+            result.notes or "-",
+        )
+    if not results:
+        table.add_row("-", "No local symbol match.", "-", "-", "-", "-", "Try /symbol normalize <symbol>.")
+    table.caption = "Use /symbol normalize <symbol> to inspect provider-specific normalization for any symbol."
+    return table
+
+
+def _format_symbol_matrix(symbol: str) -> Table:
+    matrix = provider_symbol_matrix(symbol)
+    table = Table(title=f"Provider Symbol Normalization: {symbol}", expand=True)
+    table.add_column("Provider", style="cyan", no_wrap=True)
+    table.add_column("Normalized Symbol", style="white")
+    table.add_column("Asset Class", no_wrap=True)
+    table.add_column("Original", style="dim")
+    for provider, resolved in matrix.items():
+        table.add_row(provider, resolved.symbol, resolved.asset_class, resolved.original)
+    table.caption = "Normalization does not guarantee provider entitlement. Check /provider entitlement and provider plan."
+    return table
+
+
+def _provider_symbol_text(provider_symbols: dict[str, str]) -> str:
+    return " | ".join(f"{provider}:{symbol}" for provider, symbol in provider_symbols.items())
+
+
 def _market_provider_secret_keys(provider: str) -> tuple[str, ...]:
     return {
         "custom": ("MARKET_DATA_API_KEY", "MARKET_DATA_BASE_URL"),
         "finnhub": ("FINNHUB_API_KEY",),
         "twelvedata": ("TWELVE_DATA_API_KEY",),
+        "alphavantage": ("ALPHA_VANTAGE_API_KEY",),
     }.get(provider.lower(), ())
 
 
@@ -1482,6 +1818,19 @@ def _fmt(value: float | None) -> str:
     if value is None:
         return "N/A"
     return f"{value:,.4f}"
+
+
+def _split_command(raw: str) -> list[str]:
+    parts = shlex.split(raw, posix=os.name != "nt")
+    if os.name == "nt":
+        return [_strip_wrapping_quotes(part) for part in parts]
+    return parts
+
+
+def _strip_wrapping_quotes(value: str) -> str:
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+        return value[1:-1]
+    return value
 
 
 class UnavailableAIProvider:
