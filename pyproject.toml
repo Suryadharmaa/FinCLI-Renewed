@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fincli"
+version = "0.1.9"
+description = "Modern financial CLI/TUI terminal for market monitoring and analysis."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "textual>=0.86.0",
+  "rich>=13.9.0",
+  "python-dotenv>=1.0.1",
+  "httpx>=0.27.2",
+  "pydantic>=2.9.2",
+  "yfinance>=0.2.50",
+  "pandas>=2.2.3",
+  "numpy>=2.1.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3.3"]
+market = ["yfinance>=0.2.50", "pandas>=2.2.3", "numpy>=2.1.0"]
+
+[project.scripts]
+fincli = "fincli.app.main:main"
+
+[tool.setuptools.packages.find]
+include = ["fincli*"]
+exclude = ["npm*", "tests*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

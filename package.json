@@ -1,0 +1,23 @@
+{
+  "name": "@drico2008/fincli",
+  "version": "0.1.9",
+  "description": "Modern financial CLI/TUI terminal for market monitoring and analysis.",
+  "license": "MIT",
+  "bin": {
+    "fincli": "npm/bin/fincli.js"
+  },
+  "scripts": {
+    "postinstall": "node npm/postinstall.js",
+    "check": "node --check npm/bin/fincli.js && node --check npm/postinstall.js"
+  },
+  "files": [
+    "fincli/**/*.py",
+    "npm",
+    "pyproject.toml",
+    "README.md",
+    "requirements.txt"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}

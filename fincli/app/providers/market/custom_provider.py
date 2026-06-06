@@ -1,0 +1,169 @@
+"""Custom HTTP market API provider.
+
+Expected endpoint contract:
+- GET /quote/{symbol}
+- GET /history/{symbol}?period=6mo&interval=1d
+- GET /news/{symbol}?limit=5
+- GET /fundamentals/{symbol}
+
+The provider accepts common JSON key variants so users can adapt simple APIs
+without changing FinCLI core.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Any
+
+import httpx
+
+from fincli.app.providers.market.base import (
+    BaseMarketProvider,
+    Candle,
+    FundamentalSnapshot,
+    NewsItem,
+    ProviderStatus,
+    Quote,
+)
+from fincli.app.utils.errors import ProviderError, RateLimitError
+
+
+class CustomMarketProvider(BaseMarketProvider):
+    name = "custom"
+
+    def __init__(
+        self,
+        api_key: str | None,
+        base_url: str,
+        client: httpx.AsyncClient | None = None,
+    ) -> None:
+        self.api_key = api_key or ""
+        self.base_url = base_url.rstrip("/")
+        self._client = client
+
+    async def quote(self, symbol: str) -> Quote:
+        data = await self._get(f"/quote/{symbol.upper()}")
+        return Quote(
+            symbol=str(data.get("symbol") or symbol).upper(),
+            price=_safe_float(data.get("price") or data.get("last") or data.get("last_price")),
+            currency=str(data.get("currency") or "USD"),
+            provider=self.name,
+            timestamp=_parse_datetime(data.get("timestamp")) or datetime.now(),
+            status=str(data.get("status") or "custom"),
+        )
+
+    async def history(self, symbol: str, period: str = "6mo", interval: str = "1d") -> list[Candle]:
+        data = await self._get(f"/history/{symbol.upper()}", params={"period": period, "interval": interval})
+        raw_items = data.get("candles") if isinstance(data, dict) else data
+        if not isinstance(raw_items, list):
+            raise ProviderError("Response history custom provider tidak valid.")
+        candles: list[Candle] = []
+        for item in raw_items:
+            if not isinstance(item, dict):
+                continue
+            candles.append(
+                Candle(
+                    timestamp=_parse_datetime(item.get("timestamp") or item.get("date")) or datetime.now(),
+                    open=float(item.get("open") or item.get("o")),
+                    high=float(item.get("high") or item.get("h")),
+                    low=float(item.get("low") or item.get("l")),
+                    close=float(item.get("close") or item.get("c")),
+                    volume=float(item.get("volume") or item.get("v") or 0),
+                )
+            )
+        if not candles:
+            raise ProviderError(f"Data OHLCV kosong untuk {symbol}.")
+        return candles
+
+    async def news(self, symbol: str, limit: int = 5) -> list[NewsItem]:
+        data = await self._get(f"/news/{symbol.upper()}", params={"limit": limit})
+        raw_items = data.get("news") if isinstance(data, dict) else data
+        if not isinstance(raw_items, list):
+            raise ProviderError("Response news custom provider tidak valid.")
+        items: list[NewsItem] = []
+        for item in raw_items[:limit]:
+            if not isinstance(item, dict):
+                continue
+            items.append(
+                NewsItem(
+                    title=str(item.get("title") or "Untitled"),
+                    source=str(item.get("source") or self.name),
+                    url=item.get("url"),
+                    published_at=_parse_datetime(item.get("published_at") or item.get("timestamp")),
+                    summary=str(item.get("summary") or ""),
+                )
+            )
+        return items
+
+    async def fundamentals(self, symbol: str) -> FundamentalSnapshot:
+        data = await self._get(f"/fundamentals/{symbol.upper()}")
+        return FundamentalSnapshot(
+            symbol=str(data.get("symbol") or symbol).upper(),
+            provider=self.name,
+            currency=str(data.get("currency") or "USD"),
+            market_cap=_safe_float(data.get("market_cap") or data.get("marketCap")),
+            pe_ratio=_safe_float(data.get("pe_ratio") or data.get("trailingPE")),
+            eps=_safe_float(data.get("eps") or data.get("trailingEps")),
+            revenue=_safe_float(data.get("revenue") or data.get("totalRevenue")),
+            beta=_safe_float(data.get("beta")),
+            sector=data.get("sector"),
+            industry=data.get("industry"),
+        )
+
+    async def status(self) -> ProviderStatus:
+        status = "configured" if self.api_key else "unavailable"
+        message = "Custom provider configured." if self.api_key else "Requires MARKET_DATA_API_KEY."
+        return ProviderStatus(name=self.name, realtime=True, status=status, message=message)
+
+    async def _get(self, path: str, params: dict[str, object] | None = None) -> Any:
+        if not self.api_key:
+            raise ProviderError(
+                "API key custom market provider belum diatur.",
+                "Gunakan /news_model key custom <api_key> <base_url>.",
+            )
+        if not self.base_url:
+            raise ProviderError(
+                "Base URL custom market provider belum diatur.",
+                "Gunakan /news_model key custom <api_key> <base_url>.",
+            )
+
+        close_client = self._client is None
+        client = self._client or httpx.AsyncClient(timeout=30)
+        headers = {"X-API-Key": self.api_key, "Authorization": f"Bearer {self.api_key}"}
+        try:
+            response = await client.get(f"{self.base_url}{path}", params=params, headers=headers)
+            if response.status_code == 429:
+                raise RateLimitError("Custom market provider terkena rate limit.")
+            response.raise_for_status()
+            return response.json()
+        except httpx.TimeoutException as exc:
+            raise ProviderError("Custom market provider timeout.") from exc
+        except httpx.HTTPStatusError as exc:
+            raise ProviderError(f"Custom market provider gagal: HTTP {exc.response.status_code}.") from exc
+        except ValueError as exc:
+            raise ProviderError("Response custom market provider bukan JSON valid.") from exc
+        finally:
+            if close_client:
+                await client.aclose()
+
+
+def _safe_float(value: Any) -> float | None:
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_datetime(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(value)
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    return None
