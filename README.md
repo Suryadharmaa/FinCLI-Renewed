@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 # FinCLI v0.2.2
+=======
+# FinCLI v0.1.9
+>>>>>>> a26bfe0e03787066d4676c17641647723991f356
 
 FinCLI is a modern financial CLI/TUI terminal for market monitoring, technical analysis, AI-assisted research, portfolio tracking, watchlists, trading journals, and configurable market/news provider workflows.
 
