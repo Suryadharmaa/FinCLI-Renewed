@@ -7,6 +7,7 @@ from fincli.app.analysis.indicators import TechnicalSummary
 from fincli.app.analysis.market_structure import MarketStructureSummary
 from fincli.app.analysis.technical_debate import format_debate, run_technical_debate
 from fincli.app.analysis.technical_signal import format_signal
+from fincli.app.analysis.trading_methods import analyze_trading_methods, format_trading_methods_context
 from fincli.app.providers.market.base import Candle
 
 
@@ -22,6 +23,8 @@ def build_market_analysis_prompt(
     technical: TechnicalSummary,
     structure: MarketStructureSummary | None = None,
     news_context: str = "No news/fundamental context provided.",
+    user_gameplay_context: str = "User Gameplay Profile: not configured.",
+    trading_methods_context: str = "",
 ) -> str:
     """Build a structured AI prompt from market data and computed indicators."""
     recent = candles[-10:]
@@ -64,6 +67,10 @@ def build_market_analysis_prompt(
         f"{format_signal(debate.judge_signal) if debate is not None else 'No signal assessment available.'}\n\n"
         "Technical Debate:\n"
         f"{format_debate(debate) if debate is not None else 'No technical debate available.'}\n\n"
+        "Trading Method Context:\n"
+        f"{trading_methods_context or format_trading_methods_context(analyze_trading_methods(candles))}\n\n"
+        "User Gameplay Context:\n"
+        f"{user_gameplay_context}\n\n"
         "News/Fundamental Context:\n"
         f"{news_context}\n"
     )

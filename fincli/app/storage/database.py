@@ -108,8 +108,20 @@ class FinCLIDatabase:
                             triggered_at TEXT DEFAULT '',
                             created_at TEXT DEFAULT CURRENT_TIMESTAMP
                         );
+
+                        CREATE TABLE IF NOT EXISTS user_profile (
+                            id INTEGER PRIMARY KEY CHECK (id = 1),
+                            name TEXT NOT NULL,
+                            equity REAL NOT NULL,
+                            currency TEXT NOT NULL,
+                            leverage TEXT NOT NULL,
+                            years_in_investment REAL NOT NULL,
+                            gameplay TEXT NOT NULL,
+                            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                        );
                         """
                     )
+                    _migrate_user_profile_schema(db)
         except sqlite3.Error as exc:
             raise StorageError("Database lokal gagal diinisialisasi.") from exc
 
@@ -127,3 +139,79 @@ class FinCLIDatabase:
                 return list(db.execute(sql, tuple(params)).fetchall())
         except sqlite3.Error as exc:
             raise StorageError("Query database gagal.") from exc
+
+
+def _migrate_user_profile_schema(db: sqlite3.Connection) -> None:
+    """Normalize older user_profile schemas to the v0.2.2 canonical shape."""
+
+    columns = {str(row["name"]) for row in db.execute("PRAGMA table_info(user_profile)").fetchall()}
+    canonical = {"id", "name", "equity", "currency", "leverage", "years_in_investment", "gameplay", "updated_at"}
+    if canonical.issubset(columns):
+        return
+
+    rows = list(db.execute("SELECT * FROM user_profile").fetchall())
+    legacy_profile = _legacy_profile_payload(rows[0]) if rows else None
+    db.execute("DROP TABLE user_profile")
+    db.execute(
+        """
+        CREATE TABLE user_profile (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            name TEXT NOT NULL,
+            equity REAL NOT NULL,
+            currency TEXT NOT NULL,
+            leverage TEXT NOT NULL,
+            years_in_investment REAL NOT NULL,
+            gameplay TEXT NOT NULL,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    if legacy_profile is None:
+        return
+    db.execute(
+        """
+        INSERT INTO user_profile (id, name, equity, currency, leverage, years_in_investment, gameplay, updated_at)
+        VALUES (1, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        """,
+        legacy_profile,
+    )
+
+
+def _legacy_profile_payload(row: sqlite3.Row) -> tuple[object, ...]:
+    keys = set(row.keys())
+    name = row["name"] if "name" in keys else "User"
+    equity = row["equity"] if "equity" in keys else row["equity_amount"] if "equity_amount" in keys else 0
+    currency = row["currency"] if "currency" in keys else row["equity_currency"] if "equity_currency" in keys else "USD"
+    leverage = row["leverage"] if "leverage" in keys else "1:1"
+    years = (
+        row["years_in_investment"]
+        if "years_in_investment" in keys
+        else row["experience_years"]
+        if "experience_years" in keys
+        else 0
+    )
+    gameplay = _normalize_legacy_gameplay(str(row["gameplay"])) if "gameplay" in keys else _classify_legacy_gameplay(float(equity))
+    return (name, equity, currency, leverage, years, gameplay)
+
+
+def _normalize_legacy_gameplay(value: str) -> str:
+    normalized = value.strip().lower().replace("-", "_").replace(" ", "_")
+    return {
+        "scalper": "Scalper",
+        "intra_day": "Intra day",
+        "intraday": "Intra day",
+        "day_trade": "Day trade",
+        "day_trader": "Day trade",
+        "swing": "Swing/Investor",
+        "investor": "Swing/Investor",
+    }.get(normalized, value.strip() or "Scalper")
+
+
+def _classify_legacy_gameplay(equity: float) -> str:
+    if equity <= 400:
+        return "Scalper"
+    if equity <= 1000:
+        return "Intra day"
+    if equity <= 5000:
+        return "Day trade"
+    return "Swing/Investor"

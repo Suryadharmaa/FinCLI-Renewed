@@ -43,6 +43,31 @@ def test_local_secret_overrides_empty_project_env_value(tmp_path: Path) -> None:
     assert secret_source("GROQ_API_KEY", target) == "~/.fincli/secrets.env"
 
 
+def test_local_secret_overrides_stale_project_env_value_when_requested(tmp_path: Path) -> None:
+    target = tmp_path / "secrets.env"
+    save_secret("FINNHUB_API_KEY", "fresh-global-key", path=target)
+    os.environ["FINNHUB_API_KEY"] = "stale-dotenv-key"
+
+    load_local_secrets(target, override=True)
+
+    assert os.getenv("FINNHUB_API_KEY") == "fresh-global-key"
+    assert secret_source("FINNHUB_API_KEY", target) == "~/.fincli/secrets.env"
+
+
+def test_config_manager_load_prefers_saved_local_secret_over_stale_env(tmp_path: Path, monkeypatch) -> None:
+    target = tmp_path / "secrets.env"
+    monkeypatch.setattr("fincli.app.storage.secrets.SECRETS_FILE", target)
+    clear_env(["FINNHUB_API_KEY"])
+    save_secret("FINNHUB_API_KEY", "fresh-global-key", path=target)
+    (tmp_path / ".env").write_text('FINNHUB_API_KEY="stale-dotenv-key"\n', encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    ConfigManager(tmp_path / "config.json")
+
+    assert os.getenv("FINNHUB_API_KEY") == "fresh-global-key"
+    assert secret_source("FINNHUB_API_KEY", target) == "~/.fincli/secrets.env"
+
+
 def test_ai_model_key_command_persists_key(tmp_path: Path, monkeypatch) -> None:
     target = tmp_path / "secrets.env"
     monkeypatch.setattr("fincli.app.storage.secrets.SECRETS_FILE", target)

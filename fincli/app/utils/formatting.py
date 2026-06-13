@@ -23,6 +23,69 @@ def normalize_symbol(symbol: str) -> str:
     return symbol.strip().upper()
 
 
+POSITIVE_TERMS = (
+    "bullish",
+    "best to buy",
+    "buy",
+    "breakout",
+    "positive",
+    "gain",
+    "upside",
+    "higher",
+    "profit",
+    "win",
+    "triggered above",
+    "confirmed",
+)
+NEGATIVE_TERMS = (
+    "bearish",
+    "best to sell",
+    "sell",
+    "breakdown",
+    "negative",
+    "loss",
+    "drawdown",
+    "downside",
+    "lower",
+    "decline",
+    "drop",
+    "failed",
+    "unavailable",
+)
+CAUTION_TERMS = (
+    "caution",
+    "hold",
+    "wait",
+    "neutral",
+    "sideways",
+    "mixed",
+    "risk",
+    "warning",
+    "delayed",
+    "fallback",
+    "not confirmed",
+)
+
+
+def semantic_style(value: object) -> str:
+    """Map financial meaning to a consistent terminal style."""
+    text = str(value).strip().lower()
+    if not text:
+        return "white"
+    if any(term in text for term in CAUTION_TERMS):
+        return "bold yellow"
+    if any(term in text for term in NEGATIVE_TERMS):
+        return "bold red"
+    if any(term in text for term in POSITIVE_TERMS):
+        return "bold green"
+    return "white"
+
+
+def semantic_text(value: object) -> Text:
+    """Return Rich Text styled by financial semantics."""
+    return Text(str(value), style=semantic_style(value))
+
+
 class AIResponseView:
     """Renderable AI response that preserves Markdown formatting in Rich/Textual."""
 

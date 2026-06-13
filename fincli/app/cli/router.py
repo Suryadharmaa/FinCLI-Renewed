@@ -18,6 +18,8 @@ from rich.table import Table
 from fincli.app.cli.commands import CommandRegistry
 from fincli.app.analysis.analyzer import build_market_analysis_prompt, build_technical_ai_summary
 from fincli.app.analysis.backtest import BacktestResult, run_backtest
+from fincli.app.analysis.gameplay_plan import format_gameplay_context
+from fincli.app.agents.registry import Agent, AgentRegistry
 from fincli.app.analysis.assistant_context import (
     build_web_research_answer_prompt,
     build_fincli_assistant_prompt,
@@ -33,6 +35,7 @@ from fincli.app.analysis.technical_signal import TechnicalSignal, format_signal
 from fincli.app.modules.economic_calendar import (
     EconomicCalendarService,
     EconomicEvent,
+    PublicEconomicCalendarService,
     calendar_summary,
     default_calendar_window,
     economic_event_rows,
@@ -47,7 +50,15 @@ from fincli.app.modules.portfolio import PortfolioService
 from fincli.app.modules.scanner import ScanResult, scan_symbols
 from fincli.app.modules.session_history import SessionHistoryService
 from fincli.app.modules.transactions import TransactionService
+from fincli.app.modules.user_profile import UserProfile, UserProfileService
 from fincli.app.modules.watchlist import WatchlistService
+from fincli.app.connectors.catalog import Connector, ConnectorCatalog
+from fincli.app.connectors.news_connectors import (
+    NewsConnectorCatalog,
+    NewsConnectorManager,
+    NewsConnectorSpec,
+    news_connector_secret_key,
+)
 from fincli.app.modules.reports import write_market_report
 from fincli.app.providers.ai.base import AIRequest, AIResponse, BaseAIProvider
 from fincli.app.providers.ai.manager import AIProviderManager
@@ -62,21 +73,25 @@ from fincli.app.providers.market.base import (
 from fincli.app.providers.market.manager import MarketProviderManager
 from fincli.app.providers.market.symbols import provider_symbol_matrix, search_symbol_catalog
 from fincli.app.providers.market.yfinance_provider import YahooTable, YFinanceProvider
+from fincli.app.plugins.loader import PluginLoader, PluginManifest
 from fincli.app.services.market_data import MarketDataService
 from fincli.app.services.market_overview import MarketOverview, build_market_overview
+from fincli.app.services.macro_data import MacroDataService, MacroIndicator
+from fincli.app.services.news_aggregator import NewsAggregator, NewsDesk
 from fincli.app.services.web_research import (
     WebResearchService,
     WebSearchResult,
     build_web_research_context,
     should_use_web_research,
 )
+from fincli.app.research import ResearchEngine, format_research_brief
 from fincli.app.storage.cache import TTLCache
 from fincli.app.storage.config import ConfigManager
 from fincli.app.storage.database import FinCLIDatabase
 from fincli.app.storage.market_cache import MarketCache
 from fincli.app.storage.secrets import save_secret
 from fincli.app.utils.errors import CommandError, FinCLIError
-from fincli.app.utils.formatting import AIResponseView, MarkdownBlock
+from fincli.app.utils.formatting import AIResponseView, MarkdownBlock, semantic_text
 
 
 @dataclass(slots=True)
@@ -112,9 +127,15 @@ class CommandRouter:
         self.alerts = AlertService(self.db)
         self.transactions = TransactionService(self.db, self.portfolio)
         self.journal = JournalService(self.db)
+        self.user_profiles = UserProfileService(self.db)
         self.history = SessionHistoryService(self.db)
         self.session_id = self.history.start_session()
         self.web_research = WebResearchService()
+        self.macro_data = MacroDataService()
+        self.agent_registry = AgentRegistry()
+        self.connector_catalog = ConnectorCatalog()
+        self.news_connector_catalog = NewsConnectorCatalog()
+        self.news_connectors = NewsConnectorManager(self.news_connector_catalog)
 
     def route(self, raw: str) -> CommandResult:
         result = self._route(raw)
@@ -161,6 +182,22 @@ class CommandRouter:
                 return self._provider(args)
             if root == "/symbol":
                 return self._symbol(args)
+            if root == "/research":
+                return self._research(args)
+            if root == "/macro":
+                return self._macro(args)
+            if root == "/profile":
+                return self._profile(args)
+            if root == "/doctor":
+                return self._doctor(args)
+            if root == "/setup":
+                return self._setup(args)
+            if root == "/agent":
+                return self._agent(args)
+            if root == "/connector":
+                return self._connector(args)
+            if root == "/plugin":
+                return self._plugin(args)
             if root == "/cache":
                 return self._cache(args)
             if root == "/watchlist":
@@ -217,9 +254,21 @@ class CommandRouter:
                 Panel(f"Format command tidak valid: {exc}\nGunakan quote untuk teks panjang.", title="Error"),
                 status="error",
             )
+        except Exception as exc:  # noqa: BLE001
+            return CommandResult(
+                Panel(
+                    (
+                        f"Unexpected command error: {type(exc).__name__}: {exc}\n\n"
+                        "Command tidak dieksekusi penuh. Gunakan /doctor untuk cek konfigurasi atau coba ulang command."
+                    ),
+                    title="Error",
+                    border_style="red",
+                ),
+                status="error",
+            )
 
     def _help_table(self) -> Table:
-        table = Table(title="FinCLI v0.1 Commands", expand=True)
+        table = Table(title="FinCLI v0.2.2 Commands", expand=True)
         table.add_column("Command", style="cyan", no_wrap=True)
         table.add_column("Group", style="magenta")
         table.add_column("Fungsi", style="white")
@@ -297,6 +346,7 @@ class CommandRouter:
             f"AI model          : {safe['ai_model']}",
             f"Market provider   : {safe['market_provider']}",
             f"News provider     : {safe['news_provider']}",
+            f"News priority     : {', '.join(safe.get('news_provider_priority', []))}",
             f"Timezone          : {safe['timezone']}",
             f"Default currency  : {safe['default_currency']}",
             f"Cache TTL         : {safe['cache_ttl_seconds']}s",
@@ -342,55 +392,110 @@ class CommandRouter:
     def _news_model(self, args: list[str]) -> CommandResult:
         if len(args) == 0:
             current = self.config.settings
-            chain = ", ".join(current.market_provider_priority or [current.market_provider])
+            chain = ", ".join(current.news_provider_priority or [current.news_provider])
             return CommandResult(
                 Panel(
                     (
                         f"Market: {current.market_provider}\n"
                         f"News: {current.news_provider}\n"
                         f"Fallback priority: {chain}\n\n"
-                        "Di TUI, gunakan /news_model untuk membuka provider selector."
+                        "Commands:\n"
+                        "- /news_model list\n"
+                        "- /news_model search <query>\n"
+                        "- /news_model use <provider>\n"
+                        "- /news_model priority google_news_rss,yfinance,marketaux\n"
+                        "- /news_model key <provider> <api_key> [base_url]"
                     ),
                     title="Active Data Provider",
                 )
             )
-        if args[0].lower() == "key":
+        action = args[0].lower()
+        if action == "list":
+            return CommandResult(_format_news_connectors(self.news_connector_catalog.free_first()[:120], "all"))
+        if action == "search":
+            query = " ".join(args[1:]).strip()
+            if not query:
+                raise CommandError("Format: /news_model search <query>")
+            return CommandResult(_format_news_connectors(self.news_connector_catalog.search(query), query))
+        if action == "priority":
+            if len(args) < 2:
+                raise CommandError("Format: /news_model priority google_news_rss,yfinance,marketaux")
+            providers = [provider.strip().lower() for provider in args[1].split(",") if provider.strip()]
+            self._validate_news_providers(providers)
+            self.config.set_news_provider_priority(providers)
+            return CommandResult(
+                Panel(
+                    f"News fallback priority disimpan: {', '.join(self.config.settings.news_provider_priority)}",
+                    title="News Priority Updated",
+                    border_style="green",
+                )
+            )
+        if action == "use":
+            if len(args) < 2:
+                raise CommandError("Format: /news_model use <provider>")
+            provider = args[1].lower()
+            self._validate_news_providers([provider])
+            current = [item for item in self.config.settings.news_provider_priority if item != provider]
+            self.config.set_news_provider_priority([provider, *current])
+            return CommandResult(
+                Panel(
+                    f"News primary provider: {provider}\nFallback: {', '.join(self.config.settings.news_provider_priority)}",
+                    title="News Provider Updated",
+                    border_style="green",
+                )
+            )
+        if action == "key":
             if len(args) < 3:
                 raise CommandError("Format: /news_model key <provider> <api_key> [base_url untuk custom]")
             provider = args[1].lower()
-            env_keys = _market_provider_secret_keys(provider)
+            env_key = news_connector_secret_key(provider)
+            env_keys = (env_key,) if env_key else _market_provider_secret_keys(provider)
             if not env_keys:
                 raise CommandError(f"Provider {provider} tidak membutuhkan API key atau tidak dikenal.")
             save_secret(env_keys[0], args[2])
-            if provider == "custom" and len(args) >= 4:
+            if provider == "custom_news" and len(args) >= 4:
+                save_secret("CUSTOM_NEWS_BASE_URL", args[3])
+            elif provider == "custom" and len(args) >= 4:
                 save_secret("MARKET_DATA_BASE_URL", args[3])
-            self.config.set_market_provider_priority([provider, *self._priority_tail(provider)])
-            self._refresh_market_service()
+            if self.market_manager.get(provider) is not None:
+                self.config.set_market_provider_priority([provider, *self._priority_tail(provider)])
+                self.config.set_news_provider(provider)
+                self._refresh_market_service()
+            else:
+                self.config.set_news_provider_priority([provider, *self._news_priority_tail(provider)])
             self.cache.clear()
-            extra = "\nBase URL custom juga disimpan." if provider == "custom" and len(args) >= 4 else ""
+            extra = "\nBase URL custom juga disimpan." if provider in {"custom", "custom_news"} and len(args) >= 4 else ""
             return CommandResult(
                 Panel(
                     (
                         f"API key market/news untuk {provider} disimpan global di ~/.fincli/secrets.env.{extra}\n"
-                        f"Provider market/news aktif disimpan: {provider}.\n"
+                        f"Provider news aktif disimpan: {provider}.\n"
                         "Key tidak ditampilkan di terminal dan dipakai lintas session."
                     ),
-                    title="Market API Key Saved",
+                    title="News API Key Saved",
                     border_style="green",
                 )
             )
-        self.config.set_market_provider(args[0])
-        self.config.set_news_provider(args[0])
-        self.config.set_market_provider_priority([args[0], *self._priority_tail(args[0])])
-        self._refresh_market_service()
+        provider = args[0].lower()
+        if self.market_manager.get(provider) is not None:
+            self.config.set_market_provider(provider)
+            self.config.set_news_provider(provider)
+            self.config.set_market_provider_priority([provider, *self._priority_tail(provider)])
+            self._refresh_market_service()
+            self.cache.clear()
+            return CommandResult(Panel(f"Provider market/news aktif: {provider}", title="Provider Updated"))
+        self._validate_news_providers([provider])
+        self.config.set_news_provider_priority([provider, *self._news_priority_tail(provider)])
         self.cache.clear()
-        return CommandResult(Panel(f"Provider market/news aktif: {args[0]}", title="Provider Updated"))
+        return CommandResult(Panel(f"Provider news aktif: {provider}", title="News Provider Updated"))
 
     def _provider(self, args: list[str]) -> CommandResult:
         if args and args[0].lower() == "list":
             return CommandResult(_format_provider_list())
         if args and args[0].lower() in {"entitlement", "entitlements"}:
             return CommandResult(_format_provider_entitlements(self.market_manager.entitlements()))
+        if args and args[0].lower() == "metrics":
+            return CommandResult(_format_provider_metrics(self.market_service))
         if args and args[0].lower() == "key" and len(args) >= 2 and args[1].lower() == "status":
             return CommandResult(_format_provider_key_status(self.market_manager))
         if args and args[0].lower() == "use":
@@ -445,6 +550,103 @@ class CommandRouter:
         query = " ".join(args)
         results = search_symbol_catalog(query)
         return CommandResult(_format_symbol_search(query, results))
+
+    def _research(self, args: list[str]) -> CommandResult:
+        if not args:
+            raise CommandError("Format: /research <symbol> [--quick|--deep] [timeframe]")
+        symbol = args[0].upper()
+        mode = "deep" if any(arg.lower() == "--deep" for arg in args[1:]) else "quick"
+        timeframe = next((arg for arg in args[1:] if not arg.startswith("--")), "1d")
+        engine = ResearchEngine(self.market_service, self.ai_provider, self.config.settings.ai_model)
+        brief = self._run_async(engine.build(symbol, timeframe=timeframe, mode=mode))
+        return CommandResult(format_research_brief(brief))
+
+    def _macro(self, args: list[str]) -> CommandResult:
+        query = " ".join(args).strip()
+        rows = self.macro_data.indicators(query)
+        return CommandResult(_format_macro_dashboard(query or "global", rows))
+
+    def _profile(self, args: list[str]) -> CommandResult:
+        if not args:
+            return CommandResult(_format_user_profile(self.user_profiles.get()))
+        action = args[0].lower()
+        if action == "set":
+            if len(args) < 6:
+                raise CommandError('Format: /profile set "Nama" <equity> <currency> <leverage> <years>')
+            profile = self.user_profiles.save(args[1], float(args[2]), args[3], args[4], float(args[5]))
+            return CommandResult(_format_user_profile(profile))
+        if action in {"clear", "delete", "reset"}:
+            self.user_profiles.clear()
+            return CommandResult(Panel("Profile lokal dihapus.", title="Profile", border_style="yellow"))
+        raise CommandError('Format: /profile, /profile set "Nama" <equity> <currency> <leverage> <years>, /profile clear')
+
+    def _doctor(self, args: list[str]) -> CommandResult:
+        table = Table(title="FinCLI Doctor", expand=True)
+        table.add_column("Check", style="cyan", no_wrap=True)
+        table.add_column("Status")
+        table.add_column("Detail", overflow="fold")
+        table.add_row("Version", "ok", "FinCLI v0.2.2 command surface loaded.")
+        table.add_row("Database", "ok", str(self.db.db_file))
+        table.add_row("Market Provider", "ok", ", ".join(provider.name for provider in self.market_service.providers))
+        profile = self.user_profiles.get()
+        table.add_row("Profile", "ok" if profile else "missing", profile.gameplay if profile else "Run /profile set ...")
+        table.add_row("AI Provider", "configured", f"{self.config.settings.ai_provider} / {self.config.settings.ai_model}")
+        table.caption = "Doctor checks local wiring only; provider entitlement still depends on your API key/account."
+        return CommandResult(table)
+
+    def _setup(self, args: list[str]) -> CommandResult:
+        return CommandResult(
+            Panel(
+                "\n".join(
+                    [
+                        "Recommended setup:",
+                        '1. /profile set "Nama" <equity> <currency> <leverage> <years>',
+                        "2. /ai_model key <provider> <api_key>",
+                        "3. /news_model key <provider> <api_key>",
+                        "4. /provider priority yfinance,alphavantage,twelvedata,finnhub",
+                        "5. /research AAPL --quick",
+                        "6. /analyze XAUUSD 1d",
+                    ]
+                ),
+                title="FinCLI Setup",
+                border_style="cyan",
+            )
+        )
+
+    def _agent(self, args: list[str]) -> CommandResult:
+        action = args[0].lower() if args else "list"
+        if action in {"list", "ls"}:
+            category = args[1].lower() if len(args) >= 2 else ""
+            agents = self.agent_registry.by_category(category) if category else list(self.agent_registry.all())
+            return CommandResult(_format_agents(agents, category or "all"))
+        if action == "show":
+            if len(args) < 2:
+                raise CommandError("Format: /agent show <slug>")
+            agent = self.agent_registry.get(args[1])
+            if agent is None:
+                raise CommandError(f"Agent tidak ditemukan: {args[1]}")
+            return CommandResult(_format_agent(agent))
+        raise CommandError("Format: /agent list [category] atau /agent show <slug>")
+
+    def _connector(self, args: list[str]) -> CommandResult:
+        action = args[0].lower() if args else "list"
+        if action in {"list", "ls"}:
+            category = args[1].lower() if len(args) >= 2 else ""
+            connectors = self.connector_catalog.by_category(category) if category else list(self.connector_catalog.all())
+            return CommandResult(_format_connectors(connectors, category or "all"))
+        if action in {"search", "find"}:
+            if len(args) < 2:
+                raise CommandError("Format: /connector search <query>")
+            query = " ".join(args[1:])
+            return CommandResult(_format_connectors(self.connector_catalog.find(query), query))
+        raise CommandError("Format: /connector list [category] atau /connector search <query>")
+
+    def _plugin(self, args: list[str]) -> CommandResult:
+        action = args[0].lower() if args else "list"
+        if action in {"list", "ls", "status"}:
+            plugins = PluginLoader().discover()
+            return CommandResult(_format_plugins(plugins, status_only=action == "status"))
+        raise CommandError("Format: /plugin list atau /plugin status")
 
     def _cache(self, args: list[str]) -> CommandResult:
         if args and args[0].lower() == "stats":
@@ -733,10 +935,17 @@ class CommandRouter:
 
     def _news(self, args: list[str]) -> CommandResult:
         if not args:
-            raise CommandError("Format: /news <symbol>")
+            raise CommandError("Format: /news <symbol> [1d-30d]")
         symbol = args[0].upper()
-        items = self._run_async(self.market_service.news(symbol, limit=5))
-        return CommandResult(_format_news(symbol, items))
+        lookback_days = _parse_news_lookback(args[1:]) if len(args) > 1 else None
+        desk = self._run_async(
+            NewsAggregator(
+                self.market_service,
+                self.news_connectors,
+                self.config.settings.news_provider_priority,
+            ).latest(symbol, limit=12, lookback_days=lookback_days)
+        )
+        return CommandResult(_format_news_desk(desk))
 
     def _fundamentals(self, args: list[str]) -> CommandResult:
         if not args:
@@ -810,7 +1019,8 @@ class CommandRouter:
         technical = summarize_technical_indicators(candles)
         structure = analyze_market_structure(candles)
         news_context = self._analysis_context(symbol)
-        prompt = build_market_analysis_prompt(symbol, timeframe, candles, technical, structure, news_context)
+        gameplay_context = format_gameplay_context(self.user_profiles.get(), symbol)
+        prompt = build_market_analysis_prompt(symbol, timeframe, candles, technical, structure, news_context, gameplay_context)
         request = AIRequest(prompt=prompt, model=self.config.settings.ai_model)
         response = self._run_async(self.ai_provider.complete(request))
         if not isinstance(response, AIResponse):
@@ -869,9 +1079,7 @@ class CommandRouter:
         try:
             events = self._run_async(service.events(start, end))
         except FinCLIError as exc:
-            events = fallback_events(start, end)
-            source = "fallback"
-            note = f"{exc} Menggunakan fallback kategori event; isi FINNHUB_API_KEY untuk data aktual."
+            events, source, note = self._calendar_public_or_static_fallback(start, end, exc)
         events = filter_events(events, country=country, impact=impact)
         return CommandResult(_format_calendar(events, start, end, source, note))
 
@@ -884,11 +1092,32 @@ class CommandRouter:
         service = EconomicCalendarService(api_key=os.getenv("FINNHUB_API_KEY"))
         try:
             events = self._run_async(service.events(start, end))
-        except FinCLIError:
-            events = fallback_events(start, end)
+        except FinCLIError as exc:
+            events, _, _ = self._calendar_public_or_static_fallback(start, end, exc)
         events = filter_events(events, country=country, impact=impact)
         written = export_rows(economic_event_rows(events), export_format, target)
         return CommandResult(Panel(f"Calendar export selesai: {written}", title="Calendar Export", border_style="green"))
+
+    def _calendar_public_or_static_fallback(
+        self, start: date, end: date, provider_error: FinCLIError
+    ) -> tuple[list[EconomicEvent], str, str]:
+        if not os.getenv("FINNHUB_API_KEY"):
+            return fallback_events(start, end), "fallback", _calendar_fallback_note(provider_error, False)
+        try:
+            events = self._run_async(PublicEconomicCalendarService().events(start, end))
+            if events:
+                return (
+                    events,
+                    "public",
+                    (
+                        "Finnhub calendar unavailable for the current key, plan, or rate limit. "
+                        "Using public economic calendar fallback; verify critical events with official sources."
+                    ),
+                )
+        except FinCLIError as public_error:
+            note = _calendar_static_fallback_note(provider_error, public_error)
+            return fallback_events(start, end), "fallback", note
+        return fallback_events(start, end), "fallback", _calendar_static_fallback_note(provider_error, None)
 
     def _run_async(self, awaitable: Any) -> Any:
         try:
@@ -1125,6 +1354,27 @@ class CommandRouter:
             tail.append("yfinance")
         return tail
 
+    def _news_priority_tail(self, active_provider: str) -> list[str]:
+        active = active_provider.lower()
+        existing = self.config.settings.news_provider_priority or ["yfinance", "google_news_rss", "yahoo_finance_rss"]
+        tail = [provider for provider in existing if provider != active]
+        if active != "yfinance" and "yfinance" not in tail:
+            tail.append("yfinance")
+        if active != "google_news_rss" and "google_news_rss" not in tail:
+            tail.append("google_news_rss")
+        return tail
+
+    def _validate_news_providers(self, providers: list[str]) -> None:
+        market_names = {provider.name for provider in self.market_service.providers}
+        known = {"yfinance", *market_names}
+        known.update(connector.slug for connector in self.news_connector_catalog.all())
+        unknown = [provider for provider in providers if provider not in known]
+        if unknown:
+            raise CommandError(
+                f"News provider tidak dikenal: {', '.join(unknown)}",
+                "Gunakan /news_model list atau /news_model search <query> untuk melihat provider yang tersedia.",
+            )
+
 
 def _format_quote(quote: Quote) -> str:
     price = "N/A" if quote.price is None else f"{quote.price:,.4f}"
@@ -1256,6 +1506,12 @@ def _format_dashboard(
         "Use /market for compact quote + technical + structure + news + fundamentals.",
         "/market AAPL 1d | /analyze AAPL 1d",
     )
+    if unrealized != 0 or realized_pnl != 0:
+        table.add_row(
+            "Risk Color",
+            semantic_text(f"Total PnL {_fmt(realized_pnl + unrealized)} {'gain' if realized_pnl + unrealized >= 0 else 'loss'}"),
+            "green=positive | red=negative | yellow=caution",
+        )
     return table
 
 
@@ -1274,11 +1530,11 @@ def _format_market_overview(overview: MarketOverview) -> Table:
     table.add_row(
         "Quote",
         f"{_fmt(overview.quote.price)} {overview.quote.currency}",
-        f"{overview.quote.provider} | {overview.quote.status} | {overview.quote.timestamp.isoformat(timespec='seconds')}",
+        semantic_text(f"{overview.quote.provider} | {overview.quote.status} | {overview.quote.timestamp.isoformat(timespec='seconds')}"),
     )
     table.add_row(
         "Technical",
-        f"RSI {_fmt(overview.technical.rsi)} | Trend {overview.technical.trend_bias}",
+        semantic_text(f"RSI {_fmt(overview.technical.rsi)} | Trend {overview.technical.trend_bias}"),
         f"MACD {_fmt(overview.technical.macd)} / Signal {_fmt(overview.technical.macd_signal)} | ATR {_fmt(overview.technical.atr)}",
     )
     table.add_row(
@@ -1288,7 +1544,7 @@ def _format_market_overview(overview: MarketOverview) -> Table:
     )
     table.add_row(
         "Market Structure",
-        f"{overview.structure.trend} | {overview.structure.latest_pattern}",
+        semantic_text(f"{overview.structure.trend} | {overview.structure.latest_pattern}"),
         f"BOS={overview.structure.break_of_structure}; CHoCH={overview.structure.change_of_character}; Liquidity={overview.structure.liquidity_area}",
     )
 
@@ -1380,8 +1636,8 @@ def _format_multi_timeframe(analysis: MultiTimeframeAnalysis) -> Table:
             frame.status,
             str(frame.candles),
             _fmt(frame.latest_close),
-            frame.trend_bias,
-            frame.structure_trend,
+            semantic_text(frame.trend_bias),
+            semantic_text(frame.structure_trend),
             _fmt(frame.rsi),
             _fmt(frame.macd),
             f"{_fmt(frame.support)} / {_fmt(frame.resistance)}",
@@ -1400,9 +1656,9 @@ def _format_backtest(result: BacktestResult) -> Table:
     table.add_column("Value", style="white")
     table.add_row("Candles", str(result.candles))
     table.add_row("Trades", str(len(result.trades)))
-    table.add_row("Total Return", f"{result.total_return_percent:.2f}%")
+    table.add_row("Total Return", semantic_text(f"{result.total_return_percent:.2f}% {'gain' if result.total_return_percent >= 0 else 'loss'}"))
     table.add_row("Win Rate", f"{result.win_rate:.2f}%")
-    table.add_row("Max Drawdown", f"{result.max_drawdown_percent:.2f}%")
+    table.add_row("Max Drawdown", semantic_text(f"{result.max_drawdown_percent:.2f}% drawdown"))
     table.add_row("Exposure", f"{result.exposure_percent:.2f}%")
     if result.trades:
         latest = result.trades[-1]
@@ -1433,7 +1689,7 @@ def _format_alerts(rows: list[dict[str, object]]) -> Table:
             str(row["symbol"]),
             str(row["condition"]),
             _fmt(float(row["target"])),
-            "active" if int(row["active"]) else f"triggered {row['triggered_at']}",
+            semantic_text("active hold" if int(row["active"]) else f"triggered {row['triggered_at']}"),
             str(row["note"] or "-"),
             str(row["created_at"]),
         )
@@ -1458,7 +1714,7 @@ def _format_alert_checks(results: list[AlertCheckResult]) -> Table:
             result.condition,
             _fmt(result.target),
             _fmt(result.current_price),
-            "YES" if result.triggered else "no",
+            semantic_text("YES breakout confirmed" if result.triggered else "no hold"),
             result.note or "-",
         )
     if not results:
@@ -1480,10 +1736,10 @@ def _format_scan_results(results: list[ScanResult], filter_expression: str, inte
             result.symbol,
             _fmt(result.latest_close),
             _fmt(result.rsi),
-            result.trend_bias,
+            semantic_text(result.trend_bias),
             _fmt(result.support),
             _fmt(result.resistance),
-            result.reason,
+            semantic_text(result.reason),
         )
     if not results:
         table.add_row("-", "-", "-", "-", "-", "-", "Tidak ada symbol yang match.")
@@ -1513,6 +1769,18 @@ def _parse_timeframes(value: str) -> tuple[str, ...]:
     if len(frames) > 6:
         raise CommandError("Maksimal 6 timeframe dalam satu /mtf.")
     return frames
+
+
+def _parse_news_lookback(args: list[str]) -> int | None:
+    if not args:
+        return None
+    raw = args[0].strip().lower()
+    if len(args) > 1 or not raw.endswith("d") or not raw[:-1].isdigit():
+        raise CommandError("Format: /news <symbol> [1d-30d]")
+    days = int(raw[:-1])
+    if days < 1 or days > 30:
+        raise CommandError("Lookback /news maksimal 30d. Contoh: /news TSLA 7d")
+    return days
 
 
 def _parse_calendar_args(args: list[str]) -> tuple[date, date, str | None, str | None]:
@@ -1555,15 +1823,30 @@ def _parse_date_arg(value: str) -> date:
         raise CommandError("Tanggal calendar harus format YYYY-MM-DD.") from exc
 
 
+def _calendar_fallback_note(exc: FinCLIError, has_key: bool) -> str:
+    if has_key:
+        return (
+            "FinCLI memakai fallback kategori event. "
+            "Periksa API key, entitlement/plan Finnhub, atau rate-limit untuk data aktual."
+        )
+    return "FinCLI memakai fallback kategori event. Isi FINNHUB_API_KEY untuk data aktual."
+
+
+def _calendar_static_fallback_note(provider_error: FinCLIError, public_error: FinCLIError | None) -> str:
+    _ = provider_error, public_error
+    return (
+        "Using static macro fallback. Finnhub calendar endpoint is unavailable for the current key/plan "
+        "or provider rate limit, and public calendar fallback is temporarily unavailable. "
+        "Check /provider key status, Finnhub calendar entitlement, and try again later."
+    )
+
+
 def _format_calendar(events: list[EconomicEvent], start: date, end: date, source: str, note: str) -> Table:
     table = Table(title=f"Economic Calendar | {start.isoformat()} to {end.isoformat()} | {source}", expand=True)
-    table.add_column("Time", style="cyan", no_wrap=True)
-    table.add_column("Country")
-    table.add_column("Impact")
-    table.add_column("Event", style="white")
-    table.add_column("Actual", justify="right")
-    table.add_column("Estimate", justify="right")
-    table.add_column("Previous", justify="right")
+    table.add_column("Time", style="cyan", no_wrap=True, width=16, max_width=16)
+    table.add_column("Country", no_wrap=True, width=7, max_width=7)
+    table.add_column("Impact", no_wrap=True, width=6, max_width=6)
+    table.add_column("Event", style="white", overflow="fold")
 
     for event in events:
         event_time = event.time.isoformat(timespec="minutes") if event.time else "TBA"
@@ -1572,24 +1855,18 @@ def _format_calendar(events: list[EconomicEvent], start: date, end: date, source
             event.country,
             event.impact,
             event.event,
-            event.actual or "-",
-            event.estimate or "-",
-            event.previous or "-",
         )
 
     if not events:
-        table.add_row("-", "-", "-", "Tidak ada event yang cocok dengan filter.", "-", "-", "-")
+        table.add_row("-", "-", "-", "Tidak ada event yang cocok dengan filter.")
     summary = calendar_summary(events)
     table.add_row(
         "Summary",
         source,
         "-",
         f"total={summary['total']}; high={summary.get('high', 0)}; medium={summary.get('medium', 0)}; low={summary.get('low', 0)}",
-        "-",
-        "-",
-        "-",
     )
-    table.add_row("Note", source, "-", note, "-", "-", "-")
+    table.add_row("Note", source, "-", note)
     return table
 
 
@@ -1632,6 +1909,18 @@ def _format_provider_key_status(manager: MarketProviderManager) -> Table:
     table.add_column("Source")
     for row in manager.key_status():
         table.add_row(row["provider"], row["key"], row["status"], row["source"])
+    return table
+
+
+def _format_provider_metrics(service: MarketDataService) -> Table:
+    table = Table(title="Provider Metrics", expand=True)
+    table.add_column("Metric", style="cyan", no_wrap=True)
+    table.add_column("Value", overflow="fold")
+    table.add_row("Active Provider", service.primary_provider.name)
+    table.add_row("Provider Chain", ", ".join(provider.name for provider in service.providers))
+    table.add_row("Last Errors", "\n".join(service.last_errors) if service.last_errors else "none")
+    table.add_row("Runtime Label", "realtime/delayed depends on provider entitlement and API plan")
+    table.caption = "Use /provider entitlement for static capability labels and /provider test <symbol> for live checks."
     return table
 
 
@@ -1686,6 +1975,144 @@ def _market_provider_secret_keys(provider: str) -> tuple[str, ...]:
     }.get(provider.lower(), ())
 
 
+def _format_macro_dashboard(query: str, rows: list[MacroIndicator]) -> Table:
+    table = Table(title=f"Macro Dashboard: {query.title()}", expand=True)
+    table.add_column("Indicator", style="cyan", no_wrap=True)
+    table.add_column("Region", no_wrap=True)
+    table.add_column("Value", justify="right")
+    table.add_column("Period", no_wrap=True)
+    table.add_column("Source", no_wrap=True)
+    table.add_column("Note", overflow="fold")
+    for row in rows:
+        table.add_row(row.name, row.region, row.value, row.period, row.source, row.note)
+    if not rows:
+        table.add_row("-", "-", "-", "-", "Fallback", "No macro rows matched the query.")
+    table.caption = "Fallback rows are connector-ready placeholders. Use provider keys later for exact values."
+    return table
+
+
+def _format_user_profile(profile: UserProfile | None) -> Table:
+    table = Table(title="User Gameplay Profile", expand=True)
+    table.add_column("Field", style="cyan", no_wrap=True)
+    table.add_column("Value", overflow="fold")
+    if profile is None:
+        table.add_row("Status", "Not configured")
+        table.add_row("Setup", '/profile set "Nama" <equity> <currency> <leverage> <years>')
+        table.add_row("Use", "Profile is used by /analyze for SL/TP and risk-context wording.")
+        return table
+    table.add_row("Name", profile.name)
+    table.add_row("Equity", f"{profile.equity:g} {profile.currency}")
+    table.add_row("Leverage", profile.leverage)
+    table.add_row("Investment Years", f"{profile.years_in_investment:g}")
+    table.add_row("Gameplay", profile.gameplay)
+    table.add_row("Analyze Usage", "Used by /analyze to constrain Signal, SL, TP1, TP2, TP3, and Reason.")
+    return table
+
+
+def _format_agents(agents: list[Agent], label: str) -> Table:
+    table = Table(title=f"FinCLI Agents: {label}", expand=True)
+    table.add_column("Slug", style="cyan", no_wrap=True)
+    table.add_column("Name", no_wrap=True)
+    table.add_column("Category", no_wrap=True)
+    table.add_column("Framework", overflow="fold")
+    table.add_column("Role", overflow="fold")
+    for agent in agents:
+        table.add_row(agent.slug, agent.name, agent.category, agent.framework, agent.role)
+    if not agents:
+        table.add_row("-", "-", "-", "-", "No agents matched.")
+    return table
+
+
+def _format_agent(agent: Agent) -> Panel:
+    return Panel(
+        "\n".join(
+            [
+                f"Name      : {agent.name}",
+                f"Slug      : {agent.slug}",
+                f"Category  : {agent.category}",
+                f"Framework : {agent.framework}",
+                f"Role      : {agent.role}",
+                "",
+                "Usage     : use as a thinking lens for /research and future multi-agent analysis.",
+            ]
+        ),
+        title="FinCLI Agent",
+        border_style="cyan",
+    )
+
+
+def _format_connectors(connectors: list[Connector], label: str) -> Table:
+    table = Table(title=f"Connector Catalog: {label}", expand=True)
+    table.add_column("Name", style="cyan", no_wrap=True)
+    table.add_column("Category", no_wrap=True)
+    table.add_column("Access", no_wrap=True)
+    table.add_column("Coverage", overflow="fold")
+    for connector in connectors:
+        table.add_row(connector.name, connector.category, connector.access, connector.coverage)
+    if not connectors:
+        table.add_row("-", "-", "-", "No connectors matched.")
+    table.caption = "Catalog entries are roadmap-ready; active adapters depend on implementation and entitlement."
+    return table
+
+
+def _format_news_connectors(connectors: list[NewsConnectorSpec], label: str) -> Table:
+    table = Table(title=f"News Connector Catalog: {label}", expand=True)
+    table.add_column("Slug", style="cyan", no_wrap=True)
+    table.add_column("Name", overflow="fold")
+    table.add_column("Access", no_wrap=True)
+    table.add_column("Category", no_wrap=True)
+    table.add_column("API Key", no_wrap=True)
+    table.add_column("Status", overflow="fold")
+    for connector in connectors:
+        status = "active rss" if connector.access == "public-rss" else "api-key ready"
+        if connector.slug == "custom_news":
+            status = "custom endpoint"
+        table.add_row(
+            connector.slug,
+            connector.name,
+            connector.access,
+            connector.category,
+            connector.env_key or "-",
+            status,
+        )
+    if not connectors:
+        table.add_row("-", "No news connectors matched.", "-", "-", "-", "-")
+    table.caption = (
+        "Use /news_model use <slug> for primary, /news_model priority a,b,c for fallback order, "
+        "and /news_model key <slug> <api_key> for API-key providers."
+    )
+    return table
+
+
+def _format_plugins(plugins: list[PluginManifest], status_only: bool = False) -> Table:
+    table = Table(title="FinCLI Plugins" if not status_only else "FinCLI Plugin Status", expand=True)
+    table.add_column("Name", style="cyan", no_wrap=True)
+    table.add_column("Version", no_wrap=True)
+    table.add_column("Status", no_wrap=True)
+    table.add_column("Capabilities", overflow="fold")
+    table.add_column("Commands", overflow="fold")
+    if not status_only:
+        table.add_column("Description", overflow="fold")
+    for plugin in plugins:
+        row = [
+            plugin.name,
+            plugin.version,
+            plugin.status,
+            ", ".join(plugin.capabilities) or "-",
+            ", ".join(plugin.commands) or "-",
+        ]
+        if not status_only:
+            row.append(plugin.description or "-")
+        table.add_row(*row)
+    if not plugins:
+        empty = ["-", "-", "no plugins", "-", "-"]
+        if not status_only:
+            empty.append("Create ~/.fincli/plugins/<name>/plugin.json to register a local plugin.")
+        table.add_row(*empty)
+    table.caption = "Plugins are manifest-only in v0.2.2; FinCLI does not execute plugin code yet."
+    return table
+
+
 def _format_transactions(rows: list[dict[str, object]]) -> Table:
     table = Table(title="Transaction Ledger", expand=True)
     table.add_column("ID", justify="right")
@@ -1734,6 +2161,59 @@ def _format_news(symbol: str, items: list[NewsItem]) -> str:
         summary = f"\n   Summary: {item.summary}" if item.summary else ""
         lines.append(f"{index}. {item.title}\n   Source: {item.source} | Published: {published}{summary}{url}")
     return "\n".join(lines)
+
+
+def _format_news_desk(desk: NewsDesk) -> Table:
+    table = Table(title=f"News Desk: {desk.symbol}", expand=True)
+    table.add_column("Time", style="dim", no_wrap=True)
+    table.add_column("Source", style="cyan", no_wrap=True)
+    table.add_column("Headline", style="white", overflow="fold")
+    table.add_column("Summary", overflow="fold")
+    table.add_column("Analysis", overflow="fold")
+    for item in desk.items:
+        published = item.published_at.isoformat(timespec="minutes") if item.published_at else "unknown"
+        table.add_row(published, item.source, item.title, item.summary or "-", _news_item_analysis(item))
+    if not desk.items:
+        table.add_row("-", "-", "No news from active providers.", desk.note, "-")
+    lookback = f" | Lookback: {desk.lookback_days}d" if desk.lookback_days else ""
+    table.caption = f"Providers: {', '.join(desk.provider_chain)}{lookback} | {desk.note}"
+    return table
+
+
+def _news_item_analysis(item: NewsItem) -> str:
+    text = f"{item.title} {item.summary}".lower()
+    bullish_words = ("beat", "beats", "rise", "rises", "rally", "rallies", "higher", "growth", "upgrade", "bullish", "record")
+    bearish_words = ("miss", "falls", "falling", "lower", "sink", "sinks", "down", "cut", "downgrade", "bearish", "weak")
+    caution_words = ("risk", "uncertain", "probe", "lawsuit", "volatility", "warning", "recall", "delay")
+    bullish = sum(1 for word in bullish_words if word in text)
+    bearish = sum(1 for word in bearish_words if word in text)
+    caution = sum(1 for word in caution_words if word in text)
+    if caution and caution >= max(bullish, bearish):
+        bias = "caution"
+    elif bullish > bearish:
+        bias = "bullish"
+    elif bearish > bullish:
+        bias = "bearish"
+    else:
+        bias = "neutral"
+    if item.published_at is None:
+        freshness = "date unknown"
+    else:
+        freshness = "fresh" if _news_age_days(item) <= 3 else "older context"
+    return semantic_text(f"{bias} | {freshness} | verify source before trading")
+
+
+def _news_age_days(item: NewsItem) -> int:
+    if item.published_at is None:
+        return 999
+    published = item.published_at
+    if published.tzinfo is None:
+        from datetime import timezone
+
+        published = published.replace(tzinfo=timezone.utc)
+    from datetime import datetime, timezone
+
+    return max((datetime.now(timezone.utc) - published).days, 0)
 
 
 def _format_web_results(query: str, results: list[WebSearchResult]) -> Table:

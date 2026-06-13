@@ -12,9 +12,15 @@ from fincli.app.utils.errors import ConfigError
 SECRETS_FILE = APP_DIR / "secrets.env"
 
 
-def load_local_secrets(path: Path | None = None, *, override: bool = False) -> None:
+def load_local_secrets(
+    path: Path | None = None,
+    *,
+    override: bool = False,
+    override_keys: set[str] | None = None,
+) -> None:
     """Load persisted secrets into process environment."""
     path = path or SECRETS_FILE
+    override_keys = override_keys or set()
     if not path.exists():
         return
     for line in path.read_text(encoding="utf-8").splitlines():
@@ -24,7 +30,7 @@ def load_local_secrets(path: Path | None = None, *, override: bool = False) -> N
         key, value = stripped.split("=", 1)
         key = key.strip()
         value = _unquote(value.strip())
-        if key and (override or key not in os.environ or os.environ.get(key, "") == ""):
+        if key and (override or key in override_keys or key not in os.environ or os.environ.get(key, "") == ""):
             os.environ[key] = value
 
 

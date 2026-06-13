@@ -53,3 +53,21 @@ def format_thinking_message(message: str) -> Text:
 
 def format_ai_message(message: str) -> Markdown:
     return Markdown(message)
+
+
+def write_output_entry(log: object, renderable: object) -> None:
+    """Write one output entry with a single blank line separator.
+
+    No visual barrier characters are emitted here; Rich/Textual renderables keep
+    their own borders if they need one.
+    """
+
+    items = getattr(log, "items", None)
+    if isinstance(items, list) and items:
+        log.write("")
+        log.write(renderable)
+        return
+    line_count = getattr(log, "line_count", 0)
+    if isinstance(line_count, int) and line_count > 0:
+        log.write("")
+    log.write(renderable)

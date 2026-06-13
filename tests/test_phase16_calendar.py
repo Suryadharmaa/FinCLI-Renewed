@@ -7,7 +7,7 @@ import httpx
 from rich.console import Console
 
 from fincli.app.cli.router import CommandRouter
-from fincli.app.modules.economic_calendar import EconomicCalendarService
+from fincli.app.modules.economic_calendar import EconomicCalendarService, PublicEconomicCalendarService
 from fincli.app.storage.config import ConfigManager
 from fincli.app.storage.database import FinCLIDatabase
 
@@ -77,3 +77,97 @@ def test_economic_calendar_service_parses_finnhub_payload() -> None:
     assert events[0].event == "Nonfarm Payrolls"
     assert events[0].country == "US"
     assert events[0].actual == "210K"
+
+
+def test_public_economic_calendar_service_parses_forex_factory_payload() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/ff_calendar_thisweek.json"
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "title": "CPI m/m",
+                    "country": "USD",
+                    "date": "2026-06-05T12:30:00+00:00",
+                    "impact": "High",
+                    "forecast": "0.2%",
+                    "previous": "0.3%",
+                }
+            ],
+        )
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    service = PublicEconomicCalendarService(base_url="https://nfs.faireconomy.media", client=client)
+
+    events = asyncio.run(service.events(date(2026, 6, 5), date(2026, 6, 6)))
+
+    assert len(events) == 1
+    assert events[0].event == "CPI m/m"
+    assert events[0].country == "USD"
+    assert events[0].impact == "high"
+    assert events[0].estimate == "0.2%"
+
+
+def test_public_economic_calendar_service_falls_back_to_second_source_after_rate_limit() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "nfs.faireconomy.media" and request.url.path.endswith(".json"):
+            return httpx.Response(429, json={"error": "rate limit"})
+        assert request.url.host == "nfs.faireconomy.media"
+        return httpx.Response(
+            200,
+            text="""<?xml version="1.0" encoding="windows-1252"?>
+            <weeklyevents><event>
+              <title>Fed Interest Rate Decision</title>
+              <country>USD</country>
+              <date>06-05-2026</date>
+              <time>2:00pm</time>
+              <impact>High</impact>
+              <forecast>4.50%</forecast>
+              <previous>4.50%</previous>
+            </event></weeklyevents>""",
+        )
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    service = PublicEconomicCalendarService(client=client)
+
+    events = asyncio.run(service.events(date(2026, 6, 5), date(2026, 6, 6)))
+
+    assert len(events) == 1
+    assert events[0].event == "Fed Interest Rate Decision"
+    assert events[0].country == "USD"
+    assert events[0].impact == "high"
+
+
+def test_public_economic_calendar_service_uses_fred_when_forex_factory_is_rate_limited() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "nfs.faireconomy.media":
+            return httpx.Response(429, text="rate limited")
+        assert request.url.host == "fred.stlouisfed.org"
+        return httpx.Response(
+            200,
+            text="""
+            <table><tbody>
+              <tr class="odd"><td colspan="2">
+                <span style="font-weight: bold;">Saturday June 13, 2026</span>
+              </td></tr>
+              <tr>
+                <td nowrap style="width:5%; text-align:right">N/A</td>
+                <td text-align="left"><a href="/release?rid=101">FOMC Press Release</a></td>
+              </tr>
+              <tr>
+                <td nowrap style="width:5%; text-align:right">7:00 pm</td>
+                <td text-align="left"><a href="/release?rid=441">Coinbase Cryptocurrencies</a></td>
+              </tr>
+            </tbody></table>
+            """,
+        )
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    service = PublicEconomicCalendarService(client=client)
+
+    events = asyncio.run(service.events(date(2026, 6, 13), date(2026, 6, 20)))
+
+    assert len(events) == 2
+    assert events[0].event == "FOMC Press Release"
+    assert events[0].country == "US"
+    assert events[0].impact == "high"

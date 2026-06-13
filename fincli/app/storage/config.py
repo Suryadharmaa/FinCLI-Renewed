@@ -13,9 +13,10 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from dotenv import load_dotenv
+    from dotenv import dotenv_values, load_dotenv
 except ImportError:  # pragma: no cover - dependency exists in normal install
     load_dotenv = None  # type: ignore[assignment]
+    dotenv_values = None  # type: ignore[assignment]
 
 from fincli.app.utils.errors import ConfigError
 from fincli.app.utils.formatting import mask_secret
@@ -30,6 +31,9 @@ class FinCLISettings:
     market_provider: str = "yfinance"
     news_provider: str = "yfinance"
     market_provider_priority: list[str] = field(default_factory=lambda: ["yfinance"])
+    news_provider_priority: list[str] = field(
+        default_factory=lambda: ["yfinance", "google_news_rss", "yahoo_finance_rss", "marketaux", "newsapi", "gnews"]
+    )
     timezone: str = "Asia/Jakarta"
     default_currency: str = "USD"
     cache_ttl_seconds: int = 300
@@ -51,6 +55,17 @@ class FinCLISettings:
             "finnhub": mask_secret(os.getenv("FINNHUB_API_KEY")),
             "twelvedata": mask_secret(os.getenv("TWELVE_DATA_API_KEY")),
             "alphavantage": mask_secret(os.getenv("ALPHA_VANTAGE_API_KEY")),
+            "marketaux": mask_secret(os.getenv("MARKETAUX_API_KEY")),
+            "newsapi": mask_secret(os.getenv("NEWSAPI_API_KEY")),
+            "gnews": mask_secret(os.getenv("GNEWS_API_KEY")),
+            "stocknewsapi": mask_secret(os.getenv("STOCKNEWSAPI_API_KEY")),
+            "apitube": mask_secret(os.getenv("APITUBE_API_KEY")),
+            "benzinga": mask_secret(os.getenv("BENZINGA_API_KEY")),
+            "polygon": mask_secret(os.getenv("POLYGON_API_KEY")),
+            "tiingo": mask_secret(os.getenv("TIINGO_API_KEY")),
+            "fmp": mask_secret(os.getenv("FMP_API_KEY")),
+            "eodhd": mask_secret(os.getenv("EODHD_API_KEY")),
+            "custom_news": mask_secret(os.getenv("CUSTOM_NEWS_API_KEY") or os.getenv("NEWS_DATA_API_KEY")),
         }
         return data
 
@@ -63,9 +78,19 @@ class ConfigManager:
         self.settings = self.load()
 
     def load(self) -> FinCLISettings:
+        dotenv_loaded_keys: set[str] = set()
         if load_dotenv is not None:
+            before_env = dict(os.environ)
             load_dotenv()
-        load_local_secrets()
+            if dotenv_values is not None:
+                dotenv_loaded_keys = {
+                    key
+                    for key, value in dotenv_values().items()
+                    if key and value is not None and (key not in before_env or before_env.get(key, "") == "")
+                }
+        # API keys saved from FinCLI commands should override stale project .env values,
+        # while explicit OS/process environment variables remain respected.
+        load_local_secrets(override_keys=dotenv_loaded_keys)
 
         if not self.config_file.exists():
             return FinCLISettings()
@@ -102,6 +127,14 @@ class ConfigManager:
 
     def set_news_provider(self, provider: str) -> None:
         self.settings.news_provider = provider.strip().lower()
+        self.save()
+
+    def set_news_provider_priority(self, providers: list[str]) -> None:
+        normalized = [provider.strip().lower() for provider in providers if provider.strip()]
+        if not normalized:
+            normalized = ["yfinance", "google_news_rss", "yahoo_finance_rss"]
+        self.settings.news_provider_priority = normalized
+        self.settings.news_provider = normalized[0]
         self.save()
 
     def set_market_provider_priority(self, providers: list[str]) -> None:

@@ -18,6 +18,7 @@ from fincli.app.cli.commands import CommandRegistry
 from fincli.app.cli.router import CommandResult, CommandRouter
 from fincli.app.providers.ai.manager import AIProviderManager
 from fincli.app.tui.components import CommandPalette, format_thinking_message, format_user_message
+from fincli.app.tui.components import write_output_entry
 from fincli.app.tui.market_provider_selector import MarketProviderSelectorScreen
 from fincli.app.tui.model_selector import AIModelSelectorScreen
 from fincli.app.tui.theme import APP_CSS
@@ -48,13 +49,23 @@ class FinCLIApp(App[None]):
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         with Vertical(id="workspace"):
-            with Vertical(id="main"):
+            yield Static(
+                f"FINCLI v{__version__} | PROFESSIONAL RESEARCH TERMINAL | LIVE WORKSPACE",
+                id="top_strip",
+            )
+            yield Static(
+                "MARKET DESK  /research  /news  /macro    ANALYSIS  /technical  /analyze  /mtf    RISK  /profile  /portfolio  /journal",
+                id="market_ribbon",
+            )
+            yield Static("OUTPUT STREAM | green=bullish/positive | red=bearish/negative | yellow=caution/wait", id="output_header")
+            with Vertical(id="output_frame"):
                 yield RichLog(id="output", wrap=True, markup=True, highlight=True)
-        yield Static("ready | /dashboard | /market AAPL | /provider status", id="status_bar")
+        yield Static("ready | /research AAPL --quick | /analyze XAUUSD | /provider status", id="status_bar")
         with Vertical(id="command_area"):
+            yield Static("Type a question for AI chat or use slash commands. Start with / for autocomplete.", id="command_hint")
             with Horizontal(id="command_line"):
-                yield Static("> ", id="command_prompt")
-                yield Input(placeholder="/", id="command_input")
+                yield Static("F> ", id="command_prompt")
+                yield Input(placeholder="Ask FinCLI or type /help", id="command_input")
             with VerticalScroll(id="command_palette_scroll"):
                 yield CommandPalette(id="command_palette")
 
@@ -63,7 +74,7 @@ class FinCLIApp(App[None]):
         palette.clear_palette()
         self.query_one("#command_palette_scroll", VerticalScroll).styles.display = "none"
         output = self.query_one("#output", RichLog)
-        output.write("Loading dashboard...")
+        write_output_entry(output, "Loading dashboard...")
         self._submit_route("/dashboard", display_raw="/dashboard", clear_output_before_result=True)
         self.query_one("#command_input", Input).focus()
 
@@ -121,7 +132,7 @@ class FinCLIApp(App[None]):
 
     def action_help(self) -> None:
         output = self.query_one("#output", RichLog)
-        output.write(self.router.route("/help").renderable)
+        write_output_entry(output, self.router.route("/help").renderable)
 
     def get_system_commands(self, screen: Screen) -> Iterable[SystemCommand]:
         """Return a curated command palette for FinCLI."""
@@ -166,7 +177,7 @@ class FinCLIApp(App[None]):
         self.router.ai_provider = AIProviderManager().create(provider)
         output = self.query_one("#output", RichLog)
         status = self.query_one("#status_bar", Static)
-        output.write(f"AI model aktif: {provider} / {model}")
+        write_output_entry(output, f"AI model aktif: {provider} / {model}")
         status.update(f"ready | ai model: {provider}/{model}")
 
     def _set_market_provider_from_selector(self, providers: tuple[str, ...]) -> None:
@@ -174,14 +185,14 @@ class FinCLIApp(App[None]):
         self.router.cache.clear()
         output = self.query_one("#output", RichLog)
         status = self.query_one("#status_bar", Static)
-        output.write(f"Provider market/news priority aktif: {', '.join(providers)}")
+        write_output_entry(output, f"Provider market/news priority aktif: {', '.join(providers)}")
         status.update(f"ready | market provider: {providers[0] if providers else 'yfinance'}")
 
     def _handle_ai_chat(self, prompt: str) -> None:
         output = self.query_one("#output", RichLog)
         status = self.query_one("#status_bar", Static)
-        output.write(format_user_message(prompt))
-        output.write(format_thinking_message("routing prompt to active AI provider..."))
+        write_output_entry(output, format_user_message(prompt))
+        write_output_entry(output, format_thinking_message("routing prompt to active AI provider..."))
         self._submit_route(f"/ai {prompt}", display_raw="/ai", chat=True)
 
     def _submit_route(
@@ -242,7 +253,7 @@ class FinCLIApp(App[None]):
             status.update(f"cancelled | {display_raw}")
             return
         if event.state == WorkerState.ERROR:
-            output.write(f"Error menjalankan {display_raw}: {worker.error}")
+            write_output_entry(output, f"Error menjalankan {display_raw}: {worker.error}")
             status.update(f"error | {display_raw}")
             return
 
@@ -252,7 +263,7 @@ class FinCLIApp(App[None]):
         if result.clear:
             output.clear()
         elif result.renderable:
-            output.write(result.renderable)
+            write_output_entry(output, result.renderable)
 
         if bool(meta.get("chat")):
             status.update(f"{result.status} | ai chat")

@@ -1,4 +1,4 @@
-# FinCLI v0.2.0
+# FinCLI v0.2.2
 
 FinCLI is a modern financial CLI/TUI terminal for market monitoring, technical analysis, AI-assisted research, portfolio tracking, watchlists, trading journals, and configurable market/news provider workflows.
 
@@ -12,6 +12,7 @@ Current status: FinCLI is an active MVP moving into v0.2 with a Textual TUI, pro
 - Finnhub provider for quotes, stock candles, company news, company profile, and economic calendar via `FINNHUB_API_KEY`.
 - Twelve Data provider for multi-asset market data via `TWELVE_DATA_API_KEY`.
 - Alpha Vantage provider for stock/FX quote, daily history, news sentiment, and company overview via `ALPHA_VANTAGE_API_KEY`.
+- 100+ news connector catalog for `/news`, including public RSS fallbacks and API-key-ready providers such as Marketaux, NewsAPI, GNews, Alpha Vantage News, Finnhub News, StockNewsAPI, APITube, Benzinga, Polygon, Tiingo, FMP, and EODHD.
 - Symbol search and provider-specific normalization with `/symbol`.
 - Provider entitlement and realtime/delayed labeling with `/provider entitlement`.
 - Economic calendar through Finnhub when an API key is configured, with a local fallback when the provider is unavailable.
@@ -140,7 +141,12 @@ python -m fincli.app.main
 /ai_model openrouter openai/gpt-4o-mini
 /ai_model key groq <api_key>
 /news_model
+/news_model list
+/news_model search rss
+/news_model use google_news_rss
+/news_model priority google_news_rss,yfinance,marketaux,newsapi,gnews
 /news_model key finnhub <api_key>
+/news_model key marketaux <api_key>
 /news_model key alphavantage <api_key>
 /symbol XAUUSD
 /symbol normalize BBRI
@@ -210,7 +216,7 @@ python -m fincli.app.main
 /exit
 ```
 
-`/market`, `/quote`, `/technical`, `/structure`, `/news`, and `/funda` use the active provider chain. `/ai` and `/analyze` use the active AI provider from `/ai_model`. `/analyze` sends indicator, market structure, news, and fundamental context to the AI prompt. `/ai` can also attach quote, OHLCV/technical, structure, news, fundamental, and web context when the prompt asks for current information or mentions a clear symbol such as `AAPL`, `EURUSD`, or `XAUUSD`.
+`/market`, `/quote`, `/technical`, `/structure`, and `/funda` use the active market provider chain. `/news` uses the active news fallback chain from `/news_model priority`. `/ai` and `/analyze` use the active AI provider from `/ai_model`. `/analyze` sends indicator, market structure, news, and fundamental context to the AI prompt. `/ai` can also attach quote, OHLCV/technical, structure, news, fundamental, and web context when the prompt asks for current information or mentions a clear symbol such as `AAPL`, `EURUSD`, or `XAUUSD`.
 
 ## AI Chat UX
 
@@ -293,29 +299,32 @@ Save a key directly:
 /ai_model key openrouter <api_key>
 ```
 
-## Interactive Market/News Provider Selector
+## News Connectors and Fallbacks
 
 ```text
 /news_model
 ```
 
-In the TUI, this opens a selector for market/news providers and fallback priority:
+`/news_model` manages the `/news` provider chain. It supports public RSS fallbacks, yfinance news, custom news APIs, and API-key providers.
 
-- Select Market/News Provider
-- Choose `Twelve Data`, `Finnhub`, `Alpha Vantage`, `Custom API`, or `Yahoo Finance`
-- Enter API keys directly from the popup when needed
-- Choose a fallback preset: recommended, primary + yfinance, data API priority, or yfinance only
-- Search provider/preset
-- Navigate with `up/down`, `Enter`, `Tab`, and `Esc`
-
-Practical default:
+Useful commands:
 
 ```text
-Primary: twelvedata
-Fallback: twelvedata -> finnhub -> custom -> yfinance
+/news_model list
+/news_model search rss
+/news_model use google_news_rss
+/news_model priority google_news_rss,yfinance,yahoo_finance_rss,marketaux,newsapi,gnews
+/news_model key marketaux <api_key>
+/news_model key custom_news <api_key> https://your-news-api.example.com
 ```
 
-`yfinance` remains a free delayed/fallback provider. API providers such as Twelve Data, Finnhub, and Alpha Vantage depend on API key, plan, exchange entitlement, and rate limits.
+Practical free-first default:
+
+```text
+/news_model priority google_news_rss,yfinance,yahoo_finance_rss
+```
+
+API-key providers such as Marketaux, NewsAPI, GNews, Finnhub, and Alpha Vantage depend on their free-tier limits, plan, exchange entitlement, and rate limits. Public RSS sources may fail or change without notice, so FinCLI tries the next fallback automatically.
 
 ## Economic Calendar
 
