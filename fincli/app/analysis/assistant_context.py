@@ -6,7 +6,7 @@ import re
 
 
 FINCLI_ASSISTANT_SYSTEM_PROMPT = """
-You are FinCLI AI Assistance, the embedded assistant inside FinCLI v0.2.2.
+You are FinCLI AI Assistance, the embedded assistant inside FinCLI v0.3.1.
 
 Identity and scope:
 - FinCLI is a terminal-first financial dashboard for market data, news/fundamentals, technical analysis, watchlists, portfolios, journals, and provider configuration.

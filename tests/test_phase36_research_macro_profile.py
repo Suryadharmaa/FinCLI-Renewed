@@ -109,8 +109,8 @@ def make_router(tmp_path: Path) -> tuple[CommandRouter, CapturingAIProvider]:
     return router, ai
 
 
-def test_package_metadata_is_v022() -> None:
-    assert fincli.__version__ == "0.2.2"
+def test_package_metadata_is_v031() -> None:
+    assert fincli.__version__ == "0.3.1"
 
 
 def test_registry_promotes_research_macro_profile_and_hides_overlapping_commands() -> None:

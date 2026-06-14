@@ -119,6 +119,17 @@ class FinCLIDatabase:
                             gameplay TEXT NOT NULL,
                             updated_at TEXT DEFAULT CURRENT_TIMESTAMP
                         );
+
+                        CREATE TABLE IF NOT EXISTS provider_metrics (
+                            provider TEXT PRIMARY KEY,
+                            calls INTEGER DEFAULT 0,
+                            successes INTEGER DEFAULT 0,
+                            errors INTEGER DEFAULT 0,
+                            fallbacks INTEGER DEFAULT 0,
+                            total_latency_ms REAL DEFAULT 0,
+                            last_status TEXT DEFAULT 'not_called',
+                            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                        );
                         """
                     )
                     _migrate_user_profile_schema(db)
@@ -142,7 +153,7 @@ class FinCLIDatabase:
 
 
 def _migrate_user_profile_schema(db: sqlite3.Connection) -> None:
-    """Normalize older user_profile schemas to the v0.2.2 canonical shape."""
+    """Normalize older user_profile schemas to the v0.3.1 canonical shape."""
 
     columns = {str(row["name"]) for row in db.execute("PRAGMA table_info(user_profile)").fetchall()}
     canonical = {"id", "name", "equity", "currency", "leverage", "years_in_investment", "gameplay", "updated_at"}

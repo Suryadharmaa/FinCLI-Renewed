@@ -6,9 +6,11 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from datetime import datetime
+from time import perf_counter
 from typing import Any, Awaitable
 
 from fincli.app.providers.market.base import BaseMarketProvider, Candle, FundamentalSnapshot, NewsItem, ProviderStatus, Quote
+from fincli.app.providers.reliability import ProviderResult, classify_payload, classify_provider_error
 from fincli.app.storage.market_cache import MarketCache
 from fincli.app.utils.errors import ProviderError
 
@@ -21,13 +23,20 @@ class MarketDataService:
         providers: list[BaseMarketProvider],
         cache: MarketCache | None = None,
         cache_ttl_seconds: int = 300,
+        metrics_store: Any | None = None,
     ) -> None:
         if not providers:
             raise ProviderError("MarketDataService membutuhkan minimal satu provider.")
         self.providers = providers
         self.cache = cache
         self.cache_ttl_seconds = cache_ttl_seconds
+        self.metrics_store = metrics_store
         self.last_errors: list[str] = []
+        self.provider_results: list[ProviderResult] = []
+        self.provider_metrics: dict[str, ProviderRuntimeMetrics] = {
+            getattr(provider, "name", "unknown"): ProviderRuntimeMetrics(getattr(provider, "name", "unknown"))
+            for provider in providers
+        }
 
     @property
     def primary_provider(self) -> BaseMarketProvider:
@@ -85,16 +94,69 @@ class MarketDataService:
     async def _with_fallback(self, method_name: str, *args: object) -> Any:
         errors: list[str] = []
         for provider in self.providers:
+            provider_name = getattr(provider, "name", "unknown")
+            started = perf_counter()
             try:
                 method = getattr(provider, method_name)
-                return await method(*args)
+                payload = await method(*args)
+                latency_ms = (perf_counter() - started) * 1000
+                status, missing = classify_payload(method_name, payload)
+                self._record_provider_metric(provider_name, success=status != "partial_data", latency_ms=latency_ms)
+                self._record_provider_result(
+                    provider=provider_name,
+                    operation=method_name,
+                    status=status,
+                    missing_fields=missing,
+                    message="ok" if not missing else f"partial payload: {', '.join(missing)}",
+                )
+                return payload
             except Exception as exc:  # noqa: BLE001
-                errors.append(f"{getattr(provider, 'name', 'unknown')}: {exc}")
+                latency_ms = (perf_counter() - started) * 1000
+                errors.append(f"{provider_name}: {exc}")
+                self._record_provider_metric(provider_name, success=False, latency_ms=latency_ms, fallback=True)
+                self._record_provider_result(
+                    provider=provider_name,
+                    operation=method_name,
+                    status=classify_provider_error(exc),
+                    message=str(exc),
+                )
         self.last_errors = errors
         raise ProviderError(
             f"Semua provider gagal untuk {method_name}.",
             "\n".join(errors),
         )
+
+    def _record_provider_result(
+        self,
+        provider: str,
+        operation: str,
+        status: str,
+        missing_fields: tuple[str, ...] = (),
+        message: str = "",
+    ) -> None:
+        self.provider_results.append(
+            ProviderResult(
+                provider=provider,
+                operation=operation,
+                status=status,
+                realtime_label="unknown",
+                source=provider,
+                data_quality=status,
+                missing_fields=missing_fields,
+                message=message,
+            )
+        )
+        if len(self.provider_results) > 50:
+            self.provider_results = self.provider_results[-50:]
+
+    def _record_provider_metric(self, provider: str, success: bool, latency_ms: float, fallback: bool = False) -> None:
+        metric = self.provider_metrics.setdefault(provider, ProviderRuntimeMetrics(provider))
+        metric.record(success=success, latency_ms=latency_ms, fallback=fallback)
+        if self.metrics_store is not None:
+            self.metrics_store.record(provider, success=success, latency_ms=latency_ms, fallback=fallback)
+
+    def provider_metrics_snapshot(self) -> dict[str, "ProviderRuntimeMetrics"]:
+        return {provider: metric.copy() for provider, metric in self.provider_metrics.items()}
 
     def _cache_key(self, symbol: str, *parts: object) -> str:
         provider_chain = ",".join(provider.name for provider in self.providers)
@@ -201,3 +263,46 @@ def _optional_float(value: object) -> float | None:
     if value is None:
         return None
     return float(value)
+
+
+class ProviderRuntimeMetrics:
+    """Runtime metrics for one market provider."""
+
+    def __init__(self, provider: str) -> None:
+        self.provider = provider
+        self.calls = 0
+        self.successes = 0
+        self.errors = 0
+        self.fallbacks = 0
+        self.total_latency_ms = 0.0
+        self.last_status = "not_called"
+
+    @property
+    def success_rate(self) -> float:
+        return (self.successes / self.calls * 100) if self.calls else 0.0
+
+    @property
+    def avg_latency_ms(self) -> float:
+        return (self.total_latency_ms / self.calls) if self.calls else 0.0
+
+    def record(self, success: bool, latency_ms: float, fallback: bool = False) -> None:
+        self.calls += 1
+        self.total_latency_ms += max(latency_ms, 0.0)
+        if success:
+            self.successes += 1
+            self.last_status = "success"
+        else:
+            self.errors += 1
+            self.last_status = "error"
+        if fallback:
+            self.fallbacks += 1
+
+    def copy(self) -> "ProviderRuntimeMetrics":
+        duplicate = ProviderRuntimeMetrics(self.provider)
+        duplicate.calls = self.calls
+        duplicate.successes = self.successes
+        duplicate.errors = self.errors
+        duplicate.fallbacks = self.fallbacks
+        duplicate.total_latency_ms = self.total_latency_ms
+        duplicate.last_status = self.last_status
+        return duplicate

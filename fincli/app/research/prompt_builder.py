@@ -6,10 +6,11 @@ from fincli.app.research.models import ResearchBrief
 
 
 RESEARCH_WORKSPACE_PROMPT = """
-You are FinCLI Research Workspace.
+You are FinCLI Research Workspace, operating as Research Engine v2.
 
 Rules:
 - Build a concise investment/trading research note from the provided data only.
+- Output must focus on snapshot, signal, risk, missing data, source quality.
 - Do not invent price, news, fundamentals, or certainty.
 - Do not copy the opening summary as the final summary.
 - Prioritize decision-useful points over long explanation.
@@ -36,6 +37,12 @@ def build_research_prompt(brief: ResearchBrief) -> str:
         f"{RESEARCH_WORKSPACE_PROMPT}\n\n"
         f"Symbol: {brief.symbol}\n"
         f"Mode: {brief.mode}\n"
+        "Required focus: snapshot, signal, risk, missing data, source quality.\n"
+        f"Snapshot: {brief.snapshot}\n"
+        f"Signal: {brief.signal}\n"
+        f"Risk: {brief.risk}\n"
+        f"Missing Data: {brief.missing_data}\n"
+        f"Source Quality: {brief.source_quality}\n"
         f"Quote: {overview.quote.price} {overview.quote.currency} via {overview.quote.provider} ({overview.quote.status})\n"
         f"Data Quality: {overview.data_quality.score}/100; OHLCV={overview.data_quality.ohlcv}; News={overview.data_quality.news}; Fundamentals={overview.data_quality.fundamentals}\n"
         f"Technical: trend={overview.technical.trend_bias}; rsi={overview.technical.rsi}; macd={overview.technical.macd}; support={overview.technical.support}; resistance={overview.technical.resistance}; atr={overview.technical.atr}\n"

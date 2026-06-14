@@ -25,6 +25,7 @@ def build_market_analysis_prompt(
     news_context: str = "No news/fundamental context provided.",
     user_gameplay_context: str = "User Gameplay Profile: not configured.",
     trading_methods_context: str = "",
+    grounding_context: str = "",
 ) -> str:
     """Build a structured AI prompt from market data and computed indicators."""
     recent = candles[-10:]
@@ -57,6 +58,9 @@ def build_market_analysis_prompt(
         f"Instrument: {symbol}\n"
         f"Timeframe: {timeframe}\n"
         f"Data Quality: {len(candles)} candles available from provider.\n\n"
+        "AI Grounding Guard:\n"
+        f"{grounding_context or 'Data Quality: unknown; Provider Reliability: unknown; Missing Data: unknown; Provider Metrics: unavailable.'}\n"
+        "Instruction: If reliability is not ok, missing data exists, or provider metrics are weak, reduce confidence before conclusion.\n\n"
         "Recent OHLCV:\n"
         f"{chr(10).join(ohlcv_lines)}\n\n"
         "Computed Indicators:\n"

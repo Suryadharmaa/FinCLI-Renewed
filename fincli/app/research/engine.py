@@ -27,10 +27,16 @@ class ResearchEngine:
                 symbol=brief.symbol,
                 mode=brief.mode,
                 overview=brief.overview,
+                snapshot=brief.snapshot,
+                signal=brief.signal,
+                risk=brief.risk,
+                missing_data=brief.missing_data,
+                source_quality=brief.source_quality,
                 decision_points=brief.decision_points,
                 risks=brief.risks,
                 final_summary=brief.final_summary,
                 ai_summary=response.content,
+                report_notes=brief.report_notes,
             )
         return brief
 
@@ -52,8 +58,20 @@ def _brief_from_overview(overview: MarketOverview, mode: str) -> ResearchBrief:
     if overview.news:
         decision_points.append(f"Latest news: {overview.news[0].title} ({overview.news[0].source}).")
 
+    missing_data = ", ".join(overview.data_quality.missing_fields) if overview.data_quality.missing_fields else "none"
+    source_quality = (
+        f"{overview.data_quality.score}/100 | reliability={overview.data_quality.reliability_status} | "
+        f"provider={overview.data_quality.provider}"
+    )
+    signal = _research_signal(overview)
+    risk = _research_risk(overview)
+    snapshot = (
+        f"{overview.symbol}: {technical.trend_bias} trend, {structure.trend} structure, "
+        f"price {overview.quote.price} {overview.quote.currency}, data {overview.data_quality.score}/100."
+    )
+
     risks = [
-        f"Data quality {overview.data_quality.score}/100; provider label {overview.data_quality.provider}.",
+        f"Source quality: {source_quality}.",
         "Use confirmation and invalidation; do not treat this brief as financial advice.",
     ]
     if structure.change_of_character:
@@ -61,15 +79,59 @@ def _brief_from_overview(overview: MarketOverview, mode: str) -> ResearchBrief:
     if technical.rsi is not None and (technical.rsi > 75 or technical.rsi < 25):
         risks.append("RSI is at an extreme; avoid chasing without confirmation.")
 
-    final_summary = (
-        f"{overview.symbol} is a {technical.trend_bias} / {structure.trend} setup with "
-        f"{overview.data_quality.score}/100 data quality. Focus on support/resistance reaction and news/fundamental confirmation."
+    final_summary = _final_summary(overview, signal, risk, missing_data)
+    report_notes = (
+        f"Snapshot: {snapshot}",
+        f"Signal: {signal}",
+        f"Risk: {risk}",
+        f"Missing data: {missing_data}",
+        f"Source quality: {source_quality}",
+        "Not financial advice.",
     )
     return ResearchBrief(
         symbol=overview.symbol,
         mode=mode,
         overview=overview,
+        snapshot=snapshot,
+        signal=signal,
+        risk=risk,
+        missing_data=missing_data,
+        source_quality=source_quality,
         decision_points=decision_points[:6],
         risks=risks[:4],
         final_summary=final_summary,
+        report_notes=report_notes,
+    )
+
+
+def _research_signal(overview: MarketOverview) -> str:
+    trend = overview.technical.trend_bias.lower()
+    structure = overview.structure.trend.lower()
+    rsi = overview.technical.rsi
+    if overview.data_quality.reliability_status != "ok":
+        return "CAUTION - data incomplete; verify provider source first."
+    if trend == "bullish" and structure == "bullish" and (rsi is None or rsi < 75):
+        return "BULLISH WATCH - only after support/retest confirmation."
+    if trend == "bearish" and structure == "bearish" and (rsi is None or rsi > 25):
+        return "BEARISH WATCH - only after resistance/rejection confirmation."
+    return "CAUTION - mixed or extended setup; wait for confirmation."
+
+
+def _research_risk(overview: MarketOverview) -> str:
+    risks: list[str] = []
+    if overview.structure.change_of_character:
+        risks.append("CHoCH detected")
+    if overview.technical.rsi is not None and overview.technical.rsi > 75:
+        risks.append("RSI overbought")
+    if overview.technical.rsi is not None and overview.technical.rsi < 25:
+        risks.append("RSI oversold")
+    if overview.data_quality.missing_fields:
+        risks.append(f"missing {', '.join(overview.data_quality.missing_fields)}")
+    return "; ".join(risks) if risks else "standard market risk; define invalidation before entry"
+
+
+def _final_summary(overview: MarketOverview, signal: str, risk: str, missing_data: str) -> str:
+    return (
+        f"{overview.symbol}: {signal}. Key risk: {risk}. "
+        f"Missing data: {missing_data}. Treat this as research context, not financial advice."
     )

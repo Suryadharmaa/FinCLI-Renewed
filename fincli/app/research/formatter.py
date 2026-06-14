@@ -9,14 +9,19 @@ from fincli.app.utils.formatting import semantic_text
 
 
 def format_research_brief(brief: ResearchBrief) -> Table:
-    table = Table(title=f"Research Brief: {brief.symbol} | {brief.mode}", expand=True)
+    table = Table(title=f"Research Center: {brief.symbol} | {brief.mode} | Research Brief v2", expand=True)
     table.add_column("Section", style="cyan", no_wrap=True)
     table.add_column("Description", overflow="fold")
-    table.add_row("Data Quality", semantic_text(f"{brief.overview.data_quality.score}/100 | {brief.overview.data_quality.provider}"))
-    table.add_row("Decision Points", semantic_text("\n".join(f"- {point}" for point in brief.decision_points)))
-    table.add_row("Risks", semantic_text("\n".join(f"- {risk}" for risk in brief.risks)))
+    table.add_row("Snapshot", semantic_text(brief.snapshot))
+    table.add_row("Signal", semantic_text(brief.signal))
+    table.add_row("Risk", semantic_text(brief.risk))
+    table.add_row("Missing Data", semantic_text(brief.missing_data))
+    table.add_row("Source Quality", semantic_text(brief.source_quality))
+    table.add_row("Decision Points", semantic_text(" | ".join(brief.decision_points[:2])))
+    if brief.mode == "report":
+        table.add_row("Report Notes", semantic_text("\n".join(f"- {item}" for item in brief.report_notes)))
     if brief.ai_summary:
         table.add_row("AI Summary", brief.ai_summary)
     table.add_row("Final Summary", semantic_text(brief.final_summary))
-    table.caption = "Research output is informational only, not financial advice."
+    table.caption = "Research output is informational only. Not financial advice."
     return table

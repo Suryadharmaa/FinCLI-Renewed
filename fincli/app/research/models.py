@@ -12,7 +12,13 @@ class ResearchBrief:
     symbol: str
     mode: str
     overview: MarketOverview
+    snapshot: str
+    signal: str
+    risk: str
+    missing_data: str
+    source_quality: str
     decision_points: list[str]
     risks: list[str]
     final_summary: str
     ai_summary: str = ""
+    report_notes: tuple[str, ...] = ()

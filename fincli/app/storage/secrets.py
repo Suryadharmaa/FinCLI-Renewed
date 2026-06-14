@@ -60,6 +60,24 @@ def save_secret(env_key: str, value: str, path: Path | None = None) -> None:
     os.environ[key] = secret
 
 
+def clear_secrets(path: Path | None = None) -> int:
+    """Clear persisted local secrets and remove them from the current process."""
+    path = path or SECRETS_FILE
+    secrets = read_secrets(path)
+    for key in secrets:
+        os.environ.pop(key, None)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("# FinCLI local secrets. Do not commit or share this file.\n", encoding="utf-8")
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+    except OSError as exc:
+        raise ConfigError("Secret lokal gagal dibersihkan.", f"Path: {path}") from exc
+    return len(secrets)
+
+
 def read_secrets(path: Path | None = None) -> dict[str, str]:
     """Read local secrets without printing or masking them."""
     path = path or SECRETS_FILE

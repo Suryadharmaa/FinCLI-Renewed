@@ -89,7 +89,7 @@ class PublicEconomicCalendarService:
         client = self._client or httpx.AsyncClient(
             timeout=20,
             follow_redirects=True,
-            headers={"User-Agent": "FinCLI/0.2.2 economic-calendar"},
+            headers={"User-Agent": "FinCLI/0.3.1 economic-calendar"},
         )
         errors: list[str] = []
         try:

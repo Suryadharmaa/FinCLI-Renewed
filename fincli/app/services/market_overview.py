@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from fincli.app.analysis.indicators import TechnicalSummary, summarize_technical_indicators
 from fincli.app.analysis.market_structure import MarketStructureSummary, analyze_market_structure
 from fincli.app.providers.market.base import Candle, FundamentalSnapshot, NewsItem, Quote
+from fincli.app.providers.reliability import STATUS_OK, STATUS_PARTIAL_DATA, STATUS_UNAVAILABLE
 from fincli.app.services.market_data import MarketDataService
 from fincli.app.utils.errors import FinCLIError
 
@@ -19,6 +20,11 @@ class DataQuality:
     news: str
     fundamentals: str
     provider: str
+    tier: str
+    freshness: str
+    reliability_status: str
+    missing_fields: tuple[str, ...]
+    label: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,9 +79,12 @@ def _score_data_quality(
     fundamentals: FundamentalSnapshot | None,
 ) -> DataQuality:
     score = 0
+    missing: list[str] = []
     quote_status = "ok" if quote.price is not None else "missing"
     if quote.price is not None:
         score += 25
+    else:
+        missing.append("quote")
 
     candle_count = len(candles)
     if candle_count >= 120:
@@ -89,23 +98,55 @@ def _score_data_quality(
         score += 10
     else:
         ohlcv_status = "missing"
+        missing.append("ohlcv")
 
     news_status = f"{len(news)} item(s)" if news else "missing"
     if news:
         score += 15
+    else:
+        missing.append("news")
 
     fundamentals_status = "ok" if fundamentals is not None else "missing"
     if fundamentals is not None:
         score += 20
+    else:
+        missing.append("fundamentals")
 
     if quote.status == "realtime":
         score += 5
 
+    normalized_score = min(score, 100)
+    tier = _quality_tier(normalized_score)
+    freshness = quote.status or "unknown"
+    reliability_status = _reliability_status(missing, normalized_score)
     return DataQuality(
-        score=min(score, 100),
+        score=normalized_score,
         quote=quote_status,
         ohlcv=ohlcv_status,
         news=news_status,
         fundamentals=fundamentals_status,
         provider=f"{quote.provider} ({quote.status})",
+        tier=tier,
+        freshness=freshness,
+        reliability_status=reliability_status,
+        missing_fields=tuple(missing),
+        label=f"{tier} | {reliability_status} | freshness={freshness}",
     )
+
+
+def _quality_tier(score: int) -> str:
+    if score >= 85:
+        return "strong"
+    if score >= 65:
+        return "usable"
+    if score >= 40:
+        return "partial"
+    return "weak"
+
+
+def _reliability_status(missing: list[str], score: int) -> str:
+    if "quote" in missing or "ohlcv" in missing or score < 25:
+        return STATUS_UNAVAILABLE
+    if missing:
+        return STATUS_PARTIAL_DATA
+    return STATUS_OK

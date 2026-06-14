@@ -40,7 +40,8 @@ def test_history_save_sessions_show_and_delete(tmp_path: Path) -> None:
     assert router.history.get_events(router.session_id) == []
 
 
-def test_history_redacts_api_keys(tmp_path: Path) -> None:
+def test_history_redacts_api_keys(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("fincli.app.storage.secrets.SECRETS_FILE", tmp_path / "secrets.env")
     router = make_router(tmp_path)
 
     router.route("/ai_model key groq very-secret-key")

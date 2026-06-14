@@ -47,6 +47,7 @@ from fincli.app.modules.exporter import export_rows
 from fincli.app.modules.journal_analytics import JournalStats, build_journal_review_prompt, calculate_journal_stats
 from fincli.app.modules.journal import JournalService
 from fincli.app.modules.portfolio import PortfolioService
+from fincli.app.modules.portfolio_risk import PortfolioRiskReport, build_portfolio_risk
 from fincli.app.modules.scanner import ScanResult, scan_symbols
 from fincli.app.modules.session_history import SessionHistoryService
 from fincli.app.modules.transactions import TransactionService
@@ -73,6 +74,12 @@ from fincli.app.providers.market.base import (
 from fincli.app.providers.market.manager import MarketProviderManager
 from fincli.app.providers.market.symbols import provider_symbol_matrix, search_symbol_catalog
 from fincli.app.providers.market.yfinance_provider import YahooTable, YFinanceProvider
+from fincli.app.providers.reliability import (
+    STATUS_OK,
+    STATUS_PARTIAL_DATA,
+    STATUS_SCHEDULE_ONLY,
+    STATUS_UNAVAILABLE,
+)
 from fincli.app.plugins.loader import PluginLoader, PluginManifest
 from fincli.app.services.market_data import MarketDataService
 from fincli.app.services.market_overview import MarketOverview, build_market_overview
@@ -84,12 +91,13 @@ from fincli.app.services.web_research import (
     build_web_research_context,
     should_use_web_research,
 )
-from fincli.app.research import ResearchEngine, format_research_brief
+from fincli.app.research import ResearchEngine, format_research_brief, write_research_report
 from fincli.app.storage.cache import TTLCache
 from fincli.app.storage.config import ConfigManager
 from fincli.app.storage.database import FinCLIDatabase
 from fincli.app.storage.market_cache import MarketCache
-from fincli.app.storage.secrets import save_secret
+from fincli.app.storage.provider_metrics import ProviderMetricsStore
+from fincli.app.storage.secrets import clear_secrets, read_secrets, save_secret
 from fincli.app.utils.errors import CommandError, FinCLIError
 from fincli.app.utils.formatting import AIResponseView, MarkdownBlock, semantic_text
 
@@ -118,6 +126,7 @@ class CommandRouter:
         self.registry = registry or CommandRegistry()
         self.cache: TTLCache[object] = TTLCache(self.config.settings.cache_ttl_seconds)
         self.market_cache = MarketCache(self.db)
+        self.provider_metrics_store = ProviderMetricsStore(self.db)
         self.market_manager = MarketProviderManager()
         self.market_service = self._build_market_service(market_provider)
         self.market_provider = self.market_service.primary_provider
@@ -192,6 +201,10 @@ class CommandRouter:
                 return self._doctor(args)
             if root == "/setup":
                 return self._setup(args)
+            if root == "/secrets":
+                return self._secrets(args)
+            if root == "/privacy":
+                return self._privacy(args)
             if root == "/agent":
                 return self._agent(args)
             if root == "/connector":
@@ -268,7 +281,7 @@ class CommandRouter:
             )
 
     def _help_table(self) -> Table:
-        table = Table(title="FinCLI v0.2.2 Commands", expand=True)
+        table = Table(title="FinCLI v0.3.1 Commands", expand=True)
         table.add_column("Command", style="cyan", no_wrap=True)
         table.add_column("Group", style="magenta")
         table.add_column("Fungsi", style="white")
@@ -279,7 +292,12 @@ class CommandRouter:
 
     def _record_history(self, raw: str, result: CommandResult) -> None:
         normalized = raw.strip().lower()
-        if not normalized or normalized.startswith("/history"):
+        if (
+            not normalized
+            or normalized.startswith("/history")
+            or normalized.startswith("/privacy purge")
+            or normalized.startswith("/secrets clear")
+        ):
             return
         try:
             preview = _render_history_preview(result.renderable)
@@ -553,12 +571,33 @@ class CommandRouter:
 
     def _research(self, args: list[str]) -> CommandResult:
         if not args:
-            raise CommandError("Format: /research <symbol> [--quick|--deep] [timeframe]")
+            raise CommandError("Format: /research <symbol> [--deep|--report] [timeframe] [--export <md|json> <path>]")
         symbol = args[0].upper()
-        mode = "deep" if any(arg.lower() == "--deep" for arg in args[1:]) else "quick"
-        timeframe = next((arg for arg in args[1:] if not arg.startswith("--")), "1d")
+        export_format: str | None = None
+        export_target: str | None = None
+        if "--export" in args:
+            export_index = args.index("--export")
+            if len(args) <= export_index + 2:
+                raise CommandError("Format export: /research <symbol> --report --export <md|json> <path>")
+            export_format = args[export_index + 1]
+            export_target = args[export_index + 2]
+        flags = {arg.lower() for arg in args[1:] if arg.startswith("--")}
+        if "--report" in flags:
+            mode = "report"
+        elif "--deep" in flags:
+            mode = "deep"
+        else:
+            mode = "quick"
+        ignored: set[int] = set()
+        if "--export" in args:
+            export_index = args.index("--export")
+            ignored.update({export_index, export_index + 1, export_index + 2})
+        timeframe = next((arg for index, arg in enumerate(args[1:], start=1) if index not in ignored and not arg.startswith("--")), "1d")
         engine = ResearchEngine(self.market_service, self.ai_provider, self.config.settings.ai_model)
         brief = self._run_async(engine.build(symbol, timeframe=timeframe, mode=mode))
+        if export_format and export_target:
+            written = write_research_report(brief, export_format, export_target)
+            return CommandResult(Panel(f"Research export selesai: {written}", title="Research Export", border_style="green"))
         return CommandResult(format_research_brief(brief))
 
     def _macro(self, args: list[str]) -> CommandResult:
@@ -585,7 +624,7 @@ class CommandRouter:
         table.add_column("Check", style="cyan", no_wrap=True)
         table.add_column("Status")
         table.add_column("Detail", overflow="fold")
-        table.add_row("Version", "ok", "FinCLI v0.2.2 command surface loaded.")
+        table.add_row("Version", "ok", "FinCLI v0.3.1 command surface loaded.")
         table.add_row("Database", "ok", str(self.db.db_file))
         table.add_row("Market Provider", "ok", ", ".join(provider.name for provider in self.market_service.providers))
         profile = self.user_profiles.get()
@@ -612,6 +651,61 @@ class CommandRouter:
                 border_style="cyan",
             )
         )
+
+    def _secrets(self, args: list[str]) -> CommandResult:
+        action = args[0].lower() if args else "status"
+        if action == "status":
+            return CommandResult(_format_secrets_status(read_secrets()))
+        if action == "clear":
+            cleared = clear_secrets()
+            return CommandResult(
+                Panel(
+                    f"{cleared} local secret(s) cleared from ~/.fincli/secrets.env. Current process keys from that store were removed.",
+                    title="Secrets Cleared",
+                    border_style="yellow",
+                )
+            )
+        raise CommandError("Format: /secrets status atau /secrets clear")
+
+    def _privacy(self, args: list[str]) -> CommandResult:
+        action = args[0].lower() if args else "status"
+        if action == "status":
+            stats = self.market_cache.stats()
+            return CommandResult(
+                Panel(
+                    "\n".join(
+                        [
+                            f"Secrets stored       : {len(read_secrets())}",
+                            f"Session events       : {len(self.history.get_events(self.session_id))}",
+                            f"Persistent cache rows: {stats['total']}",
+                            "Purge scope          : secrets + current session history + runtime/persistent cache",
+                            "Portfolio, journal, alerts, and profile are not deleted by /privacy purge.",
+                        ]
+                    ),
+                    title="Privacy Status",
+                    border_style="cyan",
+                )
+            )
+        if action == "purge":
+            secrets_cleared = clear_secrets()
+            self.history.clear_events(self.session_id)
+            self.cache.clear()
+            cache_cleared = self.market_cache.clear()
+            return CommandResult(
+                Panel(
+                    (
+                        f"Privacy state purged.\n"
+                        f"- secrets cleared: {secrets_cleared}\n"
+                        f"- current session history cleared\n"
+                        f"- runtime cache cleared\n"
+                        f"- persistent market cache rows cleared: {cache_cleared}\n\n"
+                        "Portfolio, journal, alerts, and profile were kept."
+                    ),
+                    title="Privacy Purge",
+                    border_style="yellow",
+                )
+            )
+        raise CommandError("Format: /privacy status atau /privacy purge")
 
     def _agent(self, args: list[str]) -> CommandResult:
         action = args[0].lower() if args else "list"
@@ -737,6 +831,8 @@ class CommandRouter:
             return CommandResult(table)
 
         action = args[0].lower()
+        if action == "risk":
+            return CommandResult(_format_portfolio_risk(self._portfolio_risk_report()))
         if action == "performance":
             return CommandResult(self._portfolio_performance_table())
         if action == "add" and len(args) >= 4:
@@ -751,7 +847,7 @@ class CommandRouter:
             self.portfolio.remove(args[1])
             return CommandResult(Panel(f"Posisi {args[1].upper()} dihapus.", title="Portfolio"))
         raise CommandError(
-            "Format: /portfolio, /portfolio performance, /portfolio add <symbol> <qty> <avg_price>, "
+            "Format: /portfolio, /portfolio risk, /portfolio performance, /portfolio add <symbol> <qty> <avg_price>, "
             "/portfolio remove <symbol>"
         )
 
@@ -1020,7 +1116,17 @@ class CommandRouter:
         structure = analyze_market_structure(candles)
         news_context = self._analysis_context(symbol)
         gameplay_context = format_gameplay_context(self.user_profiles.get(), symbol)
-        prompt = build_market_analysis_prompt(symbol, timeframe, candles, technical, structure, news_context, gameplay_context)
+        grounding_context = self._ai_grounding_context(symbol, timeframe)
+        prompt = build_market_analysis_prompt(
+            symbol,
+            timeframe,
+            candles,
+            technical,
+            structure,
+            news_context,
+            gameplay_context,
+            grounding_context=grounding_context,
+        )
         request = AIRequest(prompt=prompt, model=self.config.settings.ai_model)
         response = self._run_async(self.ai_provider.complete(request))
         if not isinstance(response, AIResponse):
@@ -1148,30 +1254,25 @@ class CommandRouter:
             return None, None, None
 
     def _portfolio_performance_table(self) -> Table:
-        positions = self.portfolio.list()
-        realized = self.transactions.realized_pnl_total()
-        cost_basis = 0.0
-        market_value = 0.0
-        unrealized = 0.0
-        for row in positions:
-            quantity = float(row["quantity"])
-            average_price = float(row["average_price"])
-            current_price, pnl, _ = self._portfolio_market_values(row)
-            cost_basis += quantity * average_price
-            if current_price is not None:
-                market_value += quantity * current_price
-            if pnl is not None:
-                unrealized += pnl
+        risk = self._portfolio_risk_report()
 
         table = Table(title="Portfolio Performance", expand=True)
         table.add_column("Metric", style="cyan")
         table.add_column("Value", justify="right")
-        table.add_row("Cost Basis", _fmt(cost_basis))
-        table.add_row("Market Value", _fmt(market_value))
-        table.add_row("Unrealized PnL", _fmt(unrealized))
-        table.add_row("Realized PnL", _fmt(realized))
-        table.add_row("Total PnL", _fmt(realized + unrealized))
+        table.add_row("Cost Basis", _fmt(risk.total_cost_basis))
+        table.add_row("Market Value", _fmt(risk.total_market_value))
+        table.add_row("Unrealized PnL", _fmt(risk.unrealized_pnl))
+        table.add_row("Realized PnL", _fmt(risk.realized_pnl))
+        table.add_row("Total PnL", _fmt(risk.total_pnl))
+        table.add_row("Health Score", f"{risk.health.score}/100 ({risk.health.label})")
         return table
+
+    def _portfolio_risk_report(self) -> PortfolioRiskReport:
+        positions = self.portfolio.list()
+        values: dict[str, tuple[float | None, float | None, float | None]] = {}
+        for row in positions:
+            values[str(row["symbol"]).upper()] = self._portfolio_market_values(row)
+        return build_portfolio_risk(positions, values, self.transactions.realized_pnl_total(), profile=self.user_profiles.get())
 
     def _get_quote(self, symbol: str) -> Quote:
         normalized = symbol.upper()
@@ -1188,13 +1289,23 @@ class CommandRouter:
     def _provider_health_text(self) -> str:
         try:
             status = self._run_async(self.market_service.status())
-            return (
+            base = (
                 f"Provider health: {status.status}\n"
                 f"Provider realtime: {status.realtime}\n"
                 f"Provider message: {status.message}"
             )
         except (FinCLIError, AttributeError) as exc:
-            return f"Provider health: unavailable ({exc})"
+            base = f"Provider health: unavailable ({exc})"
+
+        results = getattr(self.market_service, "provider_results", [])[-6:]
+        if not results:
+            return f"{base}\nRecent provider results: none"
+        lines = ["Recent provider results:"]
+        for result in results:
+            missing = f"; missing={', '.join(result.missing_fields)}" if result.missing_fields else ""
+            message = f"; {result.message}" if result.message and result.message != "ok" else ""
+            lines.append(f"- {result.provider}.{result.operation}: {result.status}{missing}{message}")
+        return f"{base}\n" + "\n".join(lines)
 
     def _safe_quote(self, symbol: str) -> Quote | None:
         try:
@@ -1215,6 +1326,35 @@ class CommandRouter:
         except (FinCLIError, AttributeError) as exc:
             sections.append(f"Fundamentals unavailable: {exc}")
         return "\n\n".join(sections)
+
+    def _ai_grounding_context(self, symbol: str, timeframe: str) -> str:
+        try:
+            overview = self._run_async(build_market_overview(symbol, self.market_service, timeframe))
+            quality = overview.data_quality
+            missing = ", ".join(quality.missing_fields) if quality.missing_fields else "none"
+            quality_text = (
+                f"Data Quality: {quality.score}/100 | tier={quality.tier} | freshness={quality.freshness}\n"
+                f"Provider Reliability: {quality.reliability_status} | provider={quality.provider}\n"
+                f"Missing Data: {missing}"
+            )
+        except FinCLIError as exc:
+            quality_text = (
+                "Data Quality: unavailable\n"
+                "Provider Reliability: unavailable\n"
+                f"Missing Data: market overview unavailable ({exc})"
+            )
+
+        metric_lines = []
+        for provider in self.market_service.providers:
+            metric = self.market_service.provider_metrics_snapshot().get(provider.name)
+            if metric is None:
+                metric_lines.append(f"- {provider.name}: calls=0; success_rate=0.00%; errors=0; fallbacks=0")
+            else:
+                metric_lines.append(
+                    f"- {provider.name}: calls={metric.calls}; success_rate={metric.success_rate:.2f}%; "
+                    f"errors={metric.errors}; fallbacks={metric.fallbacks}; avg_latency={metric.avg_latency_ms:.2f}ms"
+                )
+        return f"{quality_text}\nProvider Metrics:\n" + "\n".join(metric_lines)
 
     def _freechat_market_context(self, prompt: str) -> str:
         symbols = extract_market_symbols(prompt)
@@ -1334,12 +1474,14 @@ class CommandRouter:
                 [injected_provider],
                 cache=self.market_cache,
                 cache_ttl_seconds=self.config.settings.cache_ttl_seconds,
+                metrics_store=self.provider_metrics_store,
             )
         priority = self.config.settings.market_provider_priority or [self.config.settings.market_provider]
         return MarketDataService(
             self.market_manager.create_many(priority),
             cache=self.market_cache,
             cache_ttl_seconds=self.config.settings.cache_ttl_seconds,
+            metrics_store=self.provider_metrics_store,
         )
 
     def _refresh_market_service(self) -> None:
@@ -1524,8 +1666,13 @@ def _format_market_overview(overview: MarketOverview) -> Table:
     quality = overview.data_quality
     table.add_row(
         "Data Quality",
-        f"{quality.score}/100",
-        f"quote={quality.quote}; ohlcv={quality.ohlcv}; news={quality.news}; fundamentals={quality.fundamentals}; provider={quality.provider}",
+        semantic_text(f"{quality.score}/100 | {quality.label}"),
+        (
+            f"quote={quality.quote}; ohlcv={quality.ohlcv}; news={quality.news}; "
+            f"fundamentals={quality.fundamentals}; provider={quality.provider}; "
+            f"Reliability={quality.reliability_status}; "
+            f"Missing={', '.join(quality.missing_fields) if quality.missing_fields else 'none'}"
+        ),
     )
     table.add_row(
         "Quote",
@@ -1568,6 +1715,59 @@ def _format_market_overview(overview: MarketOverview) -> Table:
         table.add_row("Latest News", "N/A", "Provider did not return recent news.")
 
     table.add_row("Disclaimer", "Informational only", "Bukan nasihat keuangan.")
+    return table
+
+
+def _format_portfolio_risk(report: PortfolioRiskReport) -> Table:
+    table = Table(title="Portfolio Risk v3 | Portfolio Risk v2 compatible", expand=True)
+    table.add_column("Section", style="cyan", no_wrap=True)
+    table.add_column("Metric", style="white", overflow="fold")
+    table.add_column("Value", justify="right", overflow="fold")
+
+    table.add_row("Health Score", report.health.label, f"{report.health.score}/100")
+    table.add_row("Health Notes", ", ".join(report.health.notes), "")
+    table.add_row("PnL Detail", "Cost Basis", _fmt(report.total_cost_basis))
+    table.add_row("PnL Detail", "Market Value", _fmt(report.total_market_value))
+    table.add_row("PnL Detail", "Realized PnL", semantic_text(_fmt(report.realized_pnl)))
+    table.add_row("PnL Detail", "Unrealized PnL", semantic_text(_fmt(report.unrealized_pnl)))
+    table.add_row("PnL Detail", "Total PnL", semantic_text(_fmt(report.total_pnl)))
+    table.add_row("Drawdown Estimate", "Unrealized drawdown vs cost basis", f"{report.drawdown_estimate:.2f}%")
+    table.add_row(
+        "Risk Budget",
+        f"{report.risk_budget.profile_gameplay} | {report.risk_budget.note}",
+        f"{_fmt(report.risk_budget.risk_per_trade)} / {_fmt(report.risk_budget.max_portfolio_risk)} {report.risk_budget.currency}",
+    )
+    table.add_row(
+        "Concentration Risk",
+        f"{report.concentration.level}: {report.concentration.top_symbol}",
+        f"{report.concentration.top_weight:.2f}%",
+    )
+    table.add_row("Concentration Risk", report.concentration.note, "")
+
+    if report.exposure_by_asset_class:
+        for exposure in report.exposure_by_asset_class.values():
+            table.add_row(
+                "Exposure by Asset Class",
+                f"{exposure.asset_class} ({exposure.count} position(s))",
+                f"{_fmt(exposure.market_value)} | {exposure.weight:.2f}%",
+            )
+    else:
+        table.add_row("Exposure by Asset Class", "No positions", "-")
+    if report.currency_exposure:
+        for exposure in report.currency_exposure.values():
+            table.add_row(
+                "Currency Exposure",
+                f"{exposure.currency} ({exposure.count} position(s))",
+                f"{_fmt(exposure.market_value)} | {exposure.weight:.2f}%",
+            )
+    else:
+        table.add_row("Currency Exposure", "No positions", "-")
+    if report.asset_class_warnings:
+        for warning in report.asset_class_warnings:
+            table.add_row("Asset-Class Cap Warning", f"{warning.level}: {warning.note}", f"cap {warning.cap:.2f}%")
+    else:
+        table.add_row("Asset-Class Cap Warning", "none", "-")
+    table.caption = "Portfolio Risk v3 is local analytics only. It is not financial advice."
     return table
 
 
@@ -1842,7 +2042,11 @@ def _calendar_static_fallback_note(provider_error: FinCLIError, public_error: Fi
 
 
 def _format_calendar(events: list[EconomicEvent], start: date, end: date, source: str, note: str) -> Table:
-    table = Table(title=f"Economic Calendar | {start.isoformat()} to {end.isoformat()} | {source}", expand=True)
+    reliability = _calendar_reliability_status(events, source, note)
+    table = Table(
+        title=f"Economic Calendar | {start.isoformat()} to {end.isoformat()} | {source} | {reliability}",
+        expand=True,
+    )
     table.add_column("Time", style="cyan", no_wrap=True, width=16, max_width=16)
     table.add_column("Country", no_wrap=True, width=7, max_width=7)
     table.add_column("Impact", no_wrap=True, width=6, max_width=6)
@@ -1864,10 +2068,25 @@ def _format_calendar(events: list[EconomicEvent], start: date, end: date, source
         "Summary",
         source,
         "-",
-        f"total={summary['total']}; high={summary.get('high', 0)}; medium={summary.get('medium', 0)}; low={summary.get('low', 0)}",
+        f"total={summary['total']}; high={summary.get('high', 0)}; medium={summary.get('medium', 0)}; "
+        f"low={summary.get('low', 0)}; reliability={reliability}",
     )
     table.add_row("Note", source, "-", note)
     return table
+
+
+def _calendar_reliability_status(events: list[EconomicEvent], source: str, note: str) -> str:
+    normalized_source = source.lower()
+    normalized_note = note.lower()
+    if normalized_source == "finnhub" and events:
+        return STATUS_OK
+    if normalized_source == "fallback":
+        return STATUS_SCHEDULE_ONLY
+    if "static macro fallback" in normalized_note or "fallback kategori" in normalized_note:
+        return STATUS_SCHEDULE_ONLY
+    if events:
+        return STATUS_PARTIAL_DATA
+    return STATUS_UNAVAILABLE
 
 
 def _format_provider_list() -> Table:
@@ -1912,15 +2131,53 @@ def _format_provider_key_status(manager: MarketProviderManager) -> Table:
     return table
 
 
+def _format_secrets_status(secrets: dict[str, str]) -> Table:
+    table = Table(title="Local Secrets Status", expand=True)
+    table.add_column("Key", style="cyan", no_wrap=True)
+    table.add_column("Status", no_wrap=True)
+    table.add_column("Source")
+    for key in sorted(secrets):
+        table.add_row(key, "set", "~/.fincli/secrets.env")
+    if not secrets:
+        table.add_row("-", "empty", "No local secrets stored.")
+    table.caption = "Values are never printed. Use /secrets clear before publishing screenshots or sharing a machine."
+    return table
+
+
 def _format_provider_metrics(service: MarketDataService) -> Table:
-    table = Table(title="Provider Metrics", expand=True)
-    table.add_column("Metric", style="cyan", no_wrap=True)
-    table.add_column("Value", overflow="fold")
-    table.add_row("Active Provider", service.primary_provider.name)
-    table.add_row("Provider Chain", ", ".join(provider.name for provider in service.providers))
-    table.add_row("Last Errors", "\n".join(service.last_errors) if service.last_errors else "none")
-    table.add_row("Runtime Label", "realtime/delayed depends on provider entitlement and API plan")
-    table.caption = "Use /provider entitlement for static capability labels and /provider test <symbol> for live checks."
+    table = Table(title="Provider Metrics Dashboard", expand=True)
+    table.add_column("Provider", style="cyan", no_wrap=True)
+    table.add_column("Session Calls", justify="right")
+    table.add_column("All-Time Calls", justify="right")
+    table.add_column("Success Rate", justify="right")
+    table.add_column("Avg Latency", justify="right")
+    table.add_column("Fallback Count", justify="right")
+    table.add_column("Error Count", justify="right")
+    table.add_column("Last Status", no_wrap=True)
+
+    metrics = service.provider_metrics_snapshot()
+    persisted = service.metrics_store.snapshot() if getattr(service, "metrics_store", None) is not None else {}
+    for provider in service.providers:
+        name = provider.name
+        metric = metrics.get(name)
+        persisted_metric = persisted.get(name)
+        if metric is None:
+            table.add_row(name, "0", str(persisted_metric.calls if persisted_metric else 0), "0.00%", "0.00ms", "0", "0", "not_called")
+            continue
+        table.add_row(
+            name,
+            str(metric.calls),
+            str(persisted_metric.calls if persisted_metric else metric.calls),
+            f"{metric.success_rate:.2f}%",
+            f"{metric.avg_latency_ms:.2f}ms",
+            str(metric.fallbacks),
+            str(metric.errors),
+            metric.last_status,
+        )
+    table.caption = (
+        f"Active provider: {service.primary_provider.name}. "
+        "Metrics are runtime-only for the current FinCLI session."
+    )
     return table
 
 
@@ -2109,7 +2366,7 @@ def _format_plugins(plugins: list[PluginManifest], status_only: bool = False) ->
         if not status_only:
             empty.append("Create ~/.fincli/plugins/<name>/plugin.json to register a local plugin.")
         table.add_row(*empty)
-    table.caption = "Plugins are manifest-only in v0.2.2; FinCLI does not execute plugin code yet."
+    table.caption = "Plugins are manifest-only in v0.3.1; FinCLI does not execute plugin code yet."
     return table
 
 
@@ -2176,7 +2433,11 @@ def _format_news_desk(desk: NewsDesk) -> Table:
     if not desk.items:
         table.add_row("-", "-", "No news from active providers.", desk.note, "-")
     lookback = f" | Lookback: {desk.lookback_days}d" if desk.lookback_days else ""
-    table.caption = f"Providers: {', '.join(desk.provider_chain)}{lookback} | {desk.note}"
+    errors = f" | Errors: {len(desk.errors)}" if desk.errors else ""
+    table.caption = (
+        f"Providers: {', '.join(desk.provider_chain)}{lookback} | "
+        f"Reliability: {desk.reliability_status}{errors} | {desk.note}"
+    )
     return table
 
 

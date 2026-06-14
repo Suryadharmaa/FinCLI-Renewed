@@ -19,7 +19,7 @@ class MacroIndicator:
 class MacroDataService:
     """Return macro context from free fallback datasets.
 
-    v0.2.2 keeps this deterministic/offline so /macro remains usable without API keys.
+    v0.3.1 keeps this deterministic/offline so /macro remains usable without API keys.
     Provider-backed DBnomics/FRED/World Bank adapters can hydrate this shape later.
     """
 

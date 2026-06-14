@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 
 from fincli.app.connectors.news_connectors import NewsConnectorManager
 from fincli.app.providers.market.base import NewsItem
+from fincli.app.providers.reliability import STATUS_OK, STATUS_PARTIAL_DATA, STATUS_UNAVAILABLE, classify_provider_error
 from fincli.app.services.market_data import MarketDataService
 
 
@@ -18,6 +19,7 @@ class NewsDesk:
     note: str
     errors: tuple[str, ...] = ()
     lookback_days: int | None = None
+    reliability_status: str = STATUS_UNAVAILABLE
 
 
 class NewsAggregator:
@@ -42,7 +44,7 @@ class NewsAggregator:
             try:
                 fetched = await self._fetch_provider(provider, normalized, max(limit - len(items), 1))
             except Exception as exc:  # noqa: BLE001 - fallback chain should continue
-                errors.append(f"{provider}: {exc}")
+                errors.append(f"{provider}: {classify_provider_error(exc)} ({exc})")
                 continue
             for item in fetched:
                 if lookback_days is not None and not _within_lookback(item, lookback_days):
@@ -57,11 +59,14 @@ class NewsAggregator:
                 break
 
         note = "Provider-backed news. Realtime/delayed status depends on provider entitlement."
+        reliability_status = STATUS_OK
         if not items:
             note = "No news returned by active providers. Try /research <symbol> --deep or configure /news_model priority."
+            reliability_status = STATUS_UNAVAILABLE if errors else STATUS_PARTIAL_DATA
         elif errors:
             note = f"{note} Fallback used after {len(errors)} provider error(s)."
-        return NewsDesk(normalized, provider_chain, items, note, tuple(errors), lookback_days)
+            reliability_status = STATUS_PARTIAL_DATA
+        return NewsDesk(normalized, provider_chain, items, note, tuple(errors), lookback_days, reliability_status)
 
     async def _fetch_provider(self, provider: str, symbol: str, limit: int) -> list[NewsItem]:
         if provider == "yfinance" or any(item.name == provider for item in self.market_service.providers):
