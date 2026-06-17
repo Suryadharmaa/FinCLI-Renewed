@@ -25,11 +25,11 @@ def make_router(tmp_path: Path) -> CommandRouter:
 def test_provider_symbol_matrix_maps_multi_asset_aliases() -> None:
     matrix = provider_symbol_matrix("XAUUSD")
 
-    assert matrix["yfinance"].symbol == "XAUUSD=X"
+    assert matrix["yfinance"].symbol == "GC=F"
     assert matrix["twelvedata"].symbol == "XAU/USD"
     assert matrix["finnhub"].symbol == "OANDA:XAU_USD"
     assert matrix["custom"].symbol == "XAUUSD"
-    assert matrix["yfinance"].asset_class == "forex"
+    assert matrix["yfinance"].asset_class == "commodity"
 
 
 def test_symbol_search_returns_provider_specific_symbols() -> None:

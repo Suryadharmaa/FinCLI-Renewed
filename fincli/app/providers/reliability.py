@@ -13,8 +13,11 @@ STATUS_AUTH_FAILED = "auth_failed"
 STATUS_RATE_LIMITED = "rate_limited"
 STATUS_ENTITLEMENT_MISSING = "entitlement_missing"
 STATUS_PARTIAL_DATA = "partial_data"
+STATUS_EMPTY_DATA = "empty_data"
+STATUS_NETWORK_ERROR = "network_error"
 STATUS_SCHEDULE_ONLY = "schedule_only"
 STATUS_UNAVAILABLE = "unavailable"
+STATUS_CIRCUIT_OPEN = "circuit_open"
 
 GRANULAR_STATUSES = (
     STATUS_OK,
@@ -22,8 +25,11 @@ GRANULAR_STATUSES = (
     STATUS_RATE_LIMITED,
     STATUS_ENTITLEMENT_MISSING,
     STATUS_PARTIAL_DATA,
+    STATUS_EMPTY_DATA,
+    STATUS_NETWORK_ERROR,
     STATUS_SCHEDULE_ONLY,
     STATUS_UNAVAILABLE,
+    STATUS_CIRCUIT_OPEN,
 )
 
 
@@ -53,7 +59,11 @@ def classify_provider_error(exc: BaseException) -> str:
         return STATUS_AUTH_FAILED
     if "403" in text or "entitlement" in text or "plan" in text or "premium" in text or "forbidden" in text:
         return STATUS_ENTITLEMENT_MISSING
-    if "empty" in text or "kosong" in text or "no data" in text or "missing" in text:
+    if "timeout" in text or "timed out" in text or "network" in text or "connection" in text or "dns" in text:
+        return STATUS_NETWORK_ERROR
+    if "empty" in text or "kosong" in text or "no data" in text:
+        return STATUS_EMPTY_DATA
+    if "missing" in text:
         return STATUS_PARTIAL_DATA
     return STATUS_UNAVAILABLE
 
@@ -61,9 +71,9 @@ def classify_provider_error(exc: BaseException) -> str:
 def classify_payload(operation: str, payload: Any) -> tuple[str, tuple[str, ...]]:
     """Classify successful provider payload completeness."""
     if payload is None:
-        return STATUS_PARTIAL_DATA, (operation,)
+        return STATUS_EMPTY_DATA, (operation,)
     if isinstance(payload, list) and not payload:
-        return STATUS_PARTIAL_DATA, (operation,)
+        return STATUS_EMPTY_DATA, (operation,)
     if operation == "quote" and getattr(payload, "price", None) is None:
         return STATUS_PARTIAL_DATA, ("price",)
     if operation == "fundamentals":
@@ -80,7 +90,14 @@ def result_style(status: str) -> str:
     """Return a Rich style name for reliability statuses."""
     if status == STATUS_OK:
         return "green"
-    if status in {STATUS_AUTH_FAILED, STATUS_RATE_LIMITED, STATUS_ENTITLEMENT_MISSING, STATUS_UNAVAILABLE}:
+    if status in {
+        STATUS_AUTH_FAILED,
+        STATUS_RATE_LIMITED,
+        STATUS_ENTITLEMENT_MISSING,
+        STATUS_UNAVAILABLE,
+        STATUS_NETWORK_ERROR,
+        STATUS_CIRCUIT_OPEN,
+    }:
         return "red"
     return "yellow"
 

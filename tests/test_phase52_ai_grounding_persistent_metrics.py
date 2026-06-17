@@ -86,6 +86,7 @@ def test_analyze_prompt_includes_grounding_guard_context(tmp_path: Path) -> None
     assert "Data Quality:" in prompt
     assert "Provider Reliability:" in prompt
     assert "Missing Data:" in prompt
+    assert "Data Trust Gate:" in prompt
     assert "Provider Metrics:" in prompt
     assert "If reliability is not ok" in prompt
 

@@ -11,8 +11,10 @@ implements the endpoints FinCLI needs for stock-style symbols first:
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
-from typing import Any
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+from datetime import date, datetime, timedelta
+from typing import Any, Awaitable
 
 import httpx
 
@@ -134,10 +136,33 @@ class FinnhubProvider:
             industry=data.get("finnhubIndustry"),
         )
 
+    async def insider_transactions(self, symbol: str, limit: int = 20) -> list[dict[str, object]]:
+        data = await self._get("/stock/insider-transactions", {"symbol": symbol.upper()})
+        rows = data.get("data") if isinstance(data, dict) else None
+        if not isinstance(rows, list):
+            raise ProviderError("Response Finnhub insider transactions tidak valid.")
+        return [_parse_insider_transaction(item, symbol) for item in rows[:limit] if isinstance(item, dict)]
+
+    async def ipo_calendar(self, start: date, end: date) -> list[dict[str, object]]:
+        data = await self._get("/calendar/ipo", {"from": start.isoformat(), "to": end.isoformat()})
+        rows = data.get("ipoCalendar") if isinstance(data, dict) else None
+        if not isinstance(rows, list):
+            raise ProviderError("Response Finnhub IPO calendar tidak valid.")
+        return [_parse_ipo_item(item) for item in rows if isinstance(item, dict)]
+
     async def status(self) -> ProviderStatus:
         status = "configured" if self.api_key else "unavailable"
         message = "Finnhub provider configured." if self.api_key else "Requires FINNHUB_API_KEY."
         return ProviderStatus(name=self.name, realtime=True, status=status, message=message)
+
+    def run(self, awaitable: Awaitable[Any]) -> Any:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(awaitable)
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(asyncio.run, awaitable)
+            return future.result()
 
     async def _get(self, path: str, params: dict[str, object]) -> Any:
         if not self.api_key:
@@ -169,6 +194,30 @@ def _safe_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _parse_insider_transaction(item: dict[str, Any], symbol: str) -> dict[str, object]:
+    return {
+        "symbol": str(item.get("symbol") or symbol).upper(),
+        "name": str(item.get("name") or "-"),
+        "date": str(item.get("transactionDate") or item.get("filingDate") or "-"),
+        "transaction_code": str(item.get("transactionCode") or "-"),
+        "change": _safe_float(item.get("change")),
+        "shares": _safe_float(item.get("share")),
+        "transaction_price": _safe_float(item.get("transactionPrice")),
+    }
+
+
+def _parse_ipo_item(item: dict[str, Any]) -> dict[str, object]:
+    return {
+        "date": str(item.get("date") or "-"),
+        "exchange": str(item.get("exchange") or "-"),
+        "symbol": str(item.get("symbol") or "-"),
+        "name": str(item.get("name") or "-"),
+        "price": str(item.get("price") or "-"),
+        "shares": _safe_float(item.get("numberOfShares")),
+        "status": str(item.get("status") or "-"),
+    }
 
 
 def _period_to_delta(period: str) -> timedelta:

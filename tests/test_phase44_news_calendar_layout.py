@@ -163,7 +163,7 @@ def test_calendar_uses_public_provider_before_static_fallback(tmp_path: Path, mo
     assert "Central bank rate decisions" not in text
 
 
-def test_calendar_hides_value_columns_for_clean_schedule_view(tmp_path: Path, monkeypatch) -> None:
+def test_calendar_shows_value_columns_for_provider_calendar_view(tmp_path: Path, monkeypatch) -> None:
     from fincli.app.modules.economic_calendar import EconomicCalendarService, PublicEconomicCalendarService
 
     async def fail_finnhub(self, start, end):
@@ -190,6 +190,6 @@ def test_calendar_hides_value_columns_for_clean_schedule_view(tmp_path: Path, mo
     assert result.status == "ready"
     text = render_text(result.renderable)
     assert "FOMC Press Release" in text
-    assert "Actual" not in text
-    assert "Estimate" not in text
-    assert "Previous" not in text
+    assert "Actual" in text
+    assert "Forecast" in text
+    assert "Prev" in text

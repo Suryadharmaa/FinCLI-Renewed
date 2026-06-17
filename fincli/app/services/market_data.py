@@ -6,11 +6,19 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from datetime import datetime
-from time import perf_counter
+from time import monotonic, perf_counter
 from typing import Any, Awaitable
 
 from fincli.app.providers.market.base import BaseMarketProvider, Candle, FundamentalSnapshot, NewsItem, ProviderStatus, Quote
-from fincli.app.providers.reliability import ProviderResult, classify_payload, classify_provider_error
+from fincli.app.providers.market.symbols import SymbolResolver
+from fincli.app.providers.reliability import (
+    STATUS_CIRCUIT_OPEN,
+    STATUS_NETWORK_ERROR,
+    STATUS_OK,
+    ProviderResult,
+    classify_payload,
+    classify_provider_error,
+)
 from fincli.app.storage.market_cache import MarketCache
 from fincli.app.utils.errors import ProviderError
 
@@ -23,14 +31,22 @@ class MarketDataService:
         providers: list[BaseMarketProvider],
         cache: MarketCache | None = None,
         cache_ttl_seconds: int = 300,
+        provider_timeout_seconds: float = 12.0,
         metrics_store: Any | None = None,
+        symbol_resolver: SymbolResolver | None = None,
+        circuit_breaker_failure_threshold: int = 3,
+        circuit_breaker_cooldown_seconds: float = 60.0,
     ) -> None:
         if not providers:
             raise ProviderError("MarketDataService membutuhkan minimal satu provider.")
         self.providers = providers
         self.cache = cache
         self.cache_ttl_seconds = cache_ttl_seconds
+        self.provider_timeout_seconds = max(0.05, float(provider_timeout_seconds))
         self.metrics_store = metrics_store
+        self.symbol_resolver = symbol_resolver or SymbolResolver()
+        self.circuit_breaker_failure_threshold = max(1, int(circuit_breaker_failure_threshold))
+        self.circuit_breaker_cooldown_seconds = max(0.0, float(circuit_breaker_cooldown_seconds))
         self.last_errors: list[str] = []
         self.provider_results: list[ProviderResult] = []
         self.provider_metrics: dict[str, ProviderRuntimeMetrics] = {
@@ -95,29 +111,61 @@ class MarketDataService:
         errors: list[str] = []
         for provider in self.providers:
             provider_name = getattr(provider, "name", "unknown")
+            if self._is_circuit_open(provider_name):
+                message = (
+                    f"{provider_name}: circuit open; skipped {method_name} for "
+                    f"{self.circuit_breaker_cooldown_seconds:.0f}s cooldown"
+                )
+                errors.append(message)
+                self._record_provider_result(
+                    provider=provider_name,
+                    operation=method_name,
+                    status=STATUS_CIRCUIT_OPEN,
+                    realtime_label=_provider_realtime_label(provider),
+                    message=message,
+                )
+                continue
             started = perf_counter()
             try:
                 method = getattr(provider, method_name)
-                payload = await method(*args)
+                provider_args = self._normalize_provider_args(provider_name, method_name, args)
+                payload = await asyncio.wait_for(method(*provider_args), timeout=self.provider_timeout_seconds)
                 latency_ms = (perf_counter() - started) * 1000
                 status, missing = classify_payload(method_name, payload)
-                self._record_provider_metric(provider_name, success=status != "partial_data", latency_ms=latency_ms)
+                self._record_provider_metric(provider_name, success=status == STATUS_OK, latency_ms=latency_ms)
+                self._record_circuit_success(provider_name)
                 self._record_provider_result(
                     provider=provider_name,
                     operation=method_name,
                     status=status,
+                    realtime_label=_provider_realtime_label(provider),
                     missing_fields=missing,
                     message="ok" if not missing else f"partial payload: {', '.join(missing)}",
                 )
                 return payload
+            except TimeoutError as exc:
+                latency_ms = (perf_counter() - started) * 1000
+                message = f"{provider_name}: {method_name} timeout after {self.provider_timeout_seconds:.1f}s"
+                errors.append(message)
+                self._record_provider_metric(provider_name, success=False, latency_ms=latency_ms, fallback=True)
+                self._record_circuit_failure(provider_name)
+                self._record_provider_result(
+                    provider=provider_name,
+                    operation=method_name,
+                    status=STATUS_NETWORK_ERROR,
+                    realtime_label=_provider_realtime_label(provider),
+                    message=message,
+                )
             except Exception as exc:  # noqa: BLE001
                 latency_ms = (perf_counter() - started) * 1000
                 errors.append(f"{provider_name}: {exc}")
                 self._record_provider_metric(provider_name, success=False, latency_ms=latency_ms, fallback=True)
+                self._record_circuit_failure(provider_name)
                 self._record_provider_result(
                     provider=provider_name,
                     operation=method_name,
                     status=classify_provider_error(exc),
+                    realtime_label=_provider_realtime_label(provider),
                     message=str(exc),
                 )
         self.last_errors = errors
@@ -126,11 +174,52 @@ class MarketDataService:
             "\n".join(errors),
         )
 
+    def _normalize_provider_args(self, provider: str, method_name: str, args: tuple[object, ...]) -> tuple[object, ...]:
+        if method_name not in {"quote", "history", "news", "fundamentals"}:
+            return args
+        if not args or not isinstance(args[0], str):
+            return args
+        try:
+            symbol = self.symbol_resolver.provider_symbol(provider, args[0])
+        except Exception:  # noqa: BLE001
+            return args
+        return (symbol, *args[1:])
+
+    def _is_circuit_open(self, provider: str) -> bool:
+        metric = self.provider_metrics.setdefault(provider, ProviderRuntimeMetrics(provider))
+        if not metric.circuit_open:
+            return False
+        if self.circuit_breaker_cooldown_seconds <= 0:
+            return False
+        if metric.circuit_opened_at is None:
+            return False
+        if monotonic() - metric.circuit_opened_at >= self.circuit_breaker_cooldown_seconds:
+            metric.circuit_open = False
+            metric.circuit_opened_at = None
+            metric.last_status = "half_open"
+            return False
+        return True
+
+    def _record_circuit_failure(self, provider: str) -> None:
+        metric = self.provider_metrics.setdefault(provider, ProviderRuntimeMetrics(provider))
+        metric.consecutive_failures += 1
+        if metric.consecutive_failures >= self.circuit_breaker_failure_threshold:
+            metric.circuit_open = True
+            metric.circuit_opened_at = monotonic()
+            metric.last_status = STATUS_CIRCUIT_OPEN
+
+    def _record_circuit_success(self, provider: str) -> None:
+        metric = self.provider_metrics.setdefault(provider, ProviderRuntimeMetrics(provider))
+        metric.consecutive_failures = 0
+        metric.circuit_open = False
+        metric.circuit_opened_at = None
+
     def _record_provider_result(
         self,
         provider: str,
         operation: str,
         status: str,
+        realtime_label: str = "unknown",
         missing_fields: tuple[str, ...] = (),
         message: str = "",
     ) -> None:
@@ -139,7 +228,7 @@ class MarketDataService:
                 provider=provider,
                 operation=operation,
                 status=status,
-                realtime_label="unknown",
+                realtime_label=realtime_label,
                 source=provider,
                 data_quality=status,
                 missing_fields=missing_fields,
@@ -265,6 +354,15 @@ def _optional_float(value: object) -> float | None:
     return float(value)
 
 
+def _provider_realtime_label(provider: BaseMarketProvider) -> str:
+    realtime = getattr(provider, "realtime", None)
+    if realtime is True:
+        return "realtime_or_plan_dependent"
+    if realtime is False:
+        return "delayed_or_fallback"
+    return "unknown"
+
+
 class ProviderRuntimeMetrics:
     """Runtime metrics for one market provider."""
 
@@ -276,6 +374,9 @@ class ProviderRuntimeMetrics:
         self.fallbacks = 0
         self.total_latency_ms = 0.0
         self.last_status = "not_called"
+        self.consecutive_failures = 0
+        self.circuit_open = False
+        self.circuit_opened_at: float | None = None
 
     @property
     def success_rate(self) -> float:
@@ -305,4 +406,7 @@ class ProviderRuntimeMetrics:
         duplicate.fallbacks = self.fallbacks
         duplicate.total_latency_ms = self.total_latency_ms
         duplicate.last_status = self.last_status
+        duplicate.consecutive_failures = self.consecutive_failures
+        duplicate.circuit_open = self.circuit_open
+        duplicate.circuit_opened_at = self.circuit_opened_at
         return duplicate

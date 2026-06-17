@@ -129,6 +129,14 @@ class ResolvedSymbol:
     original: str
     symbol: str
     asset_class: str
+    provider_symbols: dict[str, str] | None = None
+    confidence: str = "rule"
+    source: str = "local_rules"
+    notes: str = ""
+
+    @property
+    def canonical(self) -> str:
+        return self.symbol
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,8 +158,11 @@ SYMBOL_CATALOG: tuple[SymbolAlias, ...] = (
     SymbolAlias("SPY", "SPDR S&P 500 ETF Trust", "etf", "NYSE Arca", "USD", ("S&P ETF",)),
     SymbolAlias("QQQ", "Invesco QQQ Trust", "etf", "NASDAQ", "USD", ("NASDAQ ETF",)),
     SymbolAlias("SPX", "S&P 500 Index", "index", "US", "USD", ("SP500", "S&P500", "^GSPC")),
+    SymbolAlias("US500", "S&P 500 CFD alias", "index", "US", "USD", ("SPX", "SP500", "^GSPC")),
     SymbolAlias("NASDAQ", "Nasdaq Composite Index", "index", "US", "USD", ("IXIC", "^IXIC")),
+    SymbolAlias("US100", "Nasdaq 100 CFD alias", "index", "US", "USD", ("NDX", "NASDAQ100", "^NDX")),
     SymbolAlias("DOW", "Dow Jones Industrial Average", "index", "US", "USD", ("DJI", "^DJI")),
+    SymbolAlias("US30", "Dow Jones CFD alias", "index", "US", "USD", ("DOW", "DJI", "^DJI")),
     SymbolAlias("DAX", "DAX Performance Index", "index", "Germany", "EUR", ("^GDAXI",)),
     SymbolAlias("NIKKEI", "Nikkei 225 Index", "index", "Japan", "JPY", ("N225", "^N225")),
     SymbolAlias("EURUSD", "Euro / US Dollar", "forex", "FX", "USD", ("EUR/USD", "EURUSD=X")),
@@ -170,8 +181,61 @@ SYMBOL_CATALOG: tuple[SymbolAlias, ...] = (
 )
 
 
+class SymbolResolver:
+    """Resolve user-facing symbols to provider-specific symbols with a small local cache."""
+
+    def __init__(self) -> None:
+        self._cache: dict[tuple[str, str, str], ResolvedSymbol] = {}
+
+    def resolve(self, symbol: str, provider: str = "yfinance", asset_class: str | None = None) -> ResolvedSymbol:
+        provider_name = provider.lower().strip()
+        asset_hint = (asset_class or "").lower().strip()
+        cache_key = (provider_name, _normalize(symbol), asset_hint)
+        cached = self._cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        resolved = resolve_provider_symbol(provider_name, symbol)
+        if asset_hint and resolved.asset_class != asset_hint:
+            resolved = ResolvedSymbol(
+                original=resolved.original,
+                symbol=resolved.symbol,
+                asset_class=asset_hint,
+                provider_symbols=resolved.provider_symbols,
+                confidence=resolved.confidence,
+                source=resolved.source,
+                notes=f"Asset class forced by user: {asset_hint}.",
+            )
+        self._cache[cache_key] = resolved
+        return resolved
+
+    def provider_symbol(self, provider: str, symbol: str, asset_class: str | None = None) -> str:
+        return self.resolve(symbol, provider=provider, asset_class=asset_class).symbol
+
+    def matrix(self, symbol: str, providers: tuple[str, ...] | None = None) -> dict[str, ResolvedSymbol]:
+        names = providers or ("yfinance", "twelvedata", "finnhub", "alphavantage", "custom")
+        return {name: self.resolve(symbol, provider=name) for name in names}
+
+    def search(self, query: str, limit: int = 12) -> list[SymbolSearchResult]:
+        return search_symbol_catalog(query, limit=limit)
+
+
 def resolve_yfinance_symbol(symbol: str) -> ResolvedSymbol:
     normalized = _normalize(symbol)
+    if normalized in {"US500", "SPX500"}:
+        return ResolvedSymbol(symbol, "^GSPC", "index")
+    if normalized in {"US100", "NASDAQ100"}:
+        return ResolvedSymbol(symbol, "^NDX", "index")
+    if normalized == "US30":
+        return ResolvedSymbol(symbol, "^DJI", "index")
+    if normalized in {"XAUUSD", "GOLD"}:
+        return ResolvedSymbol(symbol, "GC=F", "commodity", notes="Yahoo Finance uses gold futures as the practical free fallback for XAUUSD.")
+    if normalized in {"XAGUSD", "SILVER"}:
+        return ResolvedSymbol(symbol, "SI=F", "commodity", notes="Yahoo Finance uses silver futures as the practical free fallback for XAGUSD.")
+    if normalized in {"BTCUSD", "BTCUSDT", "BTC"}:
+        return ResolvedSymbol(symbol, "BTC-USD", "crypto")
+    if normalized in {"ETHUSD", "ETHUSDT", "ETH"}:
+        return ResolvedSymbol(symbol, "ETH-USD", "crypto")
     if normalized in YFINANCE_ALIASES:
         return ResolvedSymbol(symbol, YFINANCE_ALIASES[normalized], _alias_class(normalized))
     if normalized in IDX_ALIASES:
@@ -183,6 +247,16 @@ def resolve_yfinance_symbol(symbol: str) -> ResolvedSymbol:
 
 def resolve_twelvedata_symbol(symbol: str) -> ResolvedSymbol:
     normalized = _normalize(symbol)
+    if normalized in {"US500", "SPX500"}:
+        return ResolvedSymbol(symbol, "SPX", "index")
+    if normalized in {"US100", "NASDAQ100"}:
+        return ResolvedSymbol(symbol, "NDX", "index")
+    if normalized == "US30":
+        return ResolvedSymbol(symbol, "DJI", "index")
+    if normalized in {"BTCUSD", "BTCUSDT", "BTC"}:
+        return ResolvedSymbol(symbol, "BTC/USD", "crypto")
+    if normalized in {"ETHUSD", "ETHUSDT", "ETH"}:
+        return ResolvedSymbol(symbol, "ETH/USD", "crypto")
     if normalized in TWELVEDATA_ALIASES:
         return ResolvedSymbol(symbol, TWELVEDATA_ALIASES[normalized], _alias_class(normalized))
     if _is_metal_pair(normalized) or _is_forex_pair(normalized):
@@ -194,6 +268,16 @@ def resolve_twelvedata_symbol(symbol: str) -> ResolvedSymbol:
 
 def resolve_finnhub_symbol(symbol: str) -> ResolvedSymbol:
     normalized = _normalize(symbol)
+    if normalized in {"US500", "SPX", "SP500", "SPX500"}:
+        return ResolvedSymbol(symbol, "^GSPC", "index")
+    if normalized in {"US100", "NDX", "NASDAQ100"}:
+        return ResolvedSymbol(symbol, "^NDX", "index")
+    if normalized in {"US30", "DOW", "DJI"}:
+        return ResolvedSymbol(symbol, "^DJI", "index")
+    if normalized in {"BTCUSD", "BTCUSDT", "BTC"}:
+        return ResolvedSymbol(symbol, "BINANCE:BTCUSDT", "crypto")
+    if normalized in {"ETHUSD", "ETHUSDT", "ETH"}:
+        return ResolvedSymbol(symbol, "BINANCE:ETHUSDT", "crypto")
     if _is_metal_pair(normalized):
         return ResolvedSymbol(symbol, f"OANDA:{normalized[:3]}_{normalized[3:]}", "commodity")
     if _is_forex_pair(normalized):
@@ -215,6 +299,16 @@ def resolve_provider_symbol(provider: str, symbol: str) -> ResolvedSymbol:
         return resolve_finnhub_symbol(symbol)
     if provider_name == "alphavantage":
         normalized = _normalize(symbol)
+        if normalized in {"US500", "SPX500"}:
+            return ResolvedSymbol(symbol, "SPX", "index")
+        if normalized in {"US100", "NASDAQ100"}:
+            return ResolvedSymbol(symbol, "NDX", "index")
+        if normalized == "US30":
+            return ResolvedSymbol(symbol, "DJI", "index")
+        if normalized in {"BTC", "BTCUSD", "BTCUSDT"}:
+            return ResolvedSymbol(symbol, "BTCUSD", "crypto")
+        if normalized in {"ETH", "ETHUSD", "ETHUSDT"}:
+            return ResolvedSymbol(symbol, "ETHUSD", "crypto")
         if _is_metal_pair(normalized):
             return ResolvedSymbol(symbol, normalized, "commodity")
         if _is_forex_pair(normalized):
@@ -229,8 +323,7 @@ def resolve_provider_symbol(provider: str, symbol: str) -> ResolvedSymbol:
 
 
 def provider_symbol_matrix(symbol: str, providers: tuple[str, ...] | None = None) -> dict[str, ResolvedSymbol]:
-    names = providers or ("yfinance", "twelvedata", "finnhub", "alphavantage", "custom")
-    return {name: resolve_provider_symbol(name, symbol) for name in names}
+    return SymbolResolver().matrix(symbol, providers)
 
 
 def search_symbol_catalog(query: str, limit: int = 12) -> list[SymbolSearchResult]:

@@ -17,6 +17,7 @@ class ResearchBrief:
     risk: str
     missing_data: str
     source_quality: str
+    trust_gate: str
     decision_points: list[str]
     risks: list[str]
     final_summary: str

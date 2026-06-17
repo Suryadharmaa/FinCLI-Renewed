@@ -8,23 +8,12 @@ from fincli.app.analysis.indicators import TechnicalSummary, summarize_technical
 from fincli.app.analysis.market_structure import MarketStructureSummary, analyze_market_structure
 from fincli.app.providers.market.base import Candle, FundamentalSnapshot, NewsItem, Quote
 from fincli.app.providers.reliability import STATUS_OK, STATUS_PARTIAL_DATA, STATUS_UNAVAILABLE
+from fincli.app.services.data_quality import DataQualityReport
 from fincli.app.services.market_data import MarketDataService
 from fincli.app.utils.errors import FinCLIError
 
 
-@dataclass(frozen=True, slots=True)
-class DataQuality:
-    score: int
-    quote: str
-    ohlcv: str
-    news: str
-    fundamentals: str
-    provider: str
-    tier: str
-    freshness: str
-    reliability_status: str
-    missing_fields: tuple[str, ...]
-    label: str
+DataQuality = DataQualityReport
 
 
 @dataclass(frozen=True, slots=True)

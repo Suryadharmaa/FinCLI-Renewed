@@ -110,17 +110,14 @@ def make_router(tmp_path: Path) -> tuple[CommandRouter, CapturingAIProvider]:
 
 
 def test_package_metadata_is_v031() -> None:
-    assert fincli.__version__ == "0.3.1"
+    assert fincli.__version__ == "0.4.0"
 
 
-def test_registry_promotes_research_macro_profile_and_hides_overlapping_commands() -> None:
+def test_registry_promotes_research_macro_profile_and_documents_advanced_aliases() -> None:
     names = {command.name for command in CommandRegistry().all()}
 
     assert {"/research", "/macro", "/profile", "/doctor", "/setup"}.issubset(names)
-    assert "/quote" not in names
-    assert "/funda" not in names
-    assert "/structure" not in names
-    assert "/web" not in names
+    assert {"/quote", "/funda", "/web", "/structure"}.issubset(names)
 
 
 def test_research_quick_returns_compact_decision_table(tmp_path: Path) -> None:

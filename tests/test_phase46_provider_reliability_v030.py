@@ -45,7 +45,7 @@ def test_provider_error_classifier_returns_granular_statuses() -> None:
     assert classify_provider_error(RateLimitError("HTTP 429")) == "rate_limited"
     assert classify_provider_error(ProviderError("HTTP 401 unauthorized")) == "auth_failed"
     assert classify_provider_error(ProviderError("HTTP 403 plan entitlement missing")) == "entitlement_missing"
-    assert classify_provider_error(ProviderError("empty response")) == "partial_data"
+    assert classify_provider_error(ProviderError("empty response")) == "empty_data"
 
 
 def test_provider_result_contract_is_stable() -> None:

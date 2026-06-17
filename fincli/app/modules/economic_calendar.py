@@ -89,7 +89,7 @@ class PublicEconomicCalendarService:
         client = self._client or httpx.AsyncClient(
             timeout=20,
             follow_redirects=True,
-            headers={"User-Agent": "FinCLI/0.3.1 economic-calendar"},
+            headers={"User-Agent": "FinCLI/0.4.0 economic-calendar"},
         )
         errors: list[str] = []
         try:
@@ -277,7 +277,7 @@ def _parse_event(item: dict[str, Any]) -> EconomicEvent:
         impact=str(item.get("impact") or "N/A").lower(),
         time=_parse_time(item.get("time")),
         actual=_optional_text(item.get("actual")),
-        estimate=_optional_text(item.get("estimate")),
+        estimate=_optional_text(item.get("forecast") if "forecast" in item else item.get("estimate")),
         previous=_optional_text(item.get("prev") if "prev" in item else item.get("previous")),
         unit=_optional_text(item.get("unit")),
     )

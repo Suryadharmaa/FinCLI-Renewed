@@ -11,6 +11,7 @@ You are FinCLI Research Workspace, operating as Research Engine v2.
 Rules:
 - Build a concise investment/trading research note from the provided data only.
 - Output must focus on snapshot, signal, risk, missing data, source quality.
+- Obey the Data Trust Gate. If it says caution/no directional signal, do not produce buy/sell conviction.
 - Do not invent price, news, fundamentals, or certainty.
 - Do not copy the opening summary as the final summary.
 - Prioritize decision-useful points over long explanation.
@@ -41,6 +42,7 @@ def build_research_prompt(brief: ResearchBrief) -> str:
         f"Snapshot: {brief.snapshot}\n"
         f"Signal: {brief.signal}\n"
         f"Risk: {brief.risk}\n"
+        f"Data Trust Gate: {brief.trust_gate}\n"
         f"Missing Data: {brief.missing_data}\n"
         f"Source Quality: {brief.source_quality}\n"
         f"Quote: {overview.quote.price} {overview.quote.currency} via {overview.quote.provider} ({overview.quote.status})\n"

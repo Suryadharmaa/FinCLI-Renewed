@@ -130,6 +130,19 @@ class FinCLIDatabase:
                             last_status TEXT DEFAULT 'not_called',
                             updated_at TEXT DEFAULT CURRENT_TIMESTAMP
                         );
+
+                        CREATE TABLE IF NOT EXISTS paper_orders (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            side TEXT NOT NULL,
+                            symbol TEXT NOT NULL,
+                            quantity REAL NOT NULL,
+                            order_type TEXT NOT NULL,
+                            price REAL,
+                            notional REAL DEFAULT 0,
+                            status TEXT NOT NULL,
+                            strategy TEXT DEFAULT 'manual',
+                            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                        );
                         """
                     )
                     _migrate_user_profile_schema(db)
@@ -153,7 +166,7 @@ class FinCLIDatabase:
 
 
 def _migrate_user_profile_schema(db: sqlite3.Connection) -> None:
-    """Normalize older user_profile schemas to the v0.3.1 canonical shape."""
+    """Normalize older user_profile schemas to the v0.4.0 canonical shape."""
 
     columns = {str(row["name"]) for row in db.execute("PRAGMA table_info(user_profile)").fetchall()}
     canonical = {"id", "name", "equity", "currency", "leverage", "years_in_investment", "gameplay", "updated_at"}

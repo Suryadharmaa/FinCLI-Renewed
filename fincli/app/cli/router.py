@@ -51,6 +51,13 @@ from fincli.app.modules.portfolio_risk import PortfolioRiskReport, build_portfol
 from fincli.app.modules.scanner import ScanResult, scan_symbols
 from fincli.app.modules.session_history import SessionHistoryService
 from fincli.app.modules.transactions import TransactionService
+from fincli.app.modules.trading import (
+    BrokerCatalog,
+    BrokerIntegration,
+    PaperTradingEngine,
+    RealtimeConnector,
+    RealtimeConnectorCatalog,
+)
 from fincli.app.modules.user_profile import UserProfile, UserProfileService
 from fincli.app.modules.watchlist import WatchlistService
 from fincli.app.connectors.catalog import Connector, ConnectorCatalog
@@ -60,6 +67,8 @@ from fincli.app.connectors.news_connectors import (
     NewsConnectorSpec,
     news_connector_secret_key,
 )
+from fincli.app.diagnostics.capabilities import capability_rows, capability_summary
+from fincli.app.diagnostics.runtime import check_runtime_environment
 from fincli.app.modules.reports import write_market_report
 from fincli.app.providers.ai.base import AIRequest, AIResponse, BaseAIProvider
 from fincli.app.providers.ai.manager import AIProviderManager
@@ -72,7 +81,7 @@ from fincli.app.providers.market.base import (
     SymbolSearchResult,
 )
 from fincli.app.providers.market.manager import MarketProviderManager
-from fincli.app.providers.market.symbols import provider_symbol_matrix, search_symbol_catalog
+from fincli.app.providers.market.symbols import SymbolResolver, search_symbol_catalog
 from fincli.app.providers.market.yfinance_provider import YahooTable, YFinanceProvider
 from fincli.app.providers.reliability import (
     STATUS_OK,
@@ -83,6 +92,8 @@ from fincli.app.providers.reliability import (
 from fincli.app.plugins.loader import PluginLoader, PluginManifest
 from fincli.app.services.market_data import MarketDataService
 from fincli.app.services.market_overview import MarketOverview, build_market_overview
+from fincli.app.services.data_quality import DataQualityReport
+from fincli.app.services.data_trust import build_data_trust_gate
 from fincli.app.services.macro_data import MacroDataService, MacroIndicator
 from fincli.app.services.news_aggregator import NewsAggregator, NewsDesk
 from fincli.app.services.web_research import (
@@ -128,6 +139,7 @@ class CommandRouter:
         self.market_cache = MarketCache(self.db)
         self.provider_metrics_store = ProviderMetricsStore(self.db)
         self.market_manager = MarketProviderManager()
+        self.symbol_resolver = SymbolResolver()
         self.market_service = self._build_market_service(market_provider)
         self.market_provider = self.market_service.primary_provider
         self.ai_provider = ai_provider or AIProviderManager().create(self.config.settings.ai_provider)
@@ -135,6 +147,9 @@ class CommandRouter:
         self.portfolio = PortfolioService(self.db)
         self.alerts = AlertService(self.db)
         self.transactions = TransactionService(self.db, self.portfolio)
+        self.paper_trading = PaperTradingEngine(self.db)
+        self.broker_catalog = BrokerCatalog()
+        self.realtime_connector_catalog = RealtimeConnectorCatalog()
         self.journal = JournalService(self.db)
         self.user_profiles = UserProfileService(self.db)
         self.history = SessionHistoryService(self.db)
@@ -147,6 +162,11 @@ class CommandRouter:
         self.news_connectors = NewsConnectorManager(self.news_connector_catalog)
 
     def route(self, raw: str) -> CommandResult:
+        if not isinstance(raw, str):
+            return CommandResult(
+                Panel("Command harus berupa teks. Contoh: /help", title="Error", border_style="red"),
+                status="error",
+            )
         result = self._route(raw)
         self._record_history(raw, result)
         return result
@@ -156,7 +176,10 @@ class CommandRouter:
         if not raw:
             return CommandResult(Panel("Ketik /help untuk melihat command.", title="FinCLI"))
         if not raw.startswith("/"):
-            return CommandResult(Panel("Command harus diawali slash. Contoh: /help", title="Invalid Input"))
+            return CommandResult(
+                Panel("Command harus diawali slash. Contoh: /help", title="Invalid Input", border_style="red"),
+                status="error",
+            )
 
         try:
             if raw.lower().startswith("/export "):
@@ -195,6 +218,10 @@ class CommandRouter:
                 return self._research(args)
             if root == "/macro":
                 return self._macro(args)
+            if root in {"/cpi", "/nfp", "/gdp", "/inflation", "/unemployment"}:
+                return self._macro_indicator(root[1:], args)
+            if root == "/fed" and args and args[0].lower() == "funds":
+                return self._macro_indicator("fed_funds", args[1:])
             if root == "/profile":
                 return self._profile(args)
             if root == "/doctor":
@@ -233,6 +260,8 @@ class CommandRouter:
                 return self._mtf(args)
             if root == "/backtest":
                 return self._backtest(args)
+            if root == "/trading":
+                return self._trading(args)
             if root == "/structure":
                 return self._structure(args)
             if root == "/news":
@@ -281,7 +310,7 @@ class CommandRouter:
             )
 
     def _help_table(self) -> Table:
-        table = Table(title="FinCLI v0.3.1 Commands", expand=True)
+        table = Table(title="FinCLI v0.4.0 Commands", expand=True)
         table.add_column("Command", style="cyan", no_wrap=True)
         table.add_column("Group", style="magenta")
         table.add_column("Fungsi", style="white")
@@ -302,7 +331,7 @@ class CommandRouter:
         try:
             preview = _render_history_preview(result.renderable)
             self.history.record_event(self.session_id, raw, result.status, preview)
-        except FinCLIError:
+        except Exception:
             return
 
     def _history(self, args: list[str]) -> CommandResult:
@@ -368,6 +397,8 @@ class CommandRouter:
             f"Timezone          : {safe['timezone']}",
             f"Default currency  : {safe['default_currency']}",
             f"Cache TTL         : {safe['cache_ttl_seconds']}s",
+            f"Provider timeout  : {safe['provider_timeout_seconds']}s",
+            f"Circuit breaker   : {safe['provider_circuit_breaker_failure_threshold']} failures / {safe['provider_circuit_breaker_cooldown_seconds']}s cooldown",
             f"Theme             : {safe['theme']}",
             "",
             "API key status:",
@@ -516,6 +547,17 @@ class CommandRouter:
             return CommandResult(_format_provider_metrics(self.market_service))
         if args and args[0].lower() == "key" and len(args) >= 2 and args[1].lower() == "status":
             return CommandResult(_format_provider_key_status(self.market_manager))
+        if args and args[0].lower() in {"insider", "insiders"}:
+            if len(args) < 2:
+                raise CommandError("Format: /provider insider <symbol>")
+            provider = self.market_manager.create("finnhub")
+            rows = self._run_async(provider.insider_transactions(args[1].upper()))
+            return CommandResult(_format_insider_transactions(args[1].upper(), rows))
+        if args and args[0].lower() == "ipo":
+            start, end, _, _ = _parse_calendar_args(args[1:] or ["week"])
+            provider = self.market_manager.create("finnhub")
+            rows = self._run_async(provider.ipo_calendar(start, end))
+            return CommandResult(_format_ipo_calendar(rows, start, end))
         if args and args[0].lower() == "use":
             if len(args) < 2:
                 raise CommandError("Format: /provider use <provider>")
@@ -554,18 +596,25 @@ class CommandRouter:
             return CommandResult(_format_quote(quote))
         raise CommandError(
             "Format: /provider status, /provider list, /provider entitlement, /provider key status, /provider use <provider>, "
-            "/provider priority finnhub,yfinance, atau /provider test [provider] <symbol>"
+            "/provider priority finnhub,yfinance, /provider insider <symbol>, /provider ipo [week|from to], "
+            "atau /provider test [provider] <symbol>"
         )
 
     def _symbol(self, args: list[str]) -> CommandResult:
         if not args:
-            raise CommandError("Format: /symbol <query> atau /symbol normalize <symbol>")
+            raise CommandError("Format: /symbol search <query>, /symbol resolve <symbol> [--asset <class>], atau /symbol normalize <symbol>")
         action = args[0].lower()
-        if action in {"normalize", "norm"}:
+        if action in {"resolve", "normalize", "norm"}:
             if len(args) < 2:
-                raise CommandError("Format: /symbol normalize <symbol>")
-            return CommandResult(_format_symbol_matrix(args[1]))
-        query = " ".join(args)
+                raise CommandError("Format: /symbol resolve <symbol> [--asset <class>]")
+            asset_class = _extract_option_value(args[2:], "--asset")
+            return CommandResult(_format_symbol_matrix(args[1], self.symbol_resolver, asset_class=asset_class))
+        if action == "search":
+            if len(args) < 2:
+                raise CommandError("Format: /symbol search <query>")
+            query = " ".join(args[1:])
+        else:
+            query = " ".join(args)
         results = search_symbol_catalog(query)
         return CommandResult(_format_symbol_search(query, results))
 
@@ -605,6 +654,17 @@ class CommandRouter:
         rows = self.macro_data.indicators(query)
         return CommandResult(_format_macro_dashboard(query or "global", rows))
 
+    def _macro_indicator(self, indicator: str, args: list[str]) -> CommandResult:
+        if indicator == "gdp" and args[:2] and " ".join(args[:2]).lower() == "per capita":
+            indicator = "gdp_per_capita"
+            args = args[2:]
+        region = args[0] if args else "us"
+        try:
+            rows = self.macro_data.alpha_vantage_indicator(indicator, region)
+        except FinCLIError as exc:
+            rows = [_macro_error_row(indicator, region, exc)]
+        return CommandResult(_format_macro_indicator(indicator, region, rows))
+
     def _profile(self, args: list[str]) -> CommandResult:
         if not args:
             return CommandResult(_format_user_profile(self.user_profiles.get()))
@@ -620,18 +680,119 @@ class CommandRouter:
         raise CommandError('Format: /profile, /profile set "Nama" <equity> <currency> <leverage> <years>, /profile clear')
 
     def _doctor(self, args: list[str]) -> CommandResult:
-        table = Table(title="FinCLI Doctor", expand=True)
+        full = bool(args and args[0].lower() in {"full", "deep"})
+        live = "--live" in {arg.lower() for arg in args}
+        live_symbol = _doctor_live_symbol(args)
+        table = Table(title="FinCLI Doctor Full" if full else "FinCLI Doctor", expand=True)
         table.add_column("Check", style="cyan", no_wrap=True)
         table.add_column("Status")
         table.add_column("Detail", overflow="fold")
-        table.add_row("Version", "ok", "FinCLI v0.3.1 command surface loaded.")
+        table.add_row("Version", "ok", "FinCLI v0.4.0 command surface loaded.")
+        for check in check_runtime_environment():
+            style = "green" if check.status == "ok" else "yellow" if check.status in {"warning", "info"} else "red"
+            table.add_row(check.name, f"[{style}]{check.status}[/]", check.detail)
         table.add_row("Database", "ok", str(self.db.db_file))
         table.add_row("Market Provider", "ok", ", ".join(provider.name for provider in self.market_service.providers))
+        table.add_row("Provider Timeout", "ok", f"{self.config.settings.provider_timeout_seconds}s per provider call")
+        table.add_row(
+            "Circuit Breaker",
+            "ok",
+            (
+                f"{self.config.settings.provider_circuit_breaker_failure_threshold} failures -> "
+                f"{self.config.settings.provider_circuit_breaker_cooldown_seconds}s cooldown"
+            ),
+        )
         profile = self.user_profiles.get()
         table.add_row("Profile", "ok" if profile else "missing", profile.gameplay if profile else "Run /profile set ...")
         table.add_row("AI Provider", "configured", f"{self.config.settings.ai_provider} / {self.config.settings.ai_model}")
-        table.caption = "Doctor checks local wiring only; provider entitlement still depends on your API key/account."
+        if full:
+            for name, status, detail in self._doctor_full_checks():
+                style = "green" if status == "ok" else "yellow" if status in {"warning", "info"} else "red"
+                table.add_row(name, f"[{style}]{status}[/]", detail)
+            if live:
+                for name, status, detail in self._doctor_live_checks(live_symbol):
+                    style = "green" if status == "ok" else "yellow" if status in {"warning", "info"} else "red"
+                    table.add_row(name, f"[{style}]{status}[/]", detail)
+        table.caption = (
+            "Doctor full checks local wiring, command coverage, database/cache, and provider configuration. "
+            "Use /doctor full --live [SYMBOL] for optional live quote verification. "
+            "Provider entitlement still depends on API key/account plan."
+        )
         return CommandResult(table)
+
+    def _doctor_full_checks(self) -> list[tuple[str, str, str]]:
+        checks: list[tuple[str, str, str]] = []
+        try:
+            tables = self.db.query("SELECT name FROM sqlite_master WHERE type = 'table'")
+            checks.append(("Database Schema", "ok", f"{len(tables)} table(s) available"))
+        except FinCLIError as exc:
+            checks.append(("Database Schema", "error", str(exc)))
+
+        try:
+            stats = self.market_cache.stats()
+            checks.append(("Market Cache", "ok", ", ".join(f"{key}={value}" for key, value in stats.items())))
+        except FinCLIError as exc:
+            checks.append(("Market Cache", "error", str(exc)))
+
+        key_rows = self.market_manager.key_status()
+        missing_keys = [row["provider"] for row in key_rows if row["status"] == "not set"]
+        configured_keys = [row["provider"] for row in key_rows if row["status"] not in {"not set", "not required"}]
+        checks.append(
+            (
+                "Market API Keys",
+                "warning" if missing_keys else "ok",
+                f"configured={len(configured_keys)}; missing={', '.join(missing_keys) if missing_keys else 'none'}",
+            )
+        )
+
+        for provider in self.market_service.providers:
+            provider_name = getattr(provider, "name", "unknown")
+            try:
+                status = self._run_async(provider.status())
+                checks.append((f"Provider:{provider_name}", "ok" if status.status in {"ok", "configured", "fallback"} else "warning", status.message))
+            except Exception as exc:  # noqa: BLE001
+                checks.append((f"Provider:{provider_name}", "error", str(exc)))
+
+        registry_roots = {command.name.split()[0] for command in self.registry.all()}
+        router_roots = _router_roots()
+        hidden = sorted(router_roots - registry_roots)
+        stale = sorted(registry_roots - router_roots)
+        if hidden or stale:
+            checks.append(
+                (
+                    "Command Coverage",
+                    "warning",
+                    f"hidden={', '.join(hidden) if hidden else 'none'}; stale={', '.join(stale) if stale else 'none'}",
+                )
+            )
+        else:
+            checks.append(("Command Coverage", "ok", f"{len(registry_roots)} registry root command(s) covered by router"))
+
+        metric_snapshot = self.market_service.provider_metrics_snapshot()
+        checks.append(("Provider Metrics", "ok", f"session_providers={len(metric_snapshot)}; persistent_store=enabled"))
+        checks.append(("Capability Matrix", "ok", capability_summary()))
+        for capability in capability_rows():
+            checks.append(
+                (
+                    f"Capability:{capability.command}",
+                    "ok",
+                    f"needs={', '.join(capability.needs)}; {capability.note}",
+                )
+            )
+        return checks
+
+    def _doctor_live_checks(self, symbol: str) -> list[tuple[str, str, str]]:
+        try:
+            quote = self._run_async(asyncio.wait_for(self.market_service.quote(symbol), self.config.settings.provider_timeout_seconds))
+        except Exception as exc:  # noqa: BLE001
+            return [("Live Quote Test", "error", f"{symbol}: {type(exc).__name__}: {exc}")]
+        return [
+            (
+                "Live Quote Test",
+                "ok" if quote.price is not None else "warning",
+                f"{quote.symbol} {quote.price if quote.price is not None else 'N/A'} {quote.currency}; provider={quote.provider}; status={quote.status}",
+            )
+        ]
 
     def _setup(self, args: list[str]) -> CommandResult:
         return CommandResult(
@@ -1010,6 +1171,34 @@ class CommandRouter:
         result = run_backtest(symbol, candles, strategy=strategy, interval=interval)
         return CommandResult(_format_backtest(result))
 
+    def _trading(self, args: list[str]) -> CommandResult:
+        if not args:
+            return CommandResult(_format_trading_overview(self.realtime_connector_catalog, self.broker_catalog))
+        action = args[0].lower()
+        if action in {"realtime", "feeds", "feed"}:
+            return CommandResult(_format_realtime_connectors(self.realtime_connector_catalog.all()))
+        if action in {"brokers", "broker"}:
+            return CommandResult(_format_brokers(self.broker_catalog.all()))
+        if action == "paper":
+            return self._trading_paper(args[1:])
+        raise CommandError("Format: /trading, /trading realtime, /trading brokers, /trading paper buy|sell <symbol> <qty> <market|limit> [price]")
+
+    def _trading_paper(self, args: list[str]) -> CommandResult:
+        if not args or args[0].lower() in {"orders", "list"}:
+            return CommandResult(_format_paper_orders(self.paper_trading.list_orders()))
+        if len(args) < 4:
+            raise CommandError("Format: /trading paper <buy|sell> <symbol> <qty> <market|limit> [price]")
+        side = args[0].lower()
+        symbol = args[1].upper()
+        try:
+            quantity = float(args[2])
+            price = float(args[4]) if len(args) >= 5 else None
+        except ValueError as exc:
+            raise CommandError("Quantity dan price paper order harus angka.") from exc
+        order_type = args[3].lower()
+        order = self.paper_trading.place_order(side, symbol, quantity, order_type, price=price)
+        return CommandResult(_format_paper_order(order))
+
     def _market(self, args: list[str]) -> CommandResult:
         if not args:
             raise CommandError("Format: /market <symbol> [interval]")
@@ -1337,11 +1526,22 @@ class CommandRouter:
                 f"Provider Reliability: {quality.reliability_status} | provider={quality.provider}\n"
                 f"Missing Data: {missing}"
             )
+            gate = build_data_trust_gate(quality, self.market_service.provider_metrics_snapshot())
+            gate_text = gate.prompt_context()
         except FinCLIError as exc:
             quality_text = (
                 "Data Quality: unavailable\n"
                 "Provider Reliability: unavailable\n"
                 f"Missing Data: market overview unavailable ({exc})"
+            )
+            gate_text = (
+                "Data Trust Gate:\n"
+                "- Trust Level: blocked\n"
+                "- AI Action: no_directional_signal\n"
+                "- Confidence Cap: 20%\n"
+                "- Max Signal Strength: caution only\n"
+                "- Reasons: market overview unavailable\n"
+                "- Required Verification: provider data availability"
             )
 
         metric_lines = []
@@ -1354,7 +1554,7 @@ class CommandRouter:
                     f"- {provider.name}: calls={metric.calls}; success_rate={metric.success_rate:.2f}%; "
                     f"errors={metric.errors}; fallbacks={metric.fallbacks}; avg_latency={metric.avg_latency_ms:.2f}ms"
                 )
-        return f"{quality_text}\nProvider Metrics:\n" + "\n".join(metric_lines)
+        return f"{quality_text}\n{gate_text}\nProvider Metrics:\n" + "\n".join(metric_lines)
 
     def _freechat_market_context(self, prompt: str) -> str:
         symbols = extract_market_symbols(prompt)
@@ -1474,14 +1674,22 @@ class CommandRouter:
                 [injected_provider],
                 cache=self.market_cache,
                 cache_ttl_seconds=self.config.settings.cache_ttl_seconds,
+                provider_timeout_seconds=self.config.settings.provider_timeout_seconds,
                 metrics_store=self.provider_metrics_store,
+                symbol_resolver=self.symbol_resolver,
+                circuit_breaker_failure_threshold=self.config.settings.provider_circuit_breaker_failure_threshold,
+                circuit_breaker_cooldown_seconds=self.config.settings.provider_circuit_breaker_cooldown_seconds,
             )
         priority = self.config.settings.market_provider_priority or [self.config.settings.market_provider]
         return MarketDataService(
             self.market_manager.create_many(priority),
             cache=self.market_cache,
             cache_ttl_seconds=self.config.settings.cache_ttl_seconds,
+            provider_timeout_seconds=self.config.settings.provider_timeout_seconds,
             metrics_store=self.provider_metrics_store,
+            symbol_resolver=self.symbol_resolver,
+            circuit_breaker_failure_threshold=self.config.settings.provider_circuit_breaker_failure_threshold,
+            circuit_breaker_cooldown_seconds=self.config.settings.provider_circuit_breaker_cooldown_seconds,
         )
 
     def _refresh_market_service(self) -> None:
@@ -1666,7 +1874,7 @@ def _format_market_overview(overview: MarketOverview) -> Table:
     quality = overview.data_quality
     table.add_row(
         "Data Quality",
-        semantic_text(f"{quality.score}/100 | {quality.label}"),
+        semantic_text(quality.compact()),
         (
             f"quote={quality.quote}; ohlcv={quality.ohlcv}; news={quality.news}; "
             f"fundamentals={quality.fundamentals}; provider={quality.provider}; "
@@ -1983,6 +2191,15 @@ def _parse_news_lookback(args: list[str]) -> int | None:
     return days
 
 
+def _extract_option_value(args: list[str], option: str) -> str | None:
+    if option not in args:
+        return None
+    index = args.index(option)
+    if len(args) <= index + 1:
+        raise CommandError(f"Format opsi: {option} <value>")
+    return args[index + 1]
+
+
 def _parse_calendar_args(args: list[str]) -> tuple[date, date, str | None, str | None]:
     country: str | None = None
     impact: str | None = None
@@ -2043,6 +2260,7 @@ def _calendar_static_fallback_note(provider_error: FinCLIError, public_error: Fi
 
 def _format_calendar(events: list[EconomicEvent], start: date, end: date, source: str, note: str) -> Table:
     reliability = _calendar_reliability_status(events, source, note)
+    quality = _calendar_data_quality(events, source, reliability)
     table = Table(
         title=f"Economic Calendar | {start.isoformat()} to {end.isoformat()} | {source} | {reliability}",
         expand=True,
@@ -2051,6 +2269,9 @@ def _format_calendar(events: list[EconomicEvent], start: date, end: date, source
     table.add_column("Country", no_wrap=True, width=7, max_width=7)
     table.add_column("Impact", no_wrap=True, width=6, max_width=6)
     table.add_column("Event", style="white", overflow="fold")
+    table.add_column("Actual", justify="right", no_wrap=True, width=10, max_width=14)
+    table.add_column("Forecast", justify="right", no_wrap=True, width=10, max_width=14)
+    table.add_column("Prev", justify="right", no_wrap=True, width=10, max_width=14)
 
     for event in events:
         event_time = event.time.isoformat(timespec="minutes") if event.time else "TBA"
@@ -2059,10 +2280,13 @@ def _format_calendar(events: list[EconomicEvent], start: date, end: date, source
             event.country,
             event.impact,
             event.event,
+            event.actual or "-",
+            event.estimate or "-",
+            event.previous or "-",
         )
 
     if not events:
-        table.add_row("-", "-", "-", "Tidak ada event yang cocok dengan filter.")
+        table.add_row("-", "-", "-", "Tidak ada event yang cocok dengan filter.", "-", "-", "-")
     summary = calendar_summary(events)
     table.add_row(
         "Summary",
@@ -2070,8 +2294,12 @@ def _format_calendar(events: list[EconomicEvent], start: date, end: date, source
         "-",
         f"total={summary['total']}; high={summary.get('high', 0)}; medium={summary.get('medium', 0)}; "
         f"low={summary.get('low', 0)}; reliability={reliability}",
+        "-",
+        "-",
+        "-",
     )
-    table.add_row("Note", source, "-", note)
+    table.add_row("Note", source, "-", note, "-", "-", "-")
+    table.caption = f"Data Quality: {quality.compact()}"
     return table
 
 
@@ -2087,6 +2315,29 @@ def _calendar_reliability_status(events: list[EconomicEvent], source: str, note:
     if events:
         return STATUS_PARTIAL_DATA
     return STATUS_UNAVAILABLE
+
+
+def _calendar_data_quality(events: list[EconomicEvent], source: str, reliability: str) -> DataQualityReport:
+    score = 70 if events else 20
+    if reliability == STATUS_OK:
+        score = 90
+    elif reliability == STATUS_SCHEDULE_ONLY:
+        score = 45 if events else 25
+    missing = () if reliability == STATUS_OK else ("actual", "estimate", "previous")
+    tier = "strong" if score >= 85 else "usable" if score >= 65 else "partial" if score >= 40 else "weak"
+    return DataQualityReport(
+        score=score,
+        quote="not_applicable",
+        ohlcv="not_applicable",
+        news="not_applicable",
+        fundamentals=f"{len(events)} calendar event(s)",
+        provider=source,
+        tier=tier,
+        freshness="calendar_window",
+        reliability_status=reliability,
+        missing_fields=missing,
+        label=f"{tier} | {reliability}",
+    )
 
 
 def _format_provider_list() -> Table:
@@ -2153,6 +2404,8 @@ def _format_provider_metrics(service: MarketDataService) -> Table:
     table.add_column("Avg Latency", justify="right")
     table.add_column("Fallback Count", justify="right")
     table.add_column("Error Count", justify="right")
+    table.add_column("Circuit", no_wrap=True)
+    table.add_column("Failure Streak", justify="right")
     table.add_column("Last Status", no_wrap=True)
 
     metrics = service.provider_metrics_snapshot()
@@ -2162,7 +2415,7 @@ def _format_provider_metrics(service: MarketDataService) -> Table:
         metric = metrics.get(name)
         persisted_metric = persisted.get(name)
         if metric is None:
-            table.add_row(name, "0", str(persisted_metric.calls if persisted_metric else 0), "0.00%", "0.00ms", "0", "0", "not_called")
+            table.add_row(name, "0", str(persisted_metric.calls if persisted_metric else 0), "0.00%", "0.00ms", "0", "0", "closed", "0", "not_called")
             continue
         table.add_row(
             name,
@@ -2172,11 +2425,13 @@ def _format_provider_metrics(service: MarketDataService) -> Table:
             f"{metric.avg_latency_ms:.2f}ms",
             str(metric.fallbacks),
             str(metric.errors),
+            "open" if metric.circuit_open else "closed",
+            str(metric.consecutive_failures),
             metric.last_status,
         )
     table.caption = (
         f"Active provider: {service.primary_provider.name}. "
-        "Metrics are runtime-only for the current FinCLI session."
+        "Session metrics reset per run; all-time calls persist in local SQLite."
     )
     return table
 
@@ -2201,20 +2456,26 @@ def _format_symbol_search(query: str, results: list[SymbolSearchResult]) -> Tabl
             result.notes or "-",
         )
     if not results:
-        table.add_row("-", "No local symbol match.", "-", "-", "-", "-", "Try /symbol normalize <symbol>.")
-    table.caption = "Use /symbol normalize <symbol> to inspect provider-specific normalization for any symbol."
+        table.add_row("-", "No local symbol match.", "-", "-", "-", "-", "Try /symbol resolve <symbol>.")
+    table.caption = "Use /symbol resolve <symbol> to inspect provider-specific normalization for any symbol."
     return table
 
 
-def _format_symbol_matrix(symbol: str) -> Table:
-    matrix = provider_symbol_matrix(symbol)
+def _format_symbol_matrix(
+    symbol: str,
+    resolver: SymbolResolver | None = None,
+    asset_class: str | None = None,
+) -> Table:
+    matrix = (resolver or SymbolResolver()).matrix(symbol)
     table = Table(title=f"Provider Symbol Normalization: {symbol}", expand=True)
     table.add_column("Provider", style="cyan", no_wrap=True)
     table.add_column("Normalized Symbol", style="white")
     table.add_column("Asset Class", no_wrap=True)
+    table.add_column("Confidence", no_wrap=True)
     table.add_column("Original", style="dim")
     for provider, resolved in matrix.items():
-        table.add_row(provider, resolved.symbol, resolved.asset_class, resolved.original)
+        asset = asset_class or resolved.asset_class
+        table.add_row(provider, resolved.symbol, asset, resolved.confidence, resolved.original)
     table.caption = "Normalization does not guarantee provider entitlement. Check /provider entitlement and provider plan."
     return table
 
@@ -2246,6 +2507,185 @@ def _format_macro_dashboard(query: str, rows: list[MacroIndicator]) -> Table:
         table.add_row("-", "-", "-", "-", "Fallback", "No macro rows matched the query.")
     table.caption = "Fallback rows are connector-ready placeholders. Use provider keys later for exact values."
     return table
+
+
+def _format_macro_indicator(indicator: str, region: str, rows: list[MacroIndicator]) -> Table:
+    table = Table(title=f"Macro Indicator: {indicator.replace('_', ' ').title()} | {region.upper()}", expand=True)
+    table.add_column("Period", style="cyan", no_wrap=True)
+    table.add_column("Indicator", no_wrap=True)
+    table.add_column("Region", no_wrap=True)
+    table.add_column("Value", justify="right")
+    table.add_column("Source", no_wrap=True)
+    table.add_column("Note", overflow="fold")
+    for row in rows:
+        table.add_row(row.period, row.name, row.region, row.value, row.source, row.note)
+    if not rows:
+        table.add_row("-", indicator, region.upper(), "-", "Alpha Vantage", "No data returned.")
+    table.caption = "Hidden macro alias. Verify releases with official sources."
+    return table
+
+
+def _format_trading_overview(realtime: RealtimeConnectorCatalog, brokers: BrokerCatalog) -> Table:
+    table = Table(title="Trading Layer v0.4.0 | Safe Execution Workspace", expand=True)
+    table.add_column("Area", style="cyan", no_wrap=True)
+    table.add_column("Status", no_wrap=True)
+    table.add_column("Detail", overflow="fold")
+    table.add_row("Real-Time Trading", "scaffold", f"{len(realtime.all())} realtime connector profile(s). Use /trading realtime.")
+    table.add_row("Broker Integrations", "catalog", f"{len(brokers.all())} broker integration profile(s). Use /trading brokers.")
+    table.add_row("Paper Trading", "active", "Local paper orders only. Use /trading paper buy AAPL 1 market 100.")
+    table.add_row("Algo Trading", "paper-only", "Strategy execution is intentionally local/paper in v0.4.0.")
+    table.add_row("Live Orders", "disabled", "No live broker orders are sent by FinCLI v0.4.0.")
+    table.caption = "Trading features are simulation/catalog first. Configure broker adapters only after explicit live-trading safety work."
+    return table
+
+
+def _format_realtime_connectors(connectors: tuple[RealtimeConnector, ...]) -> Table:
+    table = Table(title="Real-Time Connector Catalog", expand=True)
+    table.add_column("Connector", style="cyan", no_wrap=True)
+    table.add_column("Transport", no_wrap=True)
+    table.add_column("Assets", overflow="fold")
+    table.add_column("Status", no_wrap=True)
+    table.add_column("Note", overflow="fold")
+    for connector in connectors:
+        table.add_row(
+            connector.name,
+            connector.transport,
+            ", ".join(connector.asset_classes),
+            connector.status,
+            connector.note,
+        )
+    return table
+
+
+def _format_brokers(brokers: tuple[BrokerIntegration, ...]) -> Table:
+    table = Table(title="Broker Integration Catalog", expand=True)
+    table.add_column("Broker", style="cyan", no_wrap=True)
+    table.add_column("Region", no_wrap=True)
+    table.add_column("Assets", overflow="fold")
+    table.add_column("Mode", no_wrap=True)
+    table.add_column("Note", overflow="fold")
+    for broker in brokers:
+        table.add_row(
+            broker.name,
+            broker.region,
+            ", ".join(broker.asset_classes),
+            broker.mode,
+            broker.note,
+        )
+    table.caption = "Catalog entries are not live execution adapters yet unless explicitly marked and configured."
+    return table
+
+
+def _format_paper_order(order: dict[str, object]) -> Table:
+    table = Table(title="Paper Trading Order", expand=True)
+    table.add_column("Field", style="cyan", no_wrap=True)
+    table.add_column("Value")
+    for key in ("side", "symbol", "quantity", "order_type", "price", "notional", "status", "strategy"):
+        table.add_row(key, str(order.get(key, "-")))
+    table.caption = "Paper trading only. No broker/live order was sent."
+    return table
+
+
+def _format_paper_orders(orders: list[dict[str, object]]) -> Table:
+    table = Table(title="Paper Trading Orders", expand=True)
+    table.add_column("ID", justify="right")
+    table.add_column("Side", no_wrap=True)
+    table.add_column("Symbol", style="cyan", no_wrap=True)
+    table.add_column("Qty", justify="right")
+    table.add_column("Type", no_wrap=True)
+    table.add_column("Price", justify="right")
+    table.add_column("Notional", justify="right")
+    table.add_column("Status", no_wrap=True)
+    table.add_column("Created", no_wrap=True)
+    for order in orders:
+        table.add_row(
+            str(order.get("id", "-")),
+            str(order.get("side", "-")),
+            str(order.get("symbol", "-")),
+            _format_optional_number(order.get("quantity")),
+            str(order.get("order_type", "-")),
+            _format_optional_number(order.get("price")),
+            _format_optional_number(order.get("notional")),
+            str(order.get("status", "-")),
+            str(order.get("created_at", "-")),
+        )
+    if not orders:
+        table.add_row("-", "-", "-", "-", "-", "-", "-", "empty", "-")
+    table.caption = "Paper trading orders are stored locally in SQLite."
+    return table
+
+
+def _macro_error_row(indicator: str, region: str, exc: FinCLIError) -> MacroIndicator:
+    label = indicator.replace("_", " ").title()
+    help_text = f" {exc.help_text}" if getattr(exc, "help_text", None) else ""
+    return MacroIndicator(
+        name=label,
+        region=region.upper(),
+        value="unavailable",
+        period=date.today().isoformat(),
+        source="Alpha Vantage",
+        note=f"{exc}{help_text}",
+    )
+
+
+def _format_insider_transactions(symbol: str, rows: list[dict[str, object]]) -> Table:
+    table = Table(title=f"Finnhub Insider Transactions: {symbol}", expand=True)
+    table.add_column("Date", style="cyan", no_wrap=True)
+    table.add_column("Name", overflow="fold")
+    table.add_column("Code", no_wrap=True)
+    table.add_column("Change", justify="right")
+    table.add_column("Shares", justify="right")
+    table.add_column("Price", justify="right")
+    for row in rows:
+        table.add_row(
+            str(row.get("date") or "-"),
+            str(row.get("name") or "-"),
+            str(row.get("transaction_code") or "-"),
+            _format_optional_number(row.get("change")),
+            _format_optional_number(row.get("shares")),
+            _format_optional_number(row.get("transaction_price")),
+        )
+    if not rows:
+        table.add_row("-", "No insider transactions returned.", "-", "-", "-", "-")
+    table.caption = "Finnhub endpoint availability depends on API key, plan, and symbol coverage."
+    return table
+
+
+def _format_ipo_calendar(rows: list[dict[str, object]], start: date, end: date) -> Table:
+    table = Table(title=f"Finnhub IPO Calendar | {start.isoformat()} to {end.isoformat()}", expand=True)
+    table.add_column("Date", style="cyan", no_wrap=True)
+    table.add_column("Symbol", no_wrap=True)
+    table.add_column("Name", overflow="fold")
+    table.add_column("Exchange", no_wrap=True)
+    table.add_column("Price", justify="right")
+    table.add_column("Shares", justify="right")
+    table.add_column("Status", no_wrap=True)
+    for row in rows:
+        table.add_row(
+            str(row.get("date") or "-"),
+            str(row.get("symbol") or "-"),
+            str(row.get("name") or "-"),
+            str(row.get("exchange") or "-"),
+            str(row.get("price") or "-"),
+            _format_optional_number(row.get("shares")),
+            str(row.get("status") or "-"),
+        )
+    if not rows:
+        table.add_row("-", "-", "No IPOs returned for the selected window.", "-", "-", "-", "-")
+    table.caption = "Finnhub endpoint availability depends on API key, plan, and date coverage."
+    return table
+
+
+def _format_optional_number(value: object) -> str:
+    if value is None:
+        return "-"
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if number.is_integer():
+        return f"{number:,.0f}"
+    return f"{number:,.2f}"
 
 
 def _format_user_profile(profile: UserProfile | None) -> Table:
@@ -2366,7 +2806,7 @@ def _format_plugins(plugins: list[PluginManifest], status_only: bool = False) ->
         if not status_only:
             empty.append("Create ~/.fincli/plugins/<name>/plugin.json to register a local plugin.")
         table.add_row(*empty)
-    table.caption = "Plugins are manifest-only in v0.3.1; FinCLI does not execute plugin code yet."
+    table.caption = "Plugins are manifest-only in v0.4.0; FinCLI does not execute plugin code yet."
     return table
 
 
@@ -2433,10 +2873,11 @@ def _format_news_desk(desk: NewsDesk) -> Table:
     if not desk.items:
         table.add_row("-", "-", "No news from active providers.", desk.note, "-")
     lookback = f" | Lookback: {desk.lookback_days}d" if desk.lookback_days else ""
+    quality = _news_data_quality(desk)
     errors = f" | Errors: {len(desk.errors)}" if desk.errors else ""
     table.caption = (
         f"Providers: {', '.join(desk.provider_chain)}{lookback} | "
-        f"Reliability: {desk.reliability_status}{errors} | {desk.note}"
+        f"Reliability: {desk.reliability_status}{errors} | Data Quality: {quality.compact()} | {desk.note}"
     )
     return table
 
@@ -2475,6 +2916,34 @@ def _news_age_days(item: NewsItem) -> int:
     from datetime import datetime, timezone
 
     return max((datetime.now(timezone.utc) - published).days, 0)
+
+
+def _news_data_quality(desk: NewsDesk) -> DataQualityReport:
+    item_count = len(desk.items)
+    score = 20
+    if item_count >= 8:
+        score = 85
+    elif item_count >= 3:
+        score = 70
+    elif item_count >= 1:
+        score = 55
+    if desk.errors:
+        score = max(20, score - min(30, len(desk.errors) * 10))
+    missing = () if item_count else ("news",)
+    tier = "strong" if score >= 85 else "usable" if score >= 65 else "partial" if score >= 40 else "weak"
+    return DataQualityReport(
+        score=score,
+        quote="not_applicable",
+        ohlcv="not_applicable",
+        news=f"{item_count} item(s)",
+        fundamentals="not_applicable",
+        provider=", ".join(desk.provider_chain) or "unknown",
+        tier=tier,
+        freshness=f"{desk.lookback_days or 'latest'}d",
+        reliability_status=desk.reliability_status,
+        missing_fields=missing,
+        label=f"{tier} | {desk.reliability_status}",
+    )
 
 
 def _format_web_results(query: str, results: list[WebSearchResult]) -> Table:
@@ -2566,6 +3035,65 @@ def _split_command(raw: str) -> list[str]:
     if os.name == "nt":
         return [_strip_wrapping_quotes(part) for part in parts]
     return parts
+
+
+def _doctor_live_symbol(args: list[str]) -> str:
+    lowered = [arg.lower() for arg in args]
+    if "--live" not in lowered:
+        return "AAPL"
+    index = lowered.index("--live")
+    if len(args) > index + 1 and not args[index + 1].startswith("--"):
+        return args[index + 1].upper()
+    return "AAPL"
+
+
+def _router_roots() -> set[str]:
+    """Return slash command roots directly handled by CommandRouter."""
+
+    return {
+        "/agent",
+        "/ai",
+        "/ai_model",
+        "/alert",
+        "/analyze",
+        "/backtest",
+        "/cache",
+        "/calendar",
+        "/clear",
+        "/config",
+        "/connector",
+        "/dashboard",
+        "/doctor",
+        "/exit",
+        "/export",
+        "/funda",
+        "/help",
+        "/history",
+        "/journal",
+        "/macro",
+        "/market",
+        "/mtf",
+        "/news",
+        "/news_model",
+        "/plugin",
+        "/portfolio",
+        "/privacy",
+        "/profile",
+        "/provider",
+        "/quote",
+        "/report",
+        "/research",
+        "/scan",
+        "/secrets",
+        "/setup",
+        "/structure",
+        "/symbol",
+        "/technical",
+        "/tx",
+        "/watchlist",
+        "/web",
+        "/yahoo",
+    }
 
 
 def _strip_wrapping_quotes(value: str) -> str:

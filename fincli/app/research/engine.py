@@ -5,6 +5,7 @@ from __future__ import annotations
 from fincli.app.providers.ai.base import AIRequest, BaseAIProvider
 from fincli.app.research.models import ResearchBrief
 from fincli.app.research.prompt_builder import build_research_prompt
+from fincli.app.services.data_trust import build_data_trust_gate
 from fincli.app.services.market_data import MarketDataService
 from fincli.app.services.market_overview import MarketOverview, build_market_overview
 
@@ -19,7 +20,7 @@ class ResearchEngine:
 
     async def build(self, symbol: str, timeframe: str = "1d", mode: str = "quick") -> ResearchBrief:
         overview = await build_market_overview(symbol.upper(), self.market_service, timeframe)
-        brief = _brief_from_overview(overview, mode)
+        brief = _brief_from_overview(overview, mode, self.market_service.provider_metrics_snapshot())
         if mode == "deep" and self.ai_provider is not None:
             prompt = build_research_prompt(brief)
             response = await self.ai_provider.complete(AIRequest(prompt=prompt, model=self.model))
@@ -32,6 +33,7 @@ class ResearchEngine:
                 risk=brief.risk,
                 missing_data=brief.missing_data,
                 source_quality=brief.source_quality,
+                trust_gate=brief.trust_gate,
                 decision_points=brief.decision_points,
                 risks=brief.risks,
                 final_summary=brief.final_summary,
@@ -41,10 +43,11 @@ class ResearchEngine:
         return brief
 
 
-def _brief_from_overview(overview: MarketOverview, mode: str) -> ResearchBrief:
+def _brief_from_overview(overview: MarketOverview, mode: str, provider_metrics: dict[str, object] | None = None) -> ResearchBrief:
     technical = overview.technical
     structure = overview.structure
     fundamentals = overview.fundamentals
+    trust_gate = build_data_trust_gate(overview.data_quality, provider_metrics)
     decision_points = [
         f"Price {overview.quote.price} {overview.quote.currency} via {overview.quote.provider} ({overview.quote.status}).",
         f"Trend bias {technical.trend_bias}; structure {structure.trend} with {structure.latest_pattern}.",
@@ -63,7 +66,7 @@ def _brief_from_overview(overview: MarketOverview, mode: str) -> ResearchBrief:
         f"{overview.data_quality.score}/100 | reliability={overview.data_quality.reliability_status} | "
         f"provider={overview.data_quality.provider}"
     )
-    signal = _research_signal(overview)
+    signal = _research_signal(overview, trust_gate.level)
     risk = _research_risk(overview)
     snapshot = (
         f"{overview.symbol}: {technical.trend_bias} trend, {structure.trend} structure, "
@@ -72,6 +75,7 @@ def _brief_from_overview(overview: MarketOverview, mode: str) -> ResearchBrief:
 
     risks = [
         f"Source quality: {source_quality}.",
+        f"Trust gate: {trust_gate.compact()}.",
         "Use confirmation and invalidation; do not treat this brief as financial advice.",
     ]
     if structure.change_of_character:
@@ -97,6 +101,7 @@ def _brief_from_overview(overview: MarketOverview, mode: str) -> ResearchBrief:
         risk=risk,
         missing_data=missing_data,
         source_quality=source_quality,
+        trust_gate=trust_gate.compact(),
         decision_points=decision_points[:6],
         risks=risks[:4],
         final_summary=final_summary,
@@ -104,10 +109,12 @@ def _brief_from_overview(overview: MarketOverview, mode: str) -> ResearchBrief:
     )
 
 
-def _research_signal(overview: MarketOverview) -> str:
+def _research_signal(overview: MarketOverview, trust_level: str = "usable") -> str:
     trend = overview.technical.trend_bias.lower()
     structure = overview.structure.trend.lower()
     rsi = overview.technical.rsi
+    if trust_level in {"blocked", "limited"}:
+        return "CAUTION - data trust gate prevents directional signal; verify provider data first."
     if overview.data_quality.reliability_status != "ok":
         return "CAUTION - data incomplete; verify provider source first."
     if trend == "bullish" and structure == "bullish" and (rsi is None or rsi < 75):

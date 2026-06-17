@@ -17,7 +17,7 @@ from fincli.app.storage.database import FinCLIDatabase
 
 def test_symbol_resolver_maps_common_forex_commodities_and_indices() -> None:
     assert resolve_yfinance_symbol("EURUSD").symbol == "EURUSD=X"
-    assert resolve_yfinance_symbol("XAUUSD").symbol == "XAUUSD=X"
+    assert resolve_yfinance_symbol("XAUUSD").symbol == "GC=F"
     assert resolve_yfinance_symbol("SPX").symbol == "^GSPC"
     assert resolve_twelvedata_symbol("EURUSD").symbol == "EUR/USD"
     assert resolve_twelvedata_symbol("XAUUSD").symbol == "XAU/USD"

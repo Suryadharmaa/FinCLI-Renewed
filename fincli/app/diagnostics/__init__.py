@@ -1,0 +1,2 @@
+"""Runtime diagnostics for FinCLI."""
+

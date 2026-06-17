@@ -1,6 +1,6 @@
 """Local plugin discovery for FinCLI.
 
-Plugins are intentionally manifest-first in v0.3.1: FinCLI reads metadata and
+Plugins are intentionally manifest-first in v0.4.0: FinCLI reads metadata and
 exposes status, but does not execute plugin code yet. This keeps the plugin
 surface useful without creating a security footgun.
 """
