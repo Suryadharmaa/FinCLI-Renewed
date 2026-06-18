@@ -13,15 +13,23 @@ const pythonBin = process.platform === "win32"
 
 function run() {
   const args = process.argv.slice(2);
+
   if (args.includes("--version") || args.includes("-v")) {
     console.log(packageJson.version);
     return;
   }
 
+  // Handle setup command
+  if (args.includes("setup") || args.includes("--setup")) {
+    runSetup();
+    return;
+  }
+
+  // Check if venv exists
   if (!fs.existsSync(pythonBin)) {
-    console.error("FinCLI Python runtime is missing.");
-    console.error("Try reinstalling with: npm install -g @drico2008/fincli");
-    console.error("Python 3.11+ must be available during npm install.");
+    console.error("FinCLI Python runtime not found.");
+    console.error("Run: fincli setup");
+    console.error("Or: node npm/setup.js");
     process.exit(1);
   }
 
@@ -41,6 +49,19 @@ function run() {
   });
 }
 
+function runSetup() {
+  const setupScript = path.join(__dirname, "..", "setup.js");
+  if (!fs.existsSync(setupScript)) {
+    console.error("Setup script not found: npm/setup.js");
+    process.exit(1);
+  }
+  const result = spawnSync(process.execPath, [setupScript], {
+    cwd: packageRoot,
+    stdio: "inherit"
+  });
+  process.exit(result.status ?? 0);
+}
+
 function ensurePythonRuntime() {
   const probe = spawnSync(pythonBin, ["-c", "import textual, rich, httpx, pydantic, yfinance, pandas, numpy"], {
     cwd: packageRoot,
@@ -57,7 +78,7 @@ function ensurePythonRuntime() {
   });
   if (repair.status !== 0) {
     console.error("FinCLI runtime repair failed.");
-    console.error("Try reinstalling with: npm install -g @drico2008/fincli");
+    console.error("Try: fincli setup");
     process.exit(repair.status ?? 1);
   }
 }

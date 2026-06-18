@@ -1,6 +1,6 @@
 """Base news-only provider adapter."""
 
-from fincli.app.providers.market.base import BaseMarketProvider, Candle, FundamentalSnapshot, NewsItem, ProviderStatus, Quote
+from fincli.app.providers.market.base import BaseMarketProvider, Candle, FundamentalSnapshot, NewsItem, ProviderCapability, ProviderStatus, Quote
 from fincli.app.utils.errors import ProviderError
 
 
@@ -25,4 +25,13 @@ class NewsProvider(BaseMarketProvider):
             realtime=False,
             status="unavailable",
             message="News-only adapter belum memiliki source aktif. Gunakan /news_model untuk provider aktual.",
+        )
+
+    def capabilities(self) -> ProviderCapability:
+        return ProviderCapability(
+            name=self.name,
+            realtime=False,
+            operations=("news",),
+            asset_classes=(),
+            rate_limit_note="Stub provider; configure via /news_model.",
         )

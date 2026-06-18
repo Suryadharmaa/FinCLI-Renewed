@@ -1,10 +1,9 @@
-name: CI
+name: Publish
 
 on:
   push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+    tags:
+      - 'v*'
 
 jobs:
   test:
@@ -35,7 +34,28 @@ jobs:
       - name: Prepublish scan
         run: python scripts/prepublish_check.py --skip-pack
 
-  lint:
+  publish-npm:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: npm pack dry-run
+        run: npm pack --dry-run
+
+      - name: Publish to npm
+        run: npm publish --access=public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-pypi:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -45,23 +65,14 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e ".[dev]"
+      - name: Install build tools
+        run: python -m pip install --upgrade pip build twine
 
-      - name: Check formatting (if ruff available)
-        run: python -m ruff check fincli/ --select E,F,W --ignore E501 || true
+      - name: Build package
+        run: python -m build
 
-  npm-check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: npm pack dry-run
-        run: npm pack --dry-run
+      - name: Publish to PyPI
+        run: python -m twine upload dist/*
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}

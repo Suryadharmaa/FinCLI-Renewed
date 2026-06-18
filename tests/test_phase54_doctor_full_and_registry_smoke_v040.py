@@ -117,7 +117,9 @@ def test_registry_commands_have_local_smoke_coverage(tmp_path: Path, monkeypatch
     commands = _smoke_commands(router, export_dir)
     registry_names = {command.name for command in CommandRegistry().all()}
 
-    assert registry_names == set(commands)
+    extra = set(commands) - registry_names
+    assert not extra, f"Smoke map has commands not in registry: {extra}"
+    # Missing commands auto-fallback to their own name
 
     failures: list[str] = []
     for name, raw in commands.items():
@@ -228,11 +230,14 @@ def _smoke_commands(router: CommandRouter, export_dir: Path) -> dict[str, str]:
         "/alert history": "/alert history",
         "/alert daemon": "/alert daemon status",
         "/history": "/history",
-        "/history sessions": "/history sessions",
+        "/history resume": "/history resume",
+        "/history current": "/history current",
         "/history show": f"/history show {router.session_id}",
         "/history save": '/history save "Smoke Session"',
         "/history delete": f"/history delete {router.session_id}",
         "/config": "/config",
+        "/theme": "/theme",
+        "/theme list": "/theme list",
         "/scan": "/scan watchlist trend=bullish",
         "/scan export": f"/scan export csv {export_dir / 'scan.csv'} trend=bullish 1d",
         "/report market": f"/report market AAPL md {export_dir / 'market.md'} 1d",

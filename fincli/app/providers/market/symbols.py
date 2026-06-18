@@ -186,6 +186,7 @@ class SymbolResolver:
 
     def __init__(self) -> None:
         self._cache: dict[tuple[str, str, str], ResolvedSymbol] = {}
+        self._search_cache: dict[tuple[str, int], list[SymbolSearchResult]] = {}
 
     def resolve(self, symbol: str, provider: str = "yfinance", asset_class: str | None = None) -> ResolvedSymbol:
         provider_name = provider.lower().strip()
@@ -217,7 +218,13 @@ class SymbolResolver:
         return {name: self.resolve(symbol, provider=name) for name in names}
 
     def search(self, query: str, limit: int = 12) -> list[SymbolSearchResult]:
-        return search_symbol_catalog(query, limit=limit)
+        cache_key = (_normalize(query), limit)
+        cached = self._search_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        results = search_symbol_catalog(query, limit=limit)
+        self._search_cache[cache_key] = results
+        return results
 
 
 def resolve_yfinance_symbol(symbol: str) -> ResolvedSymbol:

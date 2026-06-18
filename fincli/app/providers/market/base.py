@@ -69,6 +69,17 @@ class ProviderEntitlement:
 
 
 @dataclass(frozen=True, slots=True)
+class ProviderCapability:
+    """Formal capability declaration for a market provider."""
+
+    name: str
+    realtime: bool
+    operations: tuple[str, ...]  # ("quote", "history", "news", "fundamentals")
+    asset_classes: tuple[str, ...]  # ("stock", "forex", "crypto", "commodity", "index")
+    rate_limit_note: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class SymbolSearchResult:
     symbol: str
     name: str
@@ -96,3 +107,6 @@ class BaseMarketProvider(Protocol):
 
     async def fundamentals(self, symbol: str) -> FundamentalSnapshot:
         """Fetch a compact fundamental snapshot."""
+
+    def capabilities(self) -> ProviderCapability:
+        """Return formal capability declaration."""

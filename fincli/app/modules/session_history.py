@@ -54,7 +54,8 @@ class SessionHistoryService:
     def list_sessions(self, limit: int = 20) -> list[dict[str, object]]:
         rows = self.db.query(
             """
-            SELECT s.id, s.title, s.created_at, s.updated_at, COUNT(e.id) AS event_count
+            SELECT s.id, s.title, s.created_at, s.updated_at, COUNT(e.id) AS event_count,
+                   (SELECT e2.command FROM session_events e2 WHERE e2.session_id = s.id ORDER BY e2.id ASC LIMIT 1) AS first_command
             FROM sessions s
             LEFT JOIN session_events e ON e.session_id = s.id
             GROUP BY s.id
@@ -64,6 +65,28 @@ class SessionHistoryService:
             (limit,),
         )
         return [dict(row) for row in rows]
+
+    def get_session_summary(self, session_id: str, max_commands: int = 3) -> str:
+        """Return first N commands as preview summary."""
+        rows = self.db.query(
+            "SELECT command FROM session_events WHERE session_id = ? ORDER BY id ASC LIMIT ?",
+            (session_id, max_commands),
+        )
+        if not rows:
+            return "(empty)"
+        cmds = [str(row["command"])[:40] for row in rows]
+        summary = " → ".join(cmds)
+        if len(summary) > 100:
+            summary = summary[:97] + "..."
+        return summary
+
+    def resume_session(self, session_id: str) -> dict[str, object] | None:
+        """Return session + events for resuming context."""
+        session = self.get_session(session_id)
+        if not session:
+            return None
+        events = self.get_events(session_id)
+        return {"session": session, "events": events}
 
     def get_events(self, session_id: str, limit: int = 100) -> list[dict[str, object]]:
         rows = self.db.query(
@@ -95,6 +118,22 @@ class SessionHistoryService:
         self.db.execute("DELETE FROM session_events")
         self.db.execute("DELETE FROM sessions")
 
+    def get_last_session(self, current_session_id: str) -> dict[str, object] | None:
+        """Return most recent non-current session."""
+        rows = self.db.query(
+            """
+            SELECT s.id, s.title, s.created_at, s.updated_at, COUNT(e.id) AS event_count
+            FROM sessions s
+            LEFT JOIN session_events e ON e.session_id = s.id
+            WHERE s.id != ?
+            GROUP BY s.id
+            ORDER BY s.updated_at DESC
+            LIMIT 1
+            """,
+            (current_session_id,),
+        )
+        return dict(rows[0]) if rows else None
+
 
 def sanitize_history_text(value: str) -> str:
     sanitized = value
@@ -111,3 +150,34 @@ def sanitize_history_text(value: str) -> str:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def relative_time(iso_str: str) -> str:
+    """Convert ISO timestamp to relative time string like '2m ago', '1h ago', 'yesterday'."""
+    try:
+        ts = datetime.fromisoformat(str(iso_str))
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        now = datetime.now(timezone.utc)
+        delta = now - ts
+        seconds = int(delta.total_seconds())
+        if seconds < 60:
+            return "just now"
+        if seconds < 3600:
+            m = seconds // 60
+            return f"{m}m ago"
+        if seconds < 86400:
+            h = seconds // 3600
+            return f"{h}h ago"
+        days = seconds // 86400
+        if days == 1:
+            return "yesterday"
+        if days < 30:
+            return f"{days}d ago"
+        if days < 365:
+            months = days // 30
+            return f"{months}mo ago"
+        years = days // 365
+        return f"{years}y ago"
+    except (ValueError, TypeError):
+        return str(iso_str)

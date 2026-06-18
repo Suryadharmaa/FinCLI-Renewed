@@ -40,7 +40,7 @@ class FinCLISettings:
     provider_timeout_seconds: float = 12.0
     provider_circuit_breaker_failure_threshold: int = 3
     provider_circuit_breaker_cooldown_seconds: float = 60.0
-    theme: str = "fincli-dark"
+    theme: str = "midnight"
 
     def safe_dict(self) -> dict[str, Any]:
         """Return display-safe config, including masked secret status."""

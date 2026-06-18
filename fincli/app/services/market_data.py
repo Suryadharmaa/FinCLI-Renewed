@@ -15,9 +15,11 @@ from fincli.app.providers.reliability import (
     STATUS_CIRCUIT_OPEN,
     STATUS_NETWORK_ERROR,
     STATUS_OK,
+    ProviderResponse,
     ProviderResult,
     classify_payload,
     classify_provider_error,
+    score_quality,
 )
 from fincli.app.storage.market_cache import MarketCache
 from fincli.app.utils.errors import ProviderError
@@ -63,37 +65,43 @@ class MarketDataService:
         cached = self._cache_get("quote", cache_key)
         if isinstance(cached, dict):
             return _quote_from_payload(cached)
-        quote = await self._with_fallback("quote", symbol)
-        self._cache_set("quote", cache_key, _quote_to_payload(quote))
-        return quote
+        response = await self._with_fallback("quote", symbol)
+        quote = response.data
+        if quote is not None:
+            self._cache_set("quote", cache_key, _quote_to_payload(quote))
+        return quote  # type: ignore[return-value]
 
     async def history(self, symbol: str, period: str = "6mo", interval: str = "1d") -> list[Candle]:
         cache_key = self._cache_key(symbol, period, interval)
         cached = self._cache_get("history", cache_key)
         if isinstance(cached, list):
             return [_candle_from_payload(item) for item in cached if isinstance(item, dict)]
-        candles = await self._with_fallback("history", symbol, period, interval)
+        response = await self._with_fallback("history", symbol, period, interval)
+        candles = response.data or []
         if candles:
             self._cache_set("history", cache_key, [_candle_to_payload(candle) for candle in candles])
-        return candles
+        return candles  # type: ignore[return-value]
 
     async def news(self, symbol: str, limit: int = 5) -> list[NewsItem]:
         cache_key = self._cache_key(symbol, str(limit))
         cached = self._cache_get("news", cache_key)
         if isinstance(cached, list):
             return [_news_from_payload(item) for item in cached if isinstance(item, dict)]
-        items = await self._with_fallback("news", symbol, limit)
+        response = await self._with_fallback("news", symbol, limit)
+        items = response.data or []
         self._cache_set("news", cache_key, [_news_to_payload(item) for item in items])
-        return items
+        return items  # type: ignore[return-value]
 
     async def fundamentals(self, symbol: str) -> FundamentalSnapshot:
         cache_key = self._cache_key(symbol)
         cached = self._cache_get("fundamentals", cache_key)
         if isinstance(cached, dict):
             return _fundamentals_from_payload(cached)
-        snapshot = await self._with_fallback("fundamentals", symbol)
-        self._cache_set("fundamentals", cache_key, _fundamentals_to_payload(snapshot))
-        return snapshot
+        response = await self._with_fallback("fundamentals", symbol)
+        snapshot = response.data
+        if snapshot is not None:
+            self._cache_set("fundamentals", cache_key, _fundamentals_to_payload(snapshot))
+        return snapshot  # type: ignore[return-value]
 
     async def status(self) -> ProviderStatus:
         provider = self.primary_provider
@@ -107,7 +115,7 @@ class MarketDataService:
                 message=str(exc),
             )
 
-    async def _with_fallback(self, method_name: str, *args: object) -> Any:
+    async def _with_fallback(self, method_name: str, *args: object) -> ProviderResponse[Any]:
         errors: list[str] = []
         for provider in self.providers:
             provider_name = getattr(provider, "name", "unknown")
@@ -132,9 +140,10 @@ class MarketDataService:
                 payload = await asyncio.wait_for(method(*provider_args), timeout=self.provider_timeout_seconds)
                 latency_ms = (perf_counter() - started) * 1000
                 status, missing = classify_payload(method_name, payload)
-                self._record_provider_metric(provider_name, success=status == STATUS_OK, latency_ms=latency_ms)
+                quality = score_quality(method_name, payload, missing)
+                self._record_provider_metric(provider_name, operation=method_name, success=status == STATUS_OK, latency_ms=latency_ms)
                 self._record_circuit_success(provider_name)
-                self._record_provider_result(
+                result = self._record_provider_result(
                     provider=provider_name,
                     operation=method_name,
                     status=status,
@@ -142,12 +151,23 @@ class MarketDataService:
                     missing_fields=missing,
                     message="ok" if not missing else f"partial payload: {', '.join(missing)}",
                 )
-                return payload
+                return ProviderResponse(
+                    data=payload,
+                    provider=provider_name,
+                    operation=method_name,
+                    status=status,
+                    quality_score=quality,
+                    latency_ms=latency_ms,
+                    realtime_label=_provider_realtime_label(provider),
+                    missing_fields=missing,
+                    message="ok" if not missing else f"partial payload: {', '.join(missing)}",
+                    raw_result=result,
+                )
             except TimeoutError as exc:
                 latency_ms = (perf_counter() - started) * 1000
                 message = f"{provider_name}: {method_name} timeout after {self.provider_timeout_seconds:.1f}s"
                 errors.append(message)
-                self._record_provider_metric(provider_name, success=False, latency_ms=latency_ms, fallback=True)
+                self._record_provider_metric(provider_name, operation=method_name, success=False, latency_ms=latency_ms, fallback=True)
                 self._record_circuit_failure(provider_name)
                 self._record_provider_result(
                     provider=provider_name,
@@ -159,7 +179,7 @@ class MarketDataService:
             except Exception as exc:  # noqa: BLE001
                 latency_ms = (perf_counter() - started) * 1000
                 errors.append(f"{provider_name}: {exc}")
-                self._record_provider_metric(provider_name, success=False, latency_ms=latency_ms, fallback=True)
+                self._record_provider_metric(provider_name, operation=method_name, success=False, latency_ms=latency_ms, fallback=True)
                 self._record_circuit_failure(provider_name)
                 self._record_provider_result(
                     provider=provider_name,
@@ -214,6 +234,17 @@ class MarketDataService:
         metric.circuit_open = False
         metric.circuit_opened_at = None
 
+    def reset_circuit(self, provider_name: str) -> bool:
+        """Manually reset circuit breaker for a provider. Returns True if provider found."""
+        metric = self.provider_metrics.get(provider_name)
+        if metric is None:
+            return False
+        metric.consecutive_failures = 0
+        metric.circuit_open = False
+        metric.circuit_opened_at = None
+        metric.last_status = "reset"
+        return True
+
     def _record_provider_result(
         self,
         provider: str,
@@ -222,30 +253,37 @@ class MarketDataService:
         realtime_label: str = "unknown",
         missing_fields: tuple[str, ...] = (),
         message: str = "",
-    ) -> None:
-        self.provider_results.append(
-            ProviderResult(
-                provider=provider,
-                operation=operation,
-                status=status,
-                realtime_label=realtime_label,
-                source=provider,
-                data_quality=status,
-                missing_fields=missing_fields,
-                message=message,
-            )
+    ) -> ProviderResult:
+        result = ProviderResult(
+            provider=provider,
+            operation=operation,
+            status=status,
+            realtime_label=realtime_label,
+            source=provider,
+            data_quality=status,
+            missing_fields=missing_fields,
+            message=message,
         )
+        self.provider_results.append(result)
         if len(self.provider_results) > 50:
             self.provider_results = self.provider_results[-50:]
+        return result
 
-    def _record_provider_metric(self, provider: str, success: bool, latency_ms: float, fallback: bool = False) -> None:
+    def _record_provider_metric(self, provider: str, operation: str = "", success: bool = True, latency_ms: float = 0.0, fallback: bool = False) -> None:
         metric = self.provider_metrics.setdefault(provider, ProviderRuntimeMetrics(provider))
         metric.record(success=success, latency_ms=latency_ms, fallback=fallback)
         if self.metrics_store is not None:
-            self.metrics_store.record(provider, success=success, latency_ms=latency_ms, fallback=fallback)
+            self.metrics_store.record(provider, operation=operation, success=success, latency_ms=latency_ms, fallback=fallback)
 
     def provider_metrics_snapshot(self) -> dict[str, "ProviderRuntimeMetrics"]:
         return {provider: metric.copy() for provider, metric in self.provider_metrics.items()}
+
+    @property
+    def last_result(self) -> ProviderResult | None:
+        return self.provider_results[-1] if self.provider_results else None
+
+    def recent_results(self, limit: int = 10) -> list[ProviderResult]:
+        return self.provider_results[-limit:]
 
     def _cache_key(self, symbol: str, *parts: object) -> str:
         provider_chain = ",".join(provider.name for provider in self.providers)

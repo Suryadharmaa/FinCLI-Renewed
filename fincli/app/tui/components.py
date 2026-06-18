@@ -9,7 +9,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 from textual.timer import Timer
-from textual.widgets import Static
+from textual.widgets import RichLog, Static
 
 from fincli.app.cli.commands import CommandSpec
 
@@ -81,6 +81,32 @@ class WorkingIndicator(Static):
         self.update("")
 
 
+class TokenCounter(Static):
+    """Live token counter shown during AI streaming."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._token_count = 0
+        self._start: float = 0.0
+
+    def reset(self) -> None:
+        self._token_count = 0
+        self._start = time.monotonic()
+
+    def increment(self, tokens: int = 1) -> None:
+        self._token_count += tokens
+        elapsed = time.monotonic() - self._start if self._start else 0
+        tps = self._token_count / elapsed if elapsed > 0 else 0
+        self.update(f"  tokens: {self._token_count:,} · {tps:.1f} tok/s")
+
+    def show(self) -> None:
+        self.display = True
+
+    def hide(self) -> None:
+        self.display = False
+        self.update("")
+
+
 class CommandPalette(Static):
     """Slash command palette shown near the command input."""
 
@@ -141,3 +167,30 @@ def write_output_entry(log: object, renderable: object) -> None:
     if isinstance(line_count, int) and line_count > 0:
         log.write("")
     log.write(renderable)
+
+
+class StreamingOutput(RichLog):
+    """Dedicated container for streaming AI output.
+
+    Separated from the main output RichLog so that clearing the stream
+    does not destroy previous conversation history.
+    """
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.display = False
+
+    def start_stream(self) -> None:
+        """Show the streaming container and clear any previous content."""
+        self.clear()
+        self.display = True
+
+    def update_stream(self, renderable: object) -> None:
+        """Replace the current stream content (clear + rewrite)."""
+        self.clear()
+        self.write(renderable)
+
+    def end_stream(self) -> None:
+        """Hide the streaming container after stream completes."""
+        self.clear()
+        self.display = False

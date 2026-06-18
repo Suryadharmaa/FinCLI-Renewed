@@ -92,7 +92,10 @@ def test_calendar_country_filter_keeps_fallback_calendar_when_provider_fails(tmp
         raise ProviderError("Public economic calendar unavailable.")
 
     monkeypatch.setattr("fincli.app.storage.secrets.SECRETS_FILE", tmp_path / "empty-secrets.env")
-    monkeypatch.setenv("FINNHUB_API_KEY", "bad-key")
+    monkeypatch.setattr(
+        "fincli.app.cli.router.read_secrets",
+        lambda: {"FINNHUB_API_KEY": "bad-key"},
+    )
     monkeypatch.setattr(EconomicCalendarService, "events", fail_finnhub)
     monkeypatch.setattr(PublicEconomicCalendarService, "events", fail_public)
     router = make_router(tmp_path)
@@ -115,7 +118,10 @@ def test_calendar_static_fallback_message_is_not_raw_http_error(tmp_path: Path, 
     async def fail_public(self, start, end):
         raise ProviderError("Public economic calendar gagal: HTTP 429.")
 
-    monkeypatch.setenv("FINNHUB_API_KEY", "valid-but-calendar-blocked")
+    monkeypatch.setattr(
+        "fincli.app.cli.router.read_secrets",
+        lambda: {"FINNHUB_API_KEY": "valid-but-calendar-blocked"},
+    )
     monkeypatch.setattr(EconomicCalendarService, "events", fail_finnhub)
     monkeypatch.setattr(PublicEconomicCalendarService, "events", fail_public)
     router = make_router(tmp_path)
@@ -149,7 +155,10 @@ def test_calendar_uses_public_provider_before_static_fallback(tmp_path: Path, mo
             )
         ]
 
-    monkeypatch.setenv("FINNHUB_API_KEY", "valid-but-no-calendar-entitlement")
+    monkeypatch.setattr(
+        "fincli.app.cli.router.read_secrets",
+        lambda: {"FINNHUB_API_KEY": "valid-but-no-calendar-entitlement"},
+    )
     monkeypatch.setattr(EconomicCalendarService, "events", fail_finnhub)
     monkeypatch.setattr(PublicEconomicCalendarService, "events", public_events)
     router = make_router(tmp_path)
@@ -180,7 +189,10 @@ def test_calendar_shows_value_columns_for_provider_calendar_view(tmp_path: Path,
             )
         ]
 
-    monkeypatch.setenv("FINNHUB_API_KEY", "valid-but-no-calendar-entitlement")
+    monkeypatch.setattr(
+        "fincli.app.cli.router.read_secrets",
+        lambda: {"FINNHUB_API_KEY": "valid-but-no-calendar-entitlement"},
+    )
     monkeypatch.setattr(EconomicCalendarService, "events", fail_finnhub)
     monkeypatch.setattr(PublicEconomicCalendarService, "events", public_events)
     router = make_router(tmp_path)

@@ -2,7 +2,7 @@
 
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from fincli.app.providers.market.base import (
@@ -10,6 +10,7 @@ from fincli.app.providers.market.base import (
     Candle,
     FundamentalSnapshot,
     NewsItem,
+    ProviderCapability,
     ProviderStatus,
     Quote,
 )
@@ -57,6 +58,15 @@ class YFinanceProvider(BaseMarketProvider):
             realtime=False,
             status="fallback",
             message=f"Configured at {datetime.now().isoformat(timespec='seconds')}; yfinance fallback may be delayed.",
+        )
+
+    def capabilities(self) -> ProviderCapability:
+        return ProviderCapability(
+            name=self.name,
+            realtime=False,
+            operations=("quote", "history", "news", "fundamentals"),
+            asset_classes=("stock", "forex", "crypto", "commodity", "index"),
+            rate_limit_note="Unofficial API; may be rate-limited or blocked.",
         )
 
     def _ticker(self, symbol: str) -> Any:
@@ -146,7 +156,7 @@ class YFinanceProvider(BaseMarketProvider):
                 published_at = None
                 timestamp = content.get("pubDate") or item.get("providerPublishTime")
                 if isinstance(timestamp, int):
-                    published_at = datetime.fromtimestamp(timestamp)
+                    published_at = datetime.fromtimestamp(timestamp, tz=timezone.utc)
                 elif isinstance(timestamp, str):
                     published_at = _parse_datetime(timestamp)
                 summary = str(content.get("summary") or "")

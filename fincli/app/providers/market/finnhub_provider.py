@@ -13,12 +13,12 @@ from __future__ import annotations
 
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Awaitable
 
 import httpx
 
-from fincli.app.providers.market.base import Candle, FundamentalSnapshot, NewsItem, ProviderStatus, Quote
+from fincli.app.providers.market.base import Candle, FundamentalSnapshot, NewsItem, ProviderCapability, ProviderStatus, Quote
 from fincli.app.providers.market.symbols import resolve_finnhub_symbol
 from fincli.app.utils.errors import ProviderError, RateLimitError
 
@@ -126,7 +126,7 @@ class FinnhubProvider:
                 if not isinstance(item, dict):
                     continue
                 timestamp = item.get("datetime")
-                published_at = datetime.fromtimestamp(timestamp) if isinstance(timestamp, int) else None
+                published_at = datetime.fromtimestamp(timestamp, tz=timezone.utc) if isinstance(timestamp, (int, float)) else None
                 items.append(
                     NewsItem(
                         title=str(item.get("headline") or item.get("title") or "Untitled"),
@@ -178,6 +178,15 @@ class FinnhubProvider:
         status = "configured" if self.api_key else "unavailable"
         message = "Finnhub provider configured." if self.api_key else "Requires FINNHUB_API_KEY."
         return ProviderStatus(name=self.name, realtime=True, status=status, message=message)
+
+    def capabilities(self) -> ProviderCapability:
+        return ProviderCapability(
+            name=self.name,
+            realtime=True,
+            operations=("quote", "history", "news", "fundamentals"),
+            asset_classes=("stock", "forex", "crypto", "commodity", "index"),
+            rate_limit_note="Free tier: 60 calls/min.",
+        )
 
     def run(self, awaitable: Awaitable[Any]) -> Any:
         try:

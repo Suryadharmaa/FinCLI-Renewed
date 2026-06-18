@@ -7,7 +7,7 @@ from typing import Any
 
 import httpx
 
-from fincli.app.providers.market.base import Candle, FundamentalSnapshot, NewsItem, ProviderStatus, Quote
+from fincli.app.providers.market.base import Candle, FundamentalSnapshot, NewsItem, ProviderCapability, ProviderStatus, Quote
 from fincli.app.providers.market.symbols import resolve_provider_symbol
 from fincli.app.utils.errors import ProviderError, RateLimitError
 
@@ -148,6 +148,15 @@ class AlphaVantageProvider:
         status = "configured" if self.api_key else "unavailable"
         message = "Alpha Vantage provider configured." if self.api_key else "Requires ALPHA_VANTAGE_API_KEY."
         return ProviderStatus(name=self.name, realtime=False, status=status, message=message)
+
+    def capabilities(self) -> ProviderCapability:
+        return ProviderCapability(
+            name=self.name,
+            realtime=False,
+            operations=("quote", "history", "fundamentals"),
+            asset_classes=("stock", "forex", "crypto", "commodity"),
+            rate_limit_note="Free tier: 25 calls/day.",
+        )
 
     async def _get(self, params: dict[str, object]) -> dict[str, Any]:
         if not self.api_key:

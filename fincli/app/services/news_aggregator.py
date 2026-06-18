@@ -58,6 +58,9 @@ class NewsAggregator:
             if len(items) >= limit:
                 break
 
+        _min_dt = datetime.min.replace(tzinfo=timezone.utc)
+        items.sort(key=lambda x: x.published_at if x.published_at and x.published_at.tzinfo else _min_dt, reverse=True)
+
         note = "Provider-backed news. Realtime/delayed status depends on provider entitlement."
         reliability_status = STATUS_OK
         if not items:
@@ -87,7 +90,7 @@ def _dedupe(values: list[str]) -> list[str]:
 
 def _within_lookback(item: NewsItem, lookback_days: int) -> bool:
     if item.published_at is None:
-        return True
+        return False
     published = item.published_at
     if published.tzinfo is None:
         published = published.replace(tzinfo=timezone.utc)

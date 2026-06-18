@@ -50,7 +50,7 @@ def test_journal_stats_outputs_summary(tmp_path: Path) -> None:
     assert "Journal Stats" in output
     assert "Total Entries" in output
     assert "Win Rate" in output
-    assert "66.6667" in output
+    assert "66.7%" in output
     assert "AAPL" in output
 
 

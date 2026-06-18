@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Iterable
 from threading import Lock
 
@@ -16,12 +17,14 @@ from fincli import __version__
 from fincli.app.cli.autocomplete import SlashAutocomplete
 from fincli.app.cli.commands import CommandRegistry
 from fincli.app.cli.router import CommandResult, CommandRouter
+from fincli.app.providers.ai.base import AIRequest
 from fincli.app.providers.ai.manager import AIProviderManager
-from fincli.app.tui.components import CommandPalette, WorkingIndicator, working_verb
+from fincli.app.tui.components import CommandPalette, WorkingIndicator, TokenCounter, StreamingOutput, working_verb
 from fincli.app.tui.components import format_user_message, write_output_entry
 from fincli.app.tui.market_provider_selector import MarketProviderSelectorScreen
 from fincli.app.tui.model_selector import AIModelSelectorScreen
-from fincli.app.tui.theme import APP_CSS
+from fincli.app.tui.theme import APP_CSS, build_theme_css
+from fincli.app.tui.themes import get_theme
 
 
 class FinCLIApp(App[None]):
@@ -29,7 +32,7 @@ class FinCLIApp(App[None]):
 
     CSS = APP_CSS
     TITLE = f"FinCLI v{__version__}"
-    SUB_TITLE = "Financial terminal MVP"
+    SUB_TITLE = "Financial terminal"
     BINDINGS = [
         ("ctrl+c", "quit", "Quit"),
         ("ctrl+l", "clear_output", "Clear"),
@@ -50,8 +53,10 @@ class FinCLIApp(App[None]):
     def compose(self) -> ComposeResult:
         with Vertical(id="workspace"):
             with Vertical(id="output_frame"):
+                yield StreamingOutput(id="stream_output", wrap=True, markup=True, highlight=True)
                 yield RichLog(id="output", wrap=True, markup=True, highlight=True)
         yield WorkingIndicator(id="working")
+        yield TokenCounter(id="token_counter")
         yield Static("ready | /research AAPL --quick | /analyze XAUUSD | /provider status", id="status_bar")
         with Vertical(id="command_area"):
             yield Static("Type a question for AI chat, or / for commands.", id="command_hint")
@@ -65,6 +70,8 @@ class FinCLIApp(App[None]):
         palette = self.query_one(CommandPalette)
         palette.clear_palette()
         self.query_one("#command_palette_scroll", VerticalScroll).styles.display = "none"
+        # Apply saved theme
+        self._apply_theme(self.router.config.settings.theme)
         output = self.query_one("#output", RichLog)
         write_output_entry(output, f"[bold]FinCLI[/] [#7a7a7a]v{__version__}[/]")
         write_output_entry(output, "[#7a7a7a]Welcome back. Type [/][#d97757]/[/][#7a7a7a] for commands.[/]")
@@ -195,7 +202,111 @@ class FinCLIApp(App[None]):
     def _handle_ai_chat(self, prompt: str) -> None:
         output = self.query_one("#output", RichLog)
         write_output_entry(output, format_user_message(prompt))
-        self._submit_route(f"/ai {prompt}", display_raw="/ai", chat=True)
+        # Try streaming first
+        self._submit_stream(prompt)
+
+    def _submit_stream(self, prompt: str) -> None:
+        """Stream AI response token-by-token to output."""
+        self._worker_index += 1
+        worker_name = f"stream-{self._worker_index}"
+        self._latest_worker_sequence = self._worker_index
+        self._worker_meta[worker_name] = {
+            "raw": f"/ai {prompt}",
+            "display_raw": "/ai",
+            "chat": True,
+            "sequence": str(self._worker_index),
+            "streaming": True,
+        }
+        self.query_one("#status_bar", Static).update("streaming | /ai")
+        self.query_one(WorkingIndicator).start("Thinking")
+        token_counter = self.query_one(TokenCounter)
+        token_counter.reset()
+        token_counter.show()
+        self.run_worker(
+            lambda: self._stream_in_worker(prompt, worker_name),
+            name=worker_name,
+            group="router",
+            description="/ai",
+            thread=True,
+        )
+
+    def _stream_in_worker(self, prompt: str, worker_name: str) -> str:
+        """Run streaming in worker thread. Returns accumulated text."""
+        try:
+            from fincli.app.analysis.assistant_context import build_fincli_assistant_prompt
+            market_context = self.router._freechat_market_context(prompt)
+            assistant_prompt = build_fincli_assistant_prompt(prompt, market_context)
+            request = AIRequest(prompt=assistant_prompt, model=self.router.config.settings.ai_model, stream=True)
+
+            accumulated = []
+            loop = asyncio.new_event_loop()
+
+            async def _stream():
+                async for token in self.router.ai_provider.stream_complete(request):
+                    accumulated.append(token)
+                    self.call_from_thread(self._on_stream_token, worker_name, token)
+
+            try:
+                loop.run_until_complete(_stream())
+            finally:
+                loop.close()
+            return "".join(accumulated)
+        except (AttributeError, Exception):
+            # Fallback: use router directly (for mock/test routers without streaming)
+            result = self.router.route(f"/ai {prompt}")
+            return str(result.renderable) if result.renderable else ""
+
+    def _on_stream_token(self, worker_name: str, token: str) -> None:
+        """Called from worker thread for each streamed token."""
+        meta = self._worker_meta.get(worker_name)
+        if not meta:
+            return
+        sequence = int(str(meta.get("sequence", "0")))
+        if sequence < self._latest_worker_sequence:
+            return
+        if "_stream_text" not in meta:
+            meta["_stream_text"] = ""
+        meta["_stream_text"] = str(meta.get("_stream_text", "")) + token
+        # Update token counter
+        try:
+            token_counter = self.query_one(TokenCounter)
+            token_counter.increment(len(token.split()))
+        except Exception:
+            pass
+        # Flush to streaming container every 10 tokens to avoid UI lag
+        token_count = int(str(meta.get("_stream_flush_count", "0"))) + 1
+        meta["_stream_flush_count"] = str(token_count)
+        if token_count % 10 == 0:
+            self._flush_stream_to_output(worker_name)
+
+    def _flush_stream_to_output(self, worker_name: str) -> None:
+        """Write accumulated stream text to dedicated streaming container."""
+        meta = self._worker_meta.get(worker_name)
+        if not meta:
+            return
+        text = str(meta.get("_stream_text", ""))
+        if not text:
+            return
+        try:
+            stream_out = self.query_one("#stream_output", StreamingOutput)
+            from rich.markdown import Markdown
+            if not meta.get("_stream_started"):
+                stream_out.start_stream()
+                meta["_stream_started"] = True
+            stream_out.update_stream(Markdown(text))
+        except Exception:
+            pass
+
+    def _apply_theme(self, theme_name: str) -> None:
+        """Apply a theme by name, rebuilding CSS."""
+        from textual.css.stylesheet import Stylesheet
+        t = get_theme(theme_name)
+        css = build_theme_css(t)
+        self.CSS = css
+        sheet = Stylesheet()
+        sheet.add_source(css)
+        sheet.update(self)
+        self.refresh(layout=True)
 
     def _submit_route(
         self,
@@ -244,7 +355,6 @@ class FinCLIApp(App[None]):
         self._worker_meta.pop(worker.name or "", None)
         sequence = int(str(meta.get("sequence", "0")))
         if sequence < self._latest_worker_sequence:
-            # A newer worker owns the spinner; let it keep animating.
             return
         self.query_one(WorkingIndicator).stop()
         try:
@@ -254,6 +364,12 @@ class FinCLIApp(App[None]):
             return
         display_raw = str(meta["display_raw"])
 
+        # Hide token counter
+        try:
+            self.query_one(TokenCounter).hide()
+        except NoMatches:
+            pass
+
         if event.state == WorkerState.CANCELLED:
             status.update(f"cancelled | {display_raw}")
             return
@@ -262,7 +378,27 @@ class FinCLIApp(App[None]):
             status.update(f"error | {display_raw}")
             return
 
+        # Handle streaming result
+        if meta.get("streaming"):
+            # Hide streaming container
+            try:
+                stream_out = self.query_one("#stream_output", StreamingOutput)
+                stream_out.end_stream()
+            except Exception:
+                pass
+            # Write final content to main output
+            text = str(meta.get("_stream_text", "")) or str(worker.result)
+            if text:
+                from rich.markdown import Markdown
+                write_output_entry(output, Markdown(text))
+            status.update("ready | ai chat (streamed)")
+            return
+
         result = worker.result
+        # Handle theme change
+        if isinstance(result, CommandResult) and result.metadata and "theme_changed" in result.metadata:
+            self._apply_theme(str(result.metadata["theme_changed"]))
+
         if bool(meta.get("clear_output_before_result")):
             output.clear()
         if result.clear:

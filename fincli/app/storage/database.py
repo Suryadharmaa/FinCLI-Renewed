@@ -36,6 +36,7 @@ class FinCLIDatabase:
                         CREATE TABLE IF NOT EXISTS watchlist (
                             symbol TEXT PRIMARY KEY,
                             group_name TEXT DEFAULT 'default',
+                            notes TEXT DEFAULT '',
                             created_at TEXT DEFAULT CURRENT_TIMESTAMP
                         );
 
@@ -131,6 +132,17 @@ class FinCLIDatabase:
                             updated_at TEXT DEFAULT CURRENT_TIMESTAMP
                         );
 
+                        CREATE TABLE IF NOT EXISTS provider_operation_metrics (
+                            provider TEXT NOT NULL,
+                            operation TEXT NOT NULL,
+                            calls INTEGER DEFAULT 0,
+                            successes INTEGER DEFAULT 0,
+                            errors INTEGER DEFAULT 0,
+                            total_latency_ms REAL DEFAULT 0,
+                            updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                            PRIMARY KEY (provider, operation)
+                        );
+
                         CREATE TABLE IF NOT EXISTS paper_orders (
                             id INTEGER PRIMARY KEY AUTOINCREMENT,
                             side TEXT NOT NULL,
@@ -193,6 +205,7 @@ class FinCLIDatabase:
                     )
                     _migrate_user_profile_schema(db)
                     _migrate_paper_orders_schema(db)
+                    _migrate_watchlist_notes(db)
         except sqlite3.Error as exc:
             raise StorageError("Database lokal gagal diinisialisasi.") from exc
 
@@ -217,6 +230,13 @@ def _migrate_paper_orders_schema(db: sqlite3.Connection) -> None:
     columns = {str(row["name"]) for row in db.execute("PRAGMA table_info(paper_orders)").fetchall()}
     if "stop_price" not in columns:
         db.execute("ALTER TABLE paper_orders ADD COLUMN stop_price REAL")
+
+
+def _migrate_watchlist_notes(db: sqlite3.Connection) -> None:
+    """Add notes column to watchlist if missing (v1.0.2)."""
+    columns = {str(row["name"]) for row in db.execute("PRAGMA table_info(watchlist)").fetchall()}
+    if "notes" not in columns:
+        db.execute("ALTER TABLE watchlist ADD COLUMN notes TEXT DEFAULT ''")
 
 
 def _migrate_user_profile_schema(db: sqlite3.Connection) -> None:

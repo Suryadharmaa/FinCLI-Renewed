@@ -8,13 +8,17 @@ from dataclasses import dataclass
 from datetime import date
 import io
 import os
+from pathlib import Path
 import shlex
 from typing import Any
 
 from rich.console import Console
+from rich.console import Group
 from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
 
+from fincli import __version__
 from fincli.app.cli.commands import CommandRegistry
 from fincli.app.analysis.analyzer import build_market_analysis_prompt, build_technical_ai_summary
 from fincli.app.analysis.backtest import BacktestResult, run_backtest
@@ -49,7 +53,7 @@ from fincli.app.modules.journal import JournalService
 from fincli.app.modules.portfolio import PortfolioService
 from fincli.app.modules.portfolio_risk import PortfolioRiskReport, build_portfolio_risk
 from fincli.app.modules.scanner import ScanResult, scan_symbols
-from fincli.app.modules.session_history import SessionHistoryService
+from fincli.app.modules.session_history import SessionHistoryService, relative_time
 from fincli.app.modules.transactions import TransactionService
 from fincli.app.modules.trading import (
     BrokerCatalog,
@@ -122,6 +126,7 @@ class CommandResult:
     status: str = "ready"
     clear: bool = False
     should_exit: bool = False
+    metadata: dict[str, Any] | None = None
 
 
 class CommandRouter:
@@ -211,6 +216,8 @@ class CommandRouter:
                 return CommandResult("Keluar dari FinCLI.", should_exit=True)
             if root == "/config":
                 return CommandResult(self._config_panel())
+            if root == "/theme":
+                return self._theme(args)
             if root == "/history":
                 return self._history(args)
             if root == "/ai_model":
@@ -321,7 +328,7 @@ class CommandRouter:
             )
 
     def _help_table(self) -> Table:
-        table = Table(title="FinCLI v1.0.0 Commands", expand=True)
+        table = Table(title=f"FinCLI v{__version__} Commands", expand=True)
         table.add_column("Command", style="cyan", no_wrap=True)
         table.add_column("Group", style="magenta")
         table.add_column("Fungsi", style="white")
@@ -346,25 +353,33 @@ class CommandRouter:
             return
 
     def _history(self, args: list[str]) -> CommandResult:
-        action = args[0].lower() if args else "current"
-        if action in {"current", "show"}:
-            session_id = self.session_id if action == "current" or len(args) == 1 else args[1]
-            if action == "show" and len(args) < 2:
+        action = args[0].lower() if args else "picker"
+        # /history resume [<id|#>] — resume session
+        if action == "resume":
+            return self._history_resume(args[1:])
+        # /history show <id> — show session detail
+        if action == "show":
+            if len(args) < 2:
                 raise CommandError("Format: /history show <session_id>")
+            session_id = args[1]
             session = self.history.get_session(session_id)
             if not session:
                 raise CommandError(f"Session tidak ditemukan: {session_id}")
             events = self.history.get_events(session_id)
             return CommandResult(_format_session_events(session, events, current=session_id == self.session_id))
-        if action in {"sessions", "list"}:
-            sessions = self.history.list_sessions()
-            return CommandResult(_format_sessions(sessions, self.session_id))
+        # /history current — show current session events
+        if action == "current":
+            events = self.history.get_events(self.session_id)
+            session = self.history.get_session(self.session_id)
+            return CommandResult(_format_session_events(session, events, current=True))
+        # /history save <title>
         if action == "save":
             title = " ".join(args[1:]).strip()
             if not title:
-                raise CommandError("Format: /history save <session_title>")
+                raise CommandError('Format: /history save "judul session"')
             self.history.save_session(self.session_id, title)
             return CommandResult(Panel(f"Current session disimpan sebagai: {title}", title="History", border_style="green"))
+        # /history delete <id>
         if action == "delete":
             if len(args) < 2:
                 raise CommandError("Format: /history delete <session_id>")
@@ -374,6 +389,7 @@ class CommandRouter:
                 return CommandResult(Panel("Current session dikosongkan.", title="History", border_style="yellow"))
             self.history.delete_session(args[1])
             return CommandResult(Panel(f"Session dihapus: {args[1]}", title="History", border_style="green"))
+        # /history clear [current|all]
         if action == "clear":
             target = args[1].lower() if len(args) >= 2 else "current"
             if target == "all":
@@ -382,9 +398,68 @@ class CommandRouter:
                 return CommandResult(Panel("Semua history session dihapus. Session baru dibuat.", title="History"))
             self.history.clear_events(self.session_id)
             return CommandResult(Panel("Current session history dikosongkan.", title="History"))
-        raise CommandError(
-            "Format: /history [current|sessions|show <id>|save <title>|delete <id>|clear current|clear all]"
+        # /history — session picker (default, like Claude Code /resume)
+        sessions = self.history.list_sessions()
+        return CommandResult(_format_session_picker(sessions, self.session_id, self.history.get_session_summary))
+
+    def _history_resume(self, args: list[str]) -> CommandResult:
+        """Resume a previous session — load context from it."""
+        if not args:
+            # Resume most recent non-current session
+            last = self.history.get_last_session(self.session_id)
+            if not last:
+                return CommandResult(
+                    Panel("Belum ada session lain. Jalankan beberapa command dulu.", title="History", border_style="dim"),
+                )
+            session_id = str(last["id"])
+        else:
+            target = args[0]
+            # Allow resume by number (from picker list)
+            sessions = self.history.list_sessions()
+            if target.isdigit():
+                idx = int(target) - 1
+                if 0 <= idx < len(sessions) and str(sessions[idx]["id"]) != self.session_id:
+                    session_id = str(sessions[idx]["id"])
+                else:
+                    raise CommandError(f"Nomor session tidak valid: {target}")
+            else:
+                session_id = target
+        if session_id == self.session_id:
+            raise CommandError("Sedang di session ini. Gunakan /history current untuk lihat commands.")
+        data = self.history.resume_session(session_id)
+        if not data:
+            raise CommandError(f"Session tidak ditemukan: {session_id}")
+        session = data["session"]
+        events = data["events"]
+        summary = self.history.get_session_summary(session_id)
+        ts = relative_time(str(session.get("updated_at", session.get("created_at", ""))))
+        # Build resume output
+        header = Panel(
+            f"[bold]Resumed session [cyan]{session_id}[/cyan][/]\n"
+            f"[dim]{ts}[/] · [dim]{len(events)} commands[/]\n"
+            f"[dim]{summary}[/]",
+            title="History — Resume",
+            border_style="cyan",
         )
+        # Show last few commands as context
+        recent = events[-8:] if len(events) > 8 else events
+        table = Table(title="Recent Commands", expand=True, show_lines=False)
+        table.add_column("#", justify="right", width=4, style="dim")
+        table.add_column("Command", style="white")
+        table.add_column("Status", style="cyan", width=8)
+        table.add_column("When", style="dim")
+        for ev in recent:
+            table.add_row(
+                str(ev["id"]),
+                str(ev["command"])[:60],
+                str(ev["status"]),
+                relative_time(str(ev["created_at"])),
+            )
+        caption = Text.from_markup(
+            f"[dim]Session {session_id} loaded. "
+            f"Type /history show {session_id} for full detail.[/]"
+        )
+        return CommandResult(Group(header, table, caption))
 
     def _dashboard(self) -> Table:
         return _format_dashboard(
@@ -395,7 +470,64 @@ class CommandRouter:
             realized_pnl=self.transactions.realized_pnl_total(),
             quote_getter=self._safe_quote,
             portfolio_value_getter=self._portfolio_market_values,
+            alerts_rows=self.alerts.list(active_only=True),
         )
+
+    def _theme(self, args: list[str]) -> CommandResult:
+        from fincli.app.tui.themes import THEMES, ThemePreset, get_theme, list_themes, load_custom_theme, save_custom_theme, register_custom_theme
+        if not args:
+            current = getattr(self.config.settings, "theme", "midnight")
+            t = get_theme(current)
+            return CommandResult(_format_theme_current(t, list_themes()))
+        action = args[0].lower()
+        if action in {"list", "ls"}:
+            return CommandResult(_format_theme_list(list_themes()))
+        if action == "create":
+            if len(args) < 2:
+                raise CommandError("Format: /theme create <name> [--base midnight]")
+            name = args[1]
+            base_name = args[3] if len(args) >= 4 and args[2] == "--base" else "midnight"
+            base = get_theme(base_name)
+            custom = ThemePreset(
+                name=name, description=f"custom theme (based on {base_name})",
+                bg=base.bg, bg_alt=base.bg_alt, text=base.text, muted=base.muted,
+                accent=base.accent, border=base.border, positive=base.positive,
+                negative=base.negative, caution=base.caution,
+                gradient_start=base.gradient_start, gradient_end=base.gradient_end,
+                gradient_angle=base.gradient_angle,
+            )
+            from fincli.app.storage import config_paths
+            path = config_paths.APP_DIR / "themes" / f"{name}.json"
+            save_custom_theme(path, custom)
+            register_custom_theme(custom)
+            return CommandResult(Panel(f"Tema '{name}' dibuat di {path}. Edit JSON untuk kustomisasi warna.", title="Theme Created", border_style="green"))
+        if action == "import":
+            if len(args) < 2:
+                raise CommandError("Format: /theme import <path.json>")
+            path = Path(args[1])
+            if not path.exists():
+                raise CommandError(f"File tidak ditemukan: {path}")
+            custom = load_custom_theme(path)
+            register_custom_theme(custom)
+            return CommandResult(Panel(f"Tema '{custom.name}' di-import dan terdaftar.", title="Theme Imported", border_style="green"))
+        if action == "export":
+            if len(args) < 3:
+                raise CommandError("Format: /theme export <theme_name> <path.json>")
+            theme_name = args[1]
+            t = get_theme(theme_name)
+            path = Path(args[2])
+            save_custom_theme(path, t)
+            return CommandResult(Panel(f"Tema '{theme_name}' di-export ke {path}.", title="Theme Exported", border_style="green"))
+        if action in THEMES:
+            # Store theme — actual CSS reload happens in TUI layer
+            self.config.settings.theme = action
+            self.config.save()
+            t = get_theme(action)
+            return CommandResult(
+                Panel(f"Tema diubah ke: [bold]{t.name}[/] — {t.description}", title="Theme", border_style=t.accent),
+                metadata={"theme_changed": action},
+            )
+        raise CommandError(f"Tema tidak dikenal: {action}. Gunakan /theme list.")
 
     def _config_panel(self) -> Panel:
         safe = self.config.settings.safe_dict()
@@ -557,9 +689,35 @@ class CommandRouter:
         if args and args[0].lower() == "metrics":
             return CommandResult(_format_provider_metrics(self.market_service))
         if args and args[0].lower() in {"capabilities", "capability", "matrix"}:
-            return CommandResult(_format_provider_capabilities())
+            return CommandResult(_format_provider_capabilities(self.market_service.providers))
         if args and args[0].lower() == "key" and len(args) >= 2 and args[1].lower() == "status":
             return CommandResult(_format_provider_key_status(self.market_manager))
+        if args and args[0].lower() == "key" and len(args) >= 3 and args[1].lower() == "rotate":
+            provider = args[2].lower()
+            from fincli.app.storage.secrets import read_secrets, save_secret
+            secret_keys = {
+                "finnhub": "FINNHUB_API_KEY",
+                "twelvedata": "TWELVE_DATA_API_KEY",
+                "alphavantage": "ALPHA_VANTAGE_API_KEY",
+                "custom": "MARKET_DATA_API_KEY",
+            }
+            key_name = secret_keys.get(provider)
+            if not key_name:
+                raise CommandError(f"Provider '{provider}' tidak dikenal. Gunakan: {', '.join(secret_keys)}")
+            old_secrets = read_secrets()
+            old_value = old_secrets.get(key_name, "")
+            if old_value:
+                masked = f"{old_value[:4]}...{old_value[-2:]}" if len(old_value) > 6 else "***"
+                return CommandResult(Panel(
+                    f"Key untuk {provider} sudah ada: {masked}\nGunakan /secrets clear dulu, lalu /news_model key {provider} <new_key>.",
+                    title="Key Rotate",
+                    border_style="yellow",
+                ))
+            return CommandResult(Panel(
+                f"Belum ada key untuk {provider}. Gunakan /news_model key {provider} <api_key> untuk menyimpan.",
+                title="Key Rotate",
+                border_style="yellow",
+            ))
         if args and args[0].lower() in {"insider", "insiders"}:
             if len(args) < 2:
                 raise CommandError("Format: /provider insider <symbol>")
@@ -587,15 +745,23 @@ class CommandRouter:
             self._refresh_market_service()
             self.cache.clear()
             return CommandResult(Panel(f"Provider priority: {', '.join(providers)}", title="Provider Priority"))
+        if args and args[0].lower() == "reset":
+            if len(args) < 2:
+                raise CommandError("Format: /provider reset <provider_name>")
+            provider_name = args[1].lower()
+            if self.market_service.reset_circuit(provider_name):
+                return CommandResult(Panel(f"Circuit breaker untuk {provider_name} di-reset.", title="Circuit Reset", border_style="green"))
+            return CommandResult(Panel(f"Provider '{provider_name}' tidak ditemukan dalam metrics.", title="Circuit Reset", border_style="red"))
         if args and args[0].lower() == "status":
             settings = self.config.settings
             provider_status = self._provider_health_text()
+            circuit_text = _format_circuit_status(self.market_service)
             text = (
                 f"Market provider: {settings.market_provider} (active: {self.market_provider.name})\n"
                 f"News provider  : {settings.news_provider} (active: {self.market_provider.name} fallback)\n"
                 f"Provider chain : {', '.join(provider.name for provider in self.market_service.providers)}\n"
                 f"AI provider    : {settings.ai_provider} (active: {self.ai_provider.name})\n"
-                f"{provider_status}"
+                f"{provider_status}\n\n{circuit_text}"
             )
             return CommandResult(Panel(text, title="Provider Status", border_style="yellow"))
         if args and args[0].lower() == "test":
@@ -610,7 +776,7 @@ class CommandRouter:
         raise CommandError(
             "Format: /provider status, /provider list, /provider capabilities, /provider entitlement, /provider key status, "
             "/provider use <provider>, /provider priority finnhub,yfinance, /provider insider <symbol>, "
-            "/provider ipo [week|from to], atau /provider test [provider] <symbol>"
+            "/provider ipo [week|from to], /provider reset <provider>, atau /provider test [provider] <symbol>"
         )
 
     def _symbol(self, args: list[str]) -> CommandResult:
@@ -700,6 +866,8 @@ class CommandRouter:
         raise CommandError('Format: /profile, /profile set "Nama" <equity> <currency> <leverage> <years>, /profile clear')
 
     def _doctor(self, args: list[str]) -> CommandResult:
+        if args and args[0].lower() == "report":
+            return self._doctor_report()
         full = bool(args and args[0].lower() in {"full", "deep"})
         live = "--live" in {arg.lower() for arg in args}
         live_symbol = _doctor_live_symbol(args)
@@ -707,7 +875,7 @@ class CommandRouter:
         table.add_column("Check", style="cyan", no_wrap=True)
         table.add_column("Status")
         table.add_column("Detail", overflow="fold")
-        table.add_row("Version", "ok", "FinCLI v1.0.0 command surface loaded.")
+        table.add_row("Version", "ok", f"FinCLI v{__version__} command surface loaded.")
         for check in check_runtime_environment():
             style = "green" if check.status == "ok" else "yellow" if check.status in {"warning", "info"} else "red"
             table.add_row(check.name, f"[{style}]{check.status}[/]", check.detail)
@@ -814,24 +982,197 @@ class CommandRouter:
             )
         ]
 
+    def _doctor_report(self) -> CommandResult:
+        import platform
+        import sys
+        from fincli.app.utils.errors import CrashContext
+        lines = [
+            "=== FinCLI Diagnostic Report ===",
+            "",
+            f"Version      : {__version__}",
+            f"Python       : {sys.version.split()[0]}",
+            f"Platform     : {platform.platform()}",
+            f"Database     : {self.db.db_file}",
+            "",
+            "--- Provider Chain ---",
+        ]
+        for provider in self.market_service.providers:
+            name = getattr(provider, "name", "unknown")
+            cap = getattr(provider, "capabilities", lambda: None)()
+            if cap:
+                lines.append(f"  {name}: realtime={cap.realtime}, ops={','.join(cap.operations)}")
+            else:
+                lines.append(f"  {name}: capabilities=unknown")
+        lines.append("")
+        lines.append("--- Provider Metrics (Session) ---")
+        for name, metric in self.market_service.provider_metrics_snapshot().items():
+            lines.append(f"  {name}: calls={metric.calls}, success_rate={metric.success_rate:.1f}%, errors={metric.errors}")
+        lines.append("")
+        lines.append("--- API Key Status ---")
+        for row in self.market_manager.key_status():
+            lines.append(f"  {row['provider']}: {row['status']}")
+        lines.append("")
+        lines.append("--- Database Tables ---")
+        try:
+            tables = self.db.query("SELECT name FROM sqlite_master WHERE type='table'")
+            lines.append(f"  {len(tables)} table(s): {', '.join(str(t['name']) for t in tables)}")
+        except Exception as exc:
+            lines.append(f"  Error: {exc}")
+        lines.append("")
+        lines.append("--- Active Config (no secrets) ---")
+        safe = self.config.settings.safe_dict()
+        for key, value in safe.items():
+            if key != "api_keys":
+                lines.append(f"  {key}: {value}")
+        lines.append("")
+        lines.append("=== End Report ===")
+        lines.append("")
+        lines.append("This report contains no API keys or secrets.")
+        lines.append("Share this output when filing a bug report.")
+        report_text = "\n".join(lines)
+        return CommandResult(Panel(report_text, title="Doctor Report", border_style="cyan"))
+
     def _setup(self, args: list[str]) -> CommandResult:
-        return CommandResult(
-            Panel(
-                "\n".join(
-                    [
-                        "Recommended setup:",
-                        '1. /profile set "Nama" <equity> <currency> <leverage> <years>',
-                        "2. /ai_model key <provider> <api_key>",
-                        "3. /news_model key <provider> <api_key>",
-                        "4. /provider priority yfinance,alphavantage,twelvedata,finnhub",
-                        "5. /research AAPL --quick",
-                        "6. /analyze XAUUSD 1d",
-                    ]
-                ),
-                title="FinCLI Setup",
-                border_style="cyan",
-            )
-        )
+        if args and args[0].lower() == "check":
+            return CommandResult(self._setup_check())
+        if args and args[0].lower() == "keys":
+            return self._setup_keys()
+        if args and args[0].lower() == "profile":
+            return self._setup_profile()
+        if args and args[0].lower() == "theme":
+            return self._setup_theme()
+        return CommandResult(self._setup_wizard())
+
+    def _setup_wizard(self) -> Table:
+        table = Table(title="FinCLI Setup Wizard", expand=True)
+        table.add_column("Step", style="cyan", no_wrap=True)
+        table.add_column("Status", no_wrap=True)
+        table.add_column("Action", overflow="fold")
+
+        # Check profile
+        try:
+            profile_rows = self.db.query("SELECT name FROM user_profile WHERE id = 1")
+            if profile_rows:
+                table.add_row("1. Profile", "[green]OK[/]", f"Welcome back, {profile_rows[0]['name']}")
+            else:
+                table.add_row("1. Profile", "[yellow]MISSING[/]", '/setup profile — set name, equity, currency')
+        except Exception:
+            table.add_row("1. Profile", "[yellow]MISSING[/]", '/setup profile')
+
+        # Check AI key
+        secrets = read_secrets()
+        ai_keys = [k for k in secrets if "AI" in k.upper() or "GROQ" in k.upper() or "OPENAI" in k.upper()]
+        if ai_keys:
+            table.add_row("2. AI Key", "[green]OK[/]", f"{len(ai_keys)} key(s) configured")
+        else:
+            table.add_row("2. AI Key", "[yellow]MISSING[/]", "/ai_model key groq <api_key>")
+
+        # Check market key
+        market_keys = [k for k in secrets if any(p in k.upper() for p in ["FINNHUB", "ALPHA", "TWELVEDATA", "MARKETAUX"])]
+        if market_keys:
+            table.add_row("3. Market Key", "[green]OK[/]", f"{len(market_keys)} key(s) configured")
+        else:
+            table.add_row("3. Market Key", "[yellow]MISSING[/]", "/news_model key finnhub <api_key>")
+
+        # Check theme
+        current_theme = getattr(self.config.settings, "theme", "midnight")
+        table.add_row("4. Theme", "[green]OK[/]", f"Current: {current_theme}. /theme list to change.")
+
+        # Quick start
+        table.add_row("5. Test", "[dim]-[/]", "/research AAPL --quick")
+        table.add_row("6. Test", "[dim]-[/]", "/analyze XAUUSD 1d")
+
+        table.caption = "Run: /setup check | /setup keys | /setup profile | /setup theme"
+        return table
+
+    def _setup_check(self) -> Table:
+        """Detailed configuration check."""
+        table = Table(title="Configuration Check", expand=True)
+        table.add_column("Check", style="cyan", no_wrap=True)
+        table.add_column("Status", no_wrap=True)
+        table.add_column("Detail", overflow="fold")
+
+        secrets = read_secrets()
+        # Profile
+        try:
+            profile_rows = self.db.query("SELECT name, equity, currency FROM user_profile WHERE id = 1")
+            if profile_rows:
+                p = profile_rows[0]
+                table.add_row("Profile", "ok", f"{p['name']} | {p['equity']} {p['currency']}")
+            else:
+                table.add_row("Profile", "missing", "Run /setup profile")
+        except Exception:
+            table.add_row("Profile", "error", "Cannot read profile")
+
+        # Keys
+        for key_name in ["GROQ_API_KEY", "OPENAI_API_KEY", "FINNHUB_API_KEY", "ALPHAVANTAGE_API_KEY"]:
+            if secrets.get(key_name):
+                table.add_row(key_name, "ok", "***configured***")
+            else:
+                table.add_row(key_name, "missing", f"Run /ai_model key or /news_model key")
+
+        # Theme
+        theme = getattr(self.config.settings, "theme", "midnight")
+        table.add_row("Theme", "ok", theme)
+
+        # Database
+        table.add_row("Database", "ok", str(self.db.db_file))
+
+        return table
+
+    def _setup_keys(self) -> CommandResult:
+        """Guide through API key setup."""
+        secrets = read_secrets()
+        lines = [
+            "[bold]API Key Setup[/]",
+            "",
+            "[cyan]AI Providers:[/]",
+            "  /ai_model key groq <api_key>        — free tier, fast",
+            "  /ai_model key openai <api_key>      — GPT-4o",
+            "  /ai_model key anthropic <api_key>   — Claude",
+            "",
+            "[cyan]Market Data:[/]",
+            "  /news_model key finnhub <api_key>   — free tier, news + calendar",
+            "  /news_model key alphavantage <key>  — macro data",
+            "  /news_model key twelvedata <key>    — technical data",
+        ]
+        if secrets:
+            lines.append("")
+            lines.append("[green]Configured:[/]")
+            for k in sorted(secrets):
+                lines.append(f"  {k}: ***")
+        return CommandResult(Panel("\n".join(lines), title="API Keys", border_style="cyan"))
+
+    def _setup_profile(self) -> CommandResult:
+        """Guide through profile setup."""
+        try:
+            profile_rows = self.db.query("SELECT name, equity, currency, leverage, years_in_investment, gameplay FROM user_profile WHERE id = 1")
+            if profile_rows:
+                p = profile_rows[0]
+                return CommandResult(Panel(
+                    f"Name: {p['name']}\nEquity: {p['equity']} {p['currency']}\nLeverage: {p['leverage']}\nYears: {p['years_in_investment']}\nGameplay: {p['gameplay']}",
+                    title="Current Profile",
+                    border_style="green",
+                ))
+        except Exception:
+            pass
+        return CommandResult(Panel(
+            'No profile set.\n\nRun:\n/profile set "Your Name" 10000 USD 1x 3 conservative',
+            title="Profile Setup",
+            border_style="yellow",
+        ))
+
+    def _setup_theme(self) -> CommandResult:
+        """Guide through theme setup."""
+        from fincli.app.tui.themes import list_themes
+        themes = list_themes()
+        current = getattr(self.config.settings, "theme", "midnight")
+        lines = [f"Current: [bold]{current}[/]", "", "Available themes:"]
+        for t in themes:
+            marker = " [green]<-- current[/]" if t.name == current else ""
+            lines.append(f"  /theme {t.name} — {t.description}{marker}")
+        lines.append("\nRun: /theme <name> to change.")
+        return CommandResult(Panel("\n".join(lines), title="Theme Setup", border_style="cyan"))
 
     def _tutorial(self, args: list[str]) -> CommandResult:
         if not args:
@@ -971,7 +1312,15 @@ class CommandRouter:
         if action in {"list", "ls", "status"}:
             plugins = PluginLoader().discover()
             return CommandResult(_format_plugins(plugins, status_only=action == "status"))
-        raise CommandError("Format: /plugin list atau /plugin status")
+        if action == "validate":
+            plugins = PluginLoader().discover()
+            from fincli.app.plugins.loader import validate_manifest
+            results = []
+            for plugin in plugins:
+                errors = validate_manifest(plugin)
+                results.append((plugin, errors))
+            return CommandResult(_format_plugin_validation(results))
+        raise CommandError("Format: /plugin list, /plugin status, atau /plugin validate")
 
     def _cache(self, args: list[str]) -> CommandResult:
         if args and args[0].lower() == "stats":
@@ -993,36 +1342,69 @@ class CommandRouter:
 
     def _watchlist(self, args: list[str]) -> CommandResult:
         if not args:
-            rows = self.watchlist.list()
-            table = Table(title="Watchlist", expand=True)
-            table.add_column("Symbol", style="cyan")
-            table.add_column("Price", justify="right")
-            table.add_column("Currency")
-            table.add_column("Status")
-            table.add_column("Group")
-            table.add_column("Created")
-            for row in rows:
-                quote = self._safe_quote(str(row["symbol"]))
-                table.add_row(
-                    str(row["symbol"]),
-                    _fmt(quote.price) if quote else "N/A",
-                    quote.currency if quote else "-",
-                    quote.status if quote else "unavailable",
-                    str(row["group_name"]),
-                    str(row["created_at"]),
-                )
-            if not rows:
-                table.add_row("-", "-", "-", "-", "Belum ada data. Gunakan /watchlist add AAPL", "-")
-            return CommandResult(table)
+            return self._watchlist_table()
 
         action = args[0].lower()
+
         if action == "add" and len(args) >= 2:
-            self.watchlist.add(args[1], args[2] if len(args) >= 3 else "default")
-            return CommandResult(Panel(f"{args[1].upper()} ditambahkan ke watchlist.", title="Watchlist"))
+            group = args[2] if len(args) >= 3 else "default"
+            notes = args[3] if len(args) >= 4 else ""
+            self.watchlist.add(args[1], group_name=group, notes=notes)
+            return CommandResult(Panel(f"{args[1].upper()} ditambahkan ke watchlist (group: {group}).", title="Watchlist"))
         if action == "remove" and len(args) >= 2:
             self.watchlist.remove(args[1])
             return CommandResult(Panel(f"{args[1].upper()} dihapus dari watchlist.", title="Watchlist"))
-        raise CommandError("Format: /watchlist, /watchlist add <symbol>, /watchlist remove <symbol>")
+        if action == "list":
+            group = args[1] if len(args) >= 2 else None
+            return self._watchlist_table(group)
+        if action == "note" and len(args) >= 3:
+            self.watchlist.update_notes(args[1], " ".join(args[2:]))
+            return CommandResult(Panel(f"Catatan untuk {args[1].upper()} disimpan.", title="Watchlist"))
+        if action == "groups":
+            groups = self.watchlist.groups()
+            if not groups:
+                return CommandResult(Panel("Belum ada group.", title="Watchlist Groups"))
+            table = Table(title="Watchlist Groups", expand=True)
+            table.add_column("Group", style="cyan")
+            table.add_column("Count", justify="right")
+            for g in groups:
+                rows = self.watchlist.list(g)
+                table.add_row(g, str(len(rows)))
+            return CommandResult(table)
+
+        # If arg looks like a group name, filter by it
+        if len(args) == 1:
+            rows = self.watchlist.list(args[0])
+            if rows:
+                return self._watchlist_table(args[0])
+
+        raise CommandError("Format: /watchlist, /watchlist add <symbol> [group] [notes], /watchlist remove <symbol>, /watchlist list [group], /watchlist note <symbol> <text>, /watchlist groups")
+
+    def _watchlist_table(self, group: str | None = None) -> CommandResult:
+        rows = self.watchlist.list(group)
+        title = f"Watchlist | {group}" if group else "Watchlist"
+        table = Table(title=title, expand=True)
+        table.add_column("Symbol", style="cyan")
+        table.add_column("Price", justify="right")
+        table.add_column("Currency")
+        table.add_column("Status")
+        table.add_column("Group")
+        table.add_column("Notes")
+        table.add_column("Created")
+        for row in rows:
+            quote = self._safe_quote(str(row["symbol"]))
+            table.add_row(
+                str(row["symbol"]),
+                _fmt(quote.price) if quote else "N/A",
+                quote.currency if quote else "-",
+                quote.status if quote else "unavailable",
+                str(row["group_name"]),
+                str(row.get("notes", "") or "")[:30],
+                str(row["created_at"]),
+            )
+        if not rows:
+            table.add_row("-", "-", "-", "-", "-", "Belum ada data. Gunakan /watchlist add AAPL", "-")
+        return CommandResult(table)
 
     def _portfolio(self, args: list[str]) -> CommandResult:
         if not args:
@@ -1044,7 +1426,7 @@ class CommandRouter:
                     f"{float(row['average_price']):,.4f}",
                     _fmt(current_price),
                     _fmt(pnl),
-                    _fmt(pnl_percent),
+                    _fmt_pct(pnl_percent),
                     str(row["currency"]),
                     str(row["updated_at"]),
                 )
@@ -1074,6 +1456,8 @@ class CommandRouter:
             return self._portfolio_benchmark(args[1:])
         if action == "snapshot":
             return self._portfolio_snapshot()
+        if action == "history":
+            return self._portfolio_history()
         if action == "add" and len(args) >= 4:
             try:
                 quantity = float(args[2])
@@ -1085,9 +1469,25 @@ class CommandRouter:
         if action == "remove" and len(args) >= 2:
             self.portfolio.remove(args[1])
             return CommandResult(Panel(f"Posisi {args[1].upper()} dihapus.", title="Portfolio"))
+        if action == "update" and len(args) >= 4:
+            try:
+                quantity = float(args[2])
+                price = float(args[3])
+            except ValueError as exc:
+                raise CommandError("Quantity dan price harus angka.") from exc
+            result = self.portfolio.update(args[1], quantity, price, args[4] if len(args) >= 5 else "USD")
+            sym = str(result["symbol"])
+            act = str(result["action"])
+            if act == "closed":
+                msg = f"Posisi {sym} ditutup (qty = 0)."
+            elif act == "updated":
+                msg = f"{sym} DCA: qty {result['old_quantity']} → {result['quantity']}, avg {result['old_average_price']:.4f} → {result['average_price']:.4f}"
+            else:
+                msg = f"Posisi {sym} dibuat: qty {result['quantity']}, avg {result['average_price']:.4f}"
+            return CommandResult(Panel(msg, title="Portfolio DCA"))
         raise CommandError(
             "Format: /portfolio, /portfolio risk, /portfolio performance, /portfolio add <symbol> <qty> <avg_price>, "
-            "/portfolio remove <symbol>"
+            "/portfolio update <symbol> <qty> <price>, /portfolio remove <symbol>"
         )
 
     def _tx(self, args: list[str]) -> CommandResult:
@@ -1128,12 +1528,14 @@ class CommandRouter:
             rows = self.journal.list()
             return CommandResult(self._journal_table(rows, "Journal"))
 
-        if args[0].lower() == "stats":
+        action = args[0].lower()
+
+        if action == "stats":
             rows = self.journal.list(limit=10_000)
             stats = calculate_journal_stats(rows)
             return CommandResult(_format_journal_stats(stats))
 
-        if args[0].lower() == "review":
+        if action == "review":
             rows = self.journal.list(limit=10_000)
             stats = calculate_journal_stats(rows)
             prompt = build_journal_review_prompt(rows, stats)
@@ -1144,14 +1546,101 @@ class CommandRouter:
                 MarkdownBlock("Journal Review", _format_ai_response(response), "Disclaimer: bukan nasihat keuangan.")
             )
 
-        if args[0].lower() == "add":
-            if len(args) < 3:
-                raise CommandError('Format: /journal add <instrument> <bias> "entry reason"')
-            self.journal.add(args[1], bias=args[2], entry_reason=args[3] if len(args) >= 4 else "")
-            return CommandResult(Panel(f"Journal untuk {args[1].upper()} ditambahkan.", title="Journal"))
+        if action == "add":
+            return self._journal_add(args[1:])
+
+        if action == "edit":
+            return self._journal_edit(args[1:])
+
+        if action == "delete":
+            return self._journal_delete(args[1:])
+
+        if action == "show":
+            if len(args) < 2:
+                raise CommandError("Format: /journal show <id>")
+            return self._journal_show(args[1])
 
         rows = self.journal.list(args[0])
         return CommandResult(self._journal_table(rows, f"Journal {args[0].upper()}"))
+
+    def _journal_add(self, args: list[str]) -> CommandResult:
+        if len(args) < 2:
+            raise CommandError('Format: /journal add <instrument> <bias> "entry reason" [--exit_reason ...] [--result win|loss|be] [--emotion ...] [--lesson ...] [--tags t1,t2]')
+        instrument = args[0]
+        bias = args[1]
+        entry_reason = ""
+        exit_reason = ""
+        result = ""
+        emotion = ""
+        lesson = ""
+        tags = ""
+        i = 2
+        while i < len(args):
+            if args[i] == "--exit_reason" and i + 1 < len(args):
+                exit_reason = args[i + 1]; i += 2
+            elif args[i] == "--result" and i + 1 < len(args):
+                result = args[i + 1]; i += 2
+            elif args[i] == "--emotion" and i + 1 < len(args):
+                emotion = args[i + 1]; i += 2
+            elif args[i] == "--lesson" and i + 1 < len(args):
+                lesson = args[i + 1]; i += 2
+            elif args[i] == "--tags" and i + 1 < len(args):
+                tags = args[i + 1]; i += 2
+            else:
+                entry_reason = args[i]; i += 1
+        self.journal.add(instrument, bias=bias, entry_reason=entry_reason, exit_reason=exit_reason, result=result, emotion=emotion, lesson=lesson, tags=tags)
+        return CommandResult(Panel(f"Journal untuk {instrument.upper()} ditambahkan.", title="Journal"))
+
+    def _journal_edit(self, args: list[str]) -> CommandResult:
+        if not args:
+            raise CommandError('Format: /journal edit <id> [--bias ...] [--entry_reason ...] [--exit_reason ...] [--result win|loss|be] [--emotion ...] [--lesson ...] [--tags t1,t2]')
+        try:
+            entry_id = int(args[0])
+        except ValueError:
+            raise CommandError("ID harus berupa angka.")
+        fields: dict[str, str] = {}
+        i = 1
+        while i < len(args):
+            key = args[i].lstrip("-")
+            if key in {"bias", "entry_reason", "exit_reason", "result", "emotion", "lesson", "tags"} and i + 1 < len(args):
+                fields[key] = args[i + 1]; i += 2
+            else:
+                i += 1
+        if not fields:
+            raise CommandError("Tidak ada field yang diubah. Gunakan --bias, --entry_reason, dll.")
+        entry = self.journal.get(entry_id)
+        if not entry:
+            raise CommandError(f"Journal entry #{entry_id} tidak ditemukan.")
+        self.journal.edit(entry_id, **fields)
+        return CommandResult(Panel(f"Journal #{entry_id} diperbarui.", title="Journal"))
+
+    def _journal_delete(self, args: list[str]) -> CommandResult:
+        if not args:
+            raise CommandError("Format: /journal delete <id>")
+        try:
+            entry_id = int(args[0])
+        except ValueError:
+            raise CommandError("ID harus berupa angka.")
+        entry = self.journal.get(entry_id)
+        if not entry:
+            raise CommandError(f"Journal entry #{entry_id} tidak ditemukan.")
+        self.journal.delete(entry_id)
+        return CommandResult(Panel(f"Journal #{entry_id} ({entry['instrument']}) dihapus.", title="Journal"))
+
+    def _journal_show(self, id_str: str) -> CommandResult:
+        try:
+            entry_id = int(id_str)
+        except ValueError:
+            raise CommandError("ID harus berupa angka.")
+        entry = self.journal.get(entry_id)
+        if not entry:
+            raise CommandError(f"Journal entry #{entry_id} tidak ditemukan.")
+        table = Table(title=f"Journal #{entry_id}", expand=True)
+        table.add_column("Field", style="cyan", no_wrap=True)
+        table.add_column("Value")
+        for key in ("instrument", "bias", "entry_reason", "exit_reason", "result", "emotion", "lesson", "tags", "created_at"):
+            table.add_row(key.replace("_", " ").title(), str(entry.get(key) or "-"))
+        return CommandResult(table)
 
     def _journal_table(self, rows: list[dict[str, object]], title: str) -> Table:
         table = Table(title=title, expand=True)
@@ -1360,7 +1849,7 @@ class CommandRouter:
             if len(args) < 2:
                 raise CommandError("Format: /trading broker use <name>")
             return CommandResult(Panel(
-                f"Broker adapter '{args[1]}' activation is catalog-level in v0.8.0. "
+                f"Broker adapter '{args[1]}' is catalog-level. "
                 f"Configure API keys via /news_model key or environment variables, then use /trading paper --live to route through the adapter.",
                 title="Broker Adapter",
                 border_style="yellow",
@@ -1393,8 +1882,8 @@ class CommandRouter:
             return CommandResult(_format_stream_status(connectors))
         connector = args[0].lower()
         return CommandResult(Panel(
-            f"Stream '{connector}' is configurable in v0.8.0. "
-            f"Connect via the realtime_stream module adapters (KrakenWebSocketAdapter, HyperLiquidWebSocketAdapter, EquityStreamingAdapter). "
+            f"Stream '{connector}' — connect via the realtime_stream module adapters "
+            f"(KrakenWebSocketAdapter, HyperLiquidWebSocketAdapter, EquityStreamingAdapter). "
             f"See /trading realtime for available connectors.",
             title="Stream",
             border_style="cyan",
@@ -1423,14 +1912,15 @@ class CommandRouter:
         result = self._run_async(engine.run(strategy, symbol, timeframe, quantity))
         # If signal is buy/sell, place paper order
         order_result = None
+        order_error = None
         if result.signal in {"buy", "sell"} and result.suggested_qty > 0:
             try:
                 order_result = self.paper_trading.place_order(
                     result.signal, symbol, result.suggested_qty, "market", strategy=strategy,
                 )
-            except Exception:  # noqa: BLE001 - risk guard may block
-                pass
-        return CommandResult(_format_algo_result(result, order_result))
+            except Exception as exc:  # noqa: BLE001 - risk guard may block
+                order_error = str(exc)
+        return CommandResult(_format_algo_result(result, order_result, order_error))
 
     def _market(self, args: list[str]) -> CommandResult:
         if not args:
@@ -1601,7 +2091,8 @@ class CommandRouter:
         if args and args[0].lower() == "export":
             return self._calendar_export(args[1:])
         start, end, country, impact = _parse_calendar_args(args)
-        service = EconomicCalendarService(api_key=os.getenv("FINNHUB_API_KEY"))
+        secrets = read_secrets()
+        service = EconomicCalendarService(api_key=secrets.get("FINNHUB_API_KEY"))
         source = "finnhub"
         note = "Aktual dari provider Finnhub."
         try:
@@ -1617,7 +2108,8 @@ class CommandRouter:
         export_format = args[0].lower()
         target = args[1]
         start, end, country, impact = _parse_calendar_args(args[2:])
-        service = EconomicCalendarService(api_key=os.getenv("FINNHUB_API_KEY"))
+        secrets = read_secrets()
+        service = EconomicCalendarService(api_key=secrets.get("FINNHUB_API_KEY"))
         try:
             events = self._run_async(service.events(start, end))
         except FinCLIError as exc:
@@ -1629,7 +2121,8 @@ class CommandRouter:
     def _calendar_public_or_static_fallback(
         self, start: date, end: date, provider_error: FinCLIError
     ) -> tuple[list[EconomicEvent], str, str]:
-        if not os.getenv("FINNHUB_API_KEY"):
+        secrets = read_secrets()
+        if not secrets.get("FINNHUB_API_KEY"):
             return fallback_events(start, end), "fallback", _calendar_fallback_note(provider_error, False)
         try:
             events = self._run_async(PublicEconomicCalendarService().events(start, end))
@@ -1647,7 +2140,9 @@ class CommandRouter:
             return fallback_events(start, end), "fallback", note
         return fallback_events(start, end), "fallback", _calendar_static_fallback_note(provider_error, None)
 
-    def _run_async(self, awaitable: Any) -> Any:
+    def _run_async(self, awaitable: Any, timeout: float | None = None) -> Any:
+        if timeout is None:
+            timeout = self.config.settings.provider_timeout_seconds + 15.0
         try:
             asyncio.get_running_loop()
         except RuntimeError:
@@ -1655,7 +2150,11 @@ class CommandRouter:
 
         with ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(asyncio.run, awaitable)
-            return future.result()
+            try:
+                return future.result(timeout=timeout)
+            except TimeoutError:
+                future.cancel()
+                raise FinCLIError("Provider timeout — coba lagi atau kurangi beban query.")
 
     def _portfolio_market_values(self, row: dict[str, object]) -> tuple[float | None, float | None, float | None]:
         try:
@@ -1728,6 +2227,35 @@ class CommandRouter:
             title="Portfolio Snapshot",
             border_style="green",
         ))
+
+    def _portfolio_history(self) -> CommandResult:
+        rows = self.db.query(
+            "SELECT id, total_value, cost_basis, unrealized_pnl, realized_pnl, created_at FROM portfolio_snapshots ORDER BY id DESC LIMIT 20"
+        )
+        if not rows:
+            return CommandResult(Panel("Belum ada portfolio snapshot. Gunakan /portfolio snapshot untuk menyimpan.", title="Portfolio History"))
+        table = Table(title="Portfolio History (Last 20 Snapshots)", expand=True)
+        table.add_column("#", style="dim", justify="right")
+        table.add_column("Date", style="cyan")
+        table.add_column("Total Value", justify="right")
+        table.add_column("Cost Basis", justify="right")
+        table.add_column("Unrealized", justify="right")
+        table.add_column("Realized", justify="right")
+        table.add_column("Total PnL", justify="right")
+        for row in rows:
+            uv = float(row["unrealized_pnl"])
+            rv = float(row["realized_pnl"])
+            table.add_row(
+                str(row["id"]),
+                str(row["created_at"])[:19],
+                _fmt(float(row["total_value"])),
+                _fmt(float(row["cost_basis"])),
+                _fmt(uv),
+                _fmt(rv),
+                _fmt(uv + rv),
+            )
+        table.caption = "Use /portfolio snapshot to save current state. Use /portfolio chart for visual performance."
+        return CommandResult(table)
 
     def _portfolio_whatif(self, args: list[str]) -> CommandResult:
         if len(args) < 4:
@@ -2052,6 +2580,30 @@ class CommandRouter:
             )
 
 
+def _format_theme_current(current: object, all_themes: list[object]) -> Table:
+    from fincli.app.tui.themes import ThemePreset
+    table = Table(title="FinCLI Theme", expand=True, show_lines=False)
+    table.add_column("Current", style="white", no_wrap=True)
+    table.add_column("Description", style="dim")
+    table.add_row(str(current.name), str(current.description))
+    table.caption = "/theme <name> untuk ganti. /theme list untuk semua."
+    return table
+
+
+def _format_theme_list(themes: list[object]) -> Table:
+    from fincli.app.tui.themes import ThemePreset
+    table = Table(title="Available Themes", expand=True, show_lines=False)
+    table.add_column("#", justify="right", width=3, style="dim")
+    table.add_column("Name", style="cyan", no_wrap=True)
+    table.add_column("Preview", style="white")
+    table.add_column("Description", style="dim")
+    for idx, t in enumerate(themes, 1):
+        preview = f"[{t.accent}]███[/{t.accent}]"
+        table.add_row(str(idx), t.name, preview, t.description)
+    table.caption = "/theme <name> untuk mengganti tema"
+    return table
+
+
 def _format_quote(quote: Quote) -> str:
     price = "N/A" if quote.price is None else f"{quote.price:,.4f}"
     return (
@@ -2083,6 +2635,37 @@ def _format_sessions(sessions: list[dict[str, object]], current_session_id: str)
     if not sessions:
         table.add_row("-", "-", "Belum ada session.", "0", "-")
     table.caption = "/history current | /history show <session_id> | /history delete <session_id>"
+    return table
+
+
+def _format_session_picker(
+    sessions: list[dict[str, object]],
+    current_session_id: str,
+    summary_fn: Any,
+) -> Table:
+    """Session picker like Claude Code /resume — numbered list with relative time + summary."""
+    table = Table(title="FinCLI Sessions", expand=True, show_lines=False)
+    table.add_column("#", justify="right", width=3, style="dim")
+    table.add_column("When", style="cyan", no_wrap=True, width=12)
+    table.add_column("Summary", style="white", min_width=30)
+    table.add_column("Cmds", justify="right", width=5, style="dim")
+    table.add_column("Session ID", style="dim", no_wrap=True)
+    for idx, session in enumerate(sessions, 1):
+        session_id = str(session["id"])
+        marker = " ←" if session_id == current_session_id else ""
+        ts = relative_time(str(session.get("updated_at", session.get("created_at", ""))))
+        first_cmd = str(session.get("first_command", "") or "")[:45]
+        summary = first_cmd if first_cmd else summary_fn(session_id)
+        table.add_row(
+            str(idx),
+            ts,
+            summary + marker,
+            str(session["event_count"]),
+            session_id,
+        )
+    if not sessions:
+        table.add_row("-", "-", "Belum ada session.", "0", "-")
+    table.caption = "/history resume <#|id> | /history show <id> | /history save <title> | /history delete <id>"
     return table
 
 
@@ -2129,6 +2712,7 @@ def _format_dashboard(
     realized_pnl: float,
     quote_getter: Any,
     portfolio_value_getter: Any,
+    alerts_rows: list[dict[str, object]] | None = None,
 ) -> Table:
     table = Table(title="FinCLI Dashboard", expand=True)
     table.add_column("Area", style="cyan", no_wrap=True)
@@ -2171,7 +2755,7 @@ def _format_dashboard(
     table.add_row(
         "Journal",
         (
-            f"{journal_stats.total_entries} entries | Win Rate {_fmt(journal_stats.win_rate)} | "
+            f"{journal_stats.total_entries} entries | Win Rate {_fmt_pct(journal_stats.win_rate)} | "
             f"Top {journal_stats.top_instrument}"
         ),
         "/journal stats | /journal review",
@@ -2182,6 +2766,16 @@ def _format_dashboard(
         "Use /market for compact quote + technical + structure + news + fundamentals.",
         "/market AAPL 1d | /analyze AAPL 1d",
     )
+
+    # Alerts section
+    alerts = alerts_rows or []
+    if alerts:
+        alert_symbols = list({str(a.get("symbol", "")) for a in alerts})[:5]
+        alert_summary = f"{len(alerts)} active alert(s) | {', '.join(alert_symbols)}"
+    else:
+        alert_summary = "No active alerts"
+    table.add_row("Alerts", alert_summary, "/alert add AAPL above 200 | /alert check")
+
     if unrealized != 0 or realized_pnl != 0:
         table.add_row(
             "Risk Color",
@@ -2798,21 +3392,43 @@ def _format_provider_entitlements(items: list[ProviderEntitlement]) -> Table:
     return table
 
 
-def _format_provider_capabilities() -> Table:
-    table = Table(title="Command Capability Matrix", expand=True)
-    table.add_column("Command", style="cyan", no_wrap=True)
-    table.add_column("Provider-Dependent", no_wrap=True)
-    table.add_column("Needs", overflow="fold")
-    table.add_column("Note", overflow="fold")
+def _format_provider_capabilities(providers: list | None = None) -> Table:
+    from rich.console import Group
+
+    # Provider capability declarations
+    cap_table = Table(title="Provider Capabilities", expand=True)
+    cap_table.add_column("Provider", style="cyan", no_wrap=True)
+    cap_table.add_column("Realtime", no_wrap=True)
+    cap_table.add_column("Operations", overflow="fold")
+    cap_table.add_column("Asset Classes", overflow="fold")
+    cap_table.add_column("Rate Limit", overflow="fold")
+    for provider in (providers or []):
+        if hasattr(provider, "capabilities"):
+            cap = provider.capabilities()
+            if cap is not None:
+                cap_table.add_row(
+                    cap.name,
+                    "yes" if cap.realtime else "no",
+                    ", ".join(cap.operations),
+                    ", ".join(cap.asset_classes),
+                    cap.rate_limit_note or "-",
+                )
+
+    # Command capability matrix
+    cmd_table = Table(title="Command Capability Matrix", expand=True)
+    cmd_table.add_column("Command", style="cyan", no_wrap=True)
+    cmd_table.add_column("Provider-Dependent", no_wrap=True)
+    cmd_table.add_column("Needs", overflow="fold")
+    cmd_table.add_column("Note", overflow="fold")
     for capability in capability_rows():
-        table.add_row(
+        cmd_table.add_row(
             capability.command,
             "yes" if capability.provider_dependent else "no",
             ", ".join(capability.needs),
             capability.note,
         )
-    table.caption = capability_summary()
-    return table
+    cmd_table.caption = capability_summary()
+    return Group(cap_table, cmd_table)
 
 
 def _format_provider_key_status(manager: MarketProviderManager) -> Table:
@@ -2878,23 +3494,132 @@ def _format_audit_events(events: list[object]) -> Table:
 
 
 def _format_security_scan(secrets: dict[str, str]) -> Table:
-    table = Table(title="🔍 Security Scan", expand=True)
+    table = Table(title="Security Scan", expand=True)
     table.add_column("Check", style="cyan", no_wrap=True)
-    table.add_column("Result")
+    table.add_column("Status", no_wrap=True)
+    table.add_column("Detail", overflow="fold")
 
-    # Check secrets
+    # 1. Secrets count
     if secrets:
-        table.add_row("Secrets Found", f"{len(secrets)} API key(s) stored locally")
-        table.add_row("Secret File", "~/.fincli/secrets.env exists")
+        table.add_row("Local Secrets", "info", f"{len(secrets)} key(s) stored")
+        masked = ", ".join(f"{k[:4]}...{k[-2:]}" if len(k) > 6 else k for k in sorted(secrets))
+        table.add_row("Keys", "info", masked)
     else:
-        table.add_row("Secrets Found", "None (clean)")
+        table.add_row("Local Secrets", "ok", "None stored")
 
-    # Check for common issues
-    table.add_row("Prepublish Check", "Run: python scripts/prepublish_check.py")
-    table.add_row("Git Status", "Run: git status --short --ignored")
+    # 2. Encryption check
+    from fincli.app.storage.secrets import SECRETS_FILE, _MAGIC
+    if SECRETS_FILE.exists():
+        header = SECRETS_FILE.read_bytes()[:len(_MAGIC)]
+        if header == _MAGIC:
+            table.add_row("Encryption", "ok", "secrets.env encrypted at rest")
+        else:
+            table.add_row("Encryption", "warn", "secrets.env is plaintext — will encrypt on next save")
+    else:
+        table.add_row("Encryption", "ok", "No secrets file")
 
-    table.caption = "Use /secrets clear to remove all stored secrets. Use /privacy purge for full cleanup."
+    # 3. Key file permission check
+    from fincli.app.storage.secrets import _KEY_FILE
+    if _KEY_FILE.exists():
+        try:
+            import stat
+            mode = _KEY_FILE.stat().st_mode
+            if mode & stat.S_IROTH:
+                table.add_row("Key File", "warn", ".secrets_key is world-readable")
+            else:
+                table.add_row("Key File", "ok", ".secrets_key permissions OK")
+        except OSError:
+            table.add_row("Key File", "info", "Cannot check permissions")
+    else:
+        table.add_row("Key File", "ok", "No key file (will create on first save)")
+
+    # 4. .gitignore check
+    gitignore = Path(".gitignore")
+    required_patterns = {"secrets.env", ".secrets_key", ".env"}
+    if gitignore.exists():
+        content = gitignore.read_text(encoding="utf-8")
+        missing = [p for p in required_patterns if p not in content]
+        if missing:
+            table.add_row(".gitignore", "warn", f"Missing: {', '.join(missing)}")
+        else:
+            table.add_row(".gitignore", "ok", "All sensitive patterns covered")
+    else:
+        table.add_row(".gitignore", "warn", "No .gitignore found")
+
+    # 5. Project file scan for leaked secrets
+    try:
+        from scripts.prepublish_check import find_secret_issues
+        issues = find_secret_issues(Path("."))
+        if issues:
+            table.add_row("Project Scan", "warn", f"{len(issues)} potential leak(s) found")
+            for issue in issues[:5]:
+                table.add_row(f"  {issue.kind}", "warn", f"{issue.path}: {issue.detail[:60]}")
+            if len(issues) > 5:
+                table.add_row("  ...", "info", f"+{len(issues) - 5} more. Run: python scripts/prepublish_check.py")
+        else:
+            table.add_row("Project Scan", "ok", "No leaked secrets in project files")
+    except Exception:
+        table.add_row("Project Scan", "info", "Could not run (scripts/prepublish_check.py not found)")
+
+    # 6. .env file check
+    env_files = list(Path(".").glob(".env*"))
+    env_files = [f for f in env_files if f.name != ".env.example"]
+    if env_files:
+        table.add_row(".env Files", "warn", f"Found: {', '.join(f.name for f in env_files)}")
+    else:
+        table.add_row(".env Files", "ok", "None in project root")
+
+    # 7. Token pattern scan in Python/JS/JSON files
+    import re
+    token_patterns = [
+        (re.compile(r'(?:api[_-]?key|token|secret|password)\s*[=:]\s*["\'][A-Za-z0-9_\-]{16,}["\']', re.IGNORECASE), "potential hardcoded token"),
+        (re.compile(r'ghp_[A-Za-z0-9]{36}'), "GitHub personal access token"),
+        (re.compile(r'sk-[A-Za-z0-9]{20,}'), "OpenAI-style API key"),
+        (re.compile(r'xoxb-[A-Za-z0-9\-]+'), "Slack bot token"),
+    ]
+    scan_extensions = {".py", ".js", ".ts", ".json", ".yml", ".yaml", ".toml"}
+    skip_dirs = {".git", "node_modules", "__pycache__", ".venv", ".npm-python", "dist", "build"}
+    token_findings: list[str] = []
+    try:
+        for path in Path(".").rglob("*"):
+            if any(skip in path.parts for skip in skip_dirs):
+                continue
+            if path.suffix not in scan_extensions or not path.is_file():
+                continue
+            try:
+                content = path.read_text(encoding="utf-8", errors="ignore")
+            except (OSError, UnicodeDecodeError):
+                continue
+            for pattern, label in token_patterns:
+                if pattern.search(content):
+                    token_findings.append(f"{path}: {label}")
+                    if len(token_findings) >= 10:
+                        break
+            if len(token_findings) >= 10:
+                break
+    except OSError:
+        pass
+    if token_findings:
+        table.add_row("Token Scan", "warn", f"{len(token_findings)} finding(s)")
+        for finding in token_findings[:5]:
+            table.add_row("  ", "warn", finding[:80])
+    else:
+        table.add_row("Token Scan", "ok", "No hardcoded token patterns found")
+
+    table.caption = "Use /security lockdown to emergency-clear all secrets."
     return table
+
+
+def _format_circuit_status(service: MarketDataService) -> str:
+    metrics = service.provider_metrics_snapshot()
+    if not metrics:
+        return "Circuit Breakers: no data"
+    lines = ["Circuit Breakers:"]
+    for name, metric in metrics.items():
+        state = "OPEN" if metric.circuit_open else "closed"
+        streak = metric.consecutive_failures
+        lines.append(f"  {name}: {state} (failures={streak})")
+    return "\n".join(lines)
 
 
 def _format_provider_metrics(service: MarketDataService) -> Table:
@@ -2935,6 +3660,30 @@ def _format_provider_metrics(service: MarketDataService) -> Table:
         f"Active provider: {service.primary_provider.name}. "
         "Session metrics reset per run; all-time calls persist in local SQLite."
     )
+
+    # Per-operation breakdown
+    if getattr(service, "metrics_store", None) is not None:
+        op_metrics = service.metrics_store.all_operation_snapshots()
+        if op_metrics:
+            op_table = Table(title="Per-Operation Metrics (All-Time)", expand=True)
+            op_table.add_column("Provider", style="cyan", no_wrap=True)
+            op_table.add_column("Operation", style="white", no_wrap=True)
+            op_table.add_column("Calls", justify="right")
+            op_table.add_column("Success Rate", justify="right")
+            op_table.add_column("Avg Latency", justify="right")
+            op_table.add_column("Errors", justify="right")
+            for op in op_metrics:
+                op_table.add_row(
+                    op.provider,
+                    op.operation,
+                    str(op.calls),
+                    f"{op.success_rate:.1f}%",
+                    f"{op.avg_latency_ms:.1f}ms",
+                    str(op.errors),
+                )
+            from rich.console import Group
+            table = Group(table, op_table)  # type: ignore[assignment]
+
     return table
 
 
@@ -3030,7 +3779,7 @@ def _format_macro_indicator(indicator: str, region: str, rows: list[MacroIndicat
 def _format_trading_overview(realtime: RealtimeConnectorCatalog, brokers: BrokerCatalog, paper: PaperTradingEngine | None = None) -> Table:
     kill_active = paper.is_kill_switch_active() if paper else False
     daily_pnl = paper.daily_pnl() if paper else 0.0
-    table = Table(title="Trading Layer v1.0.0 | Safe Execution Workspace", expand=True)
+    table = Table(title="Trading Layer | Safe Execution Workspace", expand=True)
     table.add_column("Area", style="cyan", no_wrap=True)
     table.add_column("Status", no_wrap=True)
     table.add_column("Detail", overflow="fold")
@@ -3221,7 +3970,7 @@ def _format_algo_strategies(strategies: tuple[StrategyInfo, ...]) -> Table:
     return table
 
 
-def _format_algo_result(result: object, order: dict[str, object] | None = None) -> Table:
+def _format_algo_result(result: object, order: dict[str, object] | None = None, order_error: str | None = None) -> Table:
     table = Table(title="Algo Strategy Result", expand=True)
     table.add_column("Field", style="cyan", no_wrap=True)
     table.add_column("Value")
@@ -3233,6 +3982,8 @@ def _format_algo_result(result: object, order: dict[str, object] | None = None) 
     if order:
         table.add_row("Order Status", str(order.get("status", "-")))
         table.add_row("Order ID", str(order.get("id", "-")))
+    elif order_error:
+        table.add_row("Order Error", f"[red]{order_error}[/]")
     elif getattr(result, "signal", "") in {"buy", "sell"}:
         table.add_row("Order", "Not placed (risk guard blocked or error)")
     table.caption = "Algo signals are informational. Paper orders respect the risk guard."
@@ -3430,7 +4181,24 @@ def _format_plugins(plugins: list[PluginManifest], status_only: bool = False) ->
         if not status_only:
             empty.append("Create ~/.fincli/plugins/<name>/plugin.json to register a local plugin.")
         table.add_row(*empty)
-    table.caption = "Plugins are manifest-only in v0.4.0; FinCLI does not execute plugin code yet."
+    table.caption = "Plugins are manifest-only; FinCLI does not execute plugin code yet."
+    return table
+
+
+def _format_plugin_validation(results: list[tuple[PluginManifest, list]]) -> Table:
+    from fincli.app.plugins.loader import PluginValidationError
+    table = Table(title="Plugin Validation", expand=True)
+    table.add_column("Plugin", style="cyan", no_wrap=True)
+    table.add_column("Status", no_wrap=True)
+    table.add_column("Errors", overflow="fold")
+    for plugin, errors in results:
+        if not errors:
+            table.add_row(plugin.name, "[green]valid[/]", "-")
+        else:
+            error_text = "\n".join(f"- {e.field}: {e.message}" for e in errors)
+            table.add_row(plugin.name, "[red]invalid[/]", error_text)
+    if not results:
+        table.add_row("-", "-", "No plugins found.")
     return table
 
 
@@ -3465,7 +4233,7 @@ def _format_journal_stats(stats: JournalStats) -> Table:
     table.add_row("Total Entries", str(stats.total_entries))
     table.add_row("Wins", str(stats.wins))
     table.add_row("Losses", str(stats.losses))
-    table.add_row("Win Rate", _fmt(stats.win_rate))
+    table.add_row("Win Rate", _fmt_pct(stats.win_rate))
     table.add_row("Top Instrument", stats.top_instrument)
     table.add_row("Top Emotion", stats.top_emotion)
     table.add_row("Top Tags", ", ".join(stats.top_tags) if stats.top_tags else "N/A")
@@ -3526,7 +4294,7 @@ def _news_item_analysis(item: NewsItem) -> str:
         freshness = "date unknown"
     else:
         freshness = "fresh" if _news_age_days(item) <= 3 else "older context"
-    return semantic_text(f"{bias} | {freshness} | verify source before trading")
+    return semantic_text(f"{bias} | {freshness} | keyword-based (approximate) | verify source before trading")
 
 
 def _news_age_days(item: NewsItem) -> int:
@@ -3652,6 +4420,29 @@ def _fmt(value: float | None) -> str:
     if value is None:
         return "N/A"
     return f"{value:,.4f}"
+
+
+def _fmt_pct(value: float | None) -> str:
+    if value is None:
+        return "N/A"
+    return f"{value:,.1f}%"
+
+
+def _validate_symbol(symbol: str) -> str:
+    """Validate and normalize a symbol. Raises CommandError on invalid input."""
+    import re
+    if not symbol or not symbol.strip():
+        raise CommandError("Symbol tidak boleh kosong.")
+    normalized = symbol.strip().upper()
+    # Reject path traversal and shell metacharacters
+    dangerous = re.search(r'[.;|&`$!#~<>{}()\[\]\\]', normalized)
+    if dangerous:
+        raise CommandError(f"Symbol mengandung karakter tidak valid: '{dangerous.group()}'.")
+    if ".." in normalized or "/" in normalized or "\\" in normalized:
+        raise CommandError(f"Symbol menganot mengandung path separator: '{normalized}'.")
+    if len(normalized) > 20:
+        raise CommandError(f"Symbol terlalu panjang (max 20 karakter): '{normalized}'.")
+    return normalized
 
 
 def _split_command(raw: str) -> list[str]:

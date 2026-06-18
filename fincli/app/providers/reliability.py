@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, field
+from typing import Any, Generic, TypeVar
 
 from fincli.app.utils.errors import RateLimitError
+
+T = TypeVar("T")
 
 
 STATUS_OK = "ok"
@@ -49,6 +51,59 @@ class ProviderResult:
     data_quality: str = "unknown"
     missing_fields: tuple[str, ...] = ()
     message: str = ""
+
+
+@dataclass(slots=True)
+class ProviderResponse(Generic[T]):
+    """Standardized response envelope wrapping provider data with quality metadata."""
+
+    data: T | None
+    provider: str
+    operation: str
+    status: str
+    quality_score: int  # 0-100
+    latency_ms: float
+    realtime_label: str = "unknown"
+    missing_fields: tuple[str, ...] = ()
+    message: str = ""
+    raw_result: ProviderResult | None = field(default=None, repr=False)
+
+
+def score_quality(operation: str, payload: Any, missing_fields: tuple[str, ...]) -> int:
+    """Compute a 0-100 quality score from operation, payload completeness, and missing fields."""
+    if payload is None:
+        return 0
+    if isinstance(payload, list) and not payload:
+        return 10
+
+    base = 100
+    # Deduct for missing fields
+    deduction_per_field = {
+        "quote": 30,
+        "history": 25,
+        "news": 15,
+        "fundamentals": 20,
+    }.get(operation, 15)
+
+    for field_name in missing_fields:
+        base -= deduction_per_field
+
+    # Operation-specific checks
+    if operation == "quote":
+        if getattr(payload, "price", None) is None:
+            base -= 40
+        if getattr(payload, "currency", "") == "":
+            base -= 10
+    elif operation == "history":
+        if isinstance(payload, list) and len(payload) < 5:
+            base -= 20
+    elif operation == "fundamentals":
+        if getattr(payload, "market_cap", None) is None:
+            base -= 15
+        if getattr(payload, "sector", None) is None:
+            base -= 10
+
+    return max(0, min(100, base))
 
 
 def classify_provider_error(exc: BaseException) -> str:

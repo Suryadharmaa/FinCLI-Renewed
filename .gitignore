@@ -24,3 +24,5 @@ dist/
 .pydevproject
 .DS_Store
 Thumbs.db
+.secrets_key
+secrets.env

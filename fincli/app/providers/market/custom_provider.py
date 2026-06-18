@@ -22,6 +22,7 @@ from fincli.app.providers.market.base import (
     Candle,
     FundamentalSnapshot,
     NewsItem,
+    ProviderCapability,
     ProviderStatus,
     Quote,
 )
@@ -117,6 +118,15 @@ class CustomMarketProvider(BaseMarketProvider):
         status = "configured" if self.api_key else "unavailable"
         message = "Custom provider configured." if self.api_key else "Requires MARKET_DATA_API_KEY."
         return ProviderStatus(name=self.name, realtime=True, status=status, message=message)
+
+    def capabilities(self) -> ProviderCapability:
+        return ProviderCapability(
+            name=self.name,
+            realtime=True,
+            operations=("quote", "history", "news", "fundamentals"),
+            asset_classes=("stock", "forex", "crypto", "commodity", "index"),
+            rate_limit_note="User-defined endpoint; rate limits depend on backend.",
+        )
 
     async def _get(self, path: str, params: dict[str, object] | None = None) -> Any:
         if not self.api_key:

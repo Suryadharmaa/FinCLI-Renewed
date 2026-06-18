@@ -40,6 +40,27 @@ class JournalService:
             ),
         )
 
+    def get(self, entry_id: int) -> dict[str, object] | None:
+        rows = self.db.query(
+            "SELECT id, instrument, bias, entry_reason, exit_reason, result, emotion, lesson, tags, created_at FROM journal_entries WHERE id = ?",
+            (entry_id,),
+        )
+        return dict(rows[0]) if rows else None
+
+    def edit(self, entry_id: int, **fields: str) -> bool:
+        allowed = {"instrument", "bias", "entry_reason", "exit_reason", "result", "emotion", "lesson", "tags"}
+        updates = {k: v for k, v in fields.items() if k in allowed and v}
+        if not updates:
+            return False
+        set_clause = ", ".join(f"{k} = ?" for k in updates)
+        values = list(updates.values()) + [entry_id]
+        self.db.execute(f"UPDATE journal_entries SET {set_clause} WHERE id = ?", values)
+        return True
+
+    def delete(self, entry_id: int) -> bool:
+        self.db.execute("DELETE FROM journal_entries WHERE id = ?", (entry_id,))
+        return True
+
     def list(self, instrument: str | None = None, limit: int = 20) -> list[dict[str, object]]:
         if instrument:
             rows = self.db.query(
