@@ -25,18 +25,22 @@ def test_semantic_text_preserves_plain_text_and_applies_style() -> None:
     assert "green" in str(value.style)
 
 
-def test_theme_has_distinct_full_terminal_regions_and_semantic_classes() -> None:
+def test_theme_has_minimal_surface_and_semantic_classes() -> None:
+    # Minimal Claude-CLI surface: output area, working spinner, command line.
     for selector in (
-        "#top_strip",
-        "#market_ribbon",
-        "#output_header",
+        "#output",
+        "#working",
         "#output_frame",
         "#command_hint",
         "#command_line",
     ):
         assert selector in APP_CSS
 
-    assert "background: #00110b" in APP_CSS
+    # Neutral near-black background, no neon-green chrome.
+    assert "background: #0d0d0d" in APP_CSS
+    assert "background: #00110b" not in APP_CSS
+
+    # Functional financial meaning still rides on the semantic colours.
     assert ".semantic-positive" in APP_CSS
     assert ".semantic-negative" in APP_CSS
     assert ".semantic-caution" in APP_CSS

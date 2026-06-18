@@ -10,6 +10,7 @@ from fincli.app.providers.market.base import Candle, FundamentalSnapshot, NewsIt
 from fincli.app.providers.reliability import STATUS_OK, STATUS_PARTIAL_DATA, STATUS_UNAVAILABLE
 from fincli.app.services.data_quality import DataQualityReport
 from fincli.app.services.market_data import MarketDataService
+from fincli.app.services.source_quality import SourceQualityScore, score_source_quality
 from fincli.app.utils.errors import FinCLIError
 
 
@@ -27,6 +28,7 @@ class MarketOverview:
     news: list[NewsItem]
     fundamentals: FundamentalSnapshot | None
     data_quality: DataQuality
+    source_quality: SourceQualityScore
 
 
 async def build_market_overview(symbol: str, market_service: MarketDataService, timeframe: str = "1d") -> MarketOverview:
@@ -48,6 +50,7 @@ async def build_market_overview(symbol: str, market_service: MarketDataService, 
         fundamentals = None
 
     quality = _score_data_quality(quote, candles, news, fundamentals)
+    source_quality = score_source_quality(quote, candles, news, fundamentals)
     return MarketOverview(
         symbol=normalized,
         timeframe=timeframe,
@@ -58,6 +61,7 @@ async def build_market_overview(symbol: str, market_service: MarketDataService, 
         news=news,
         fundamentals=fundamentals,
         data_quality=quality,
+        source_quality=source_quality,
     )
 
 

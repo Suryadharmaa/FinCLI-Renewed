@@ -6,12 +6,15 @@ from fincli.app.research.models import ResearchBrief
 
 
 RESEARCH_WORKSPACE_PROMPT = """
-You are FinCLI Research Workspace, operating as Research Engine v2.
+You are FinCLI Research Workspace, operating as Research Engine v3.
 
 Rules:
 - Build a concise investment/trading research note from the provided data only.
 - Output must focus on snapshot, signal, risk, missing data, source quality.
 - Obey the Data Trust Gate. If it says caution/no directional signal, do not produce buy/sell conviction.
+- Never exceed the Data Trust Gate confidence cap, and never claim data is realtime unless the source says so.
+- Blend the provided sector, macro, and news context; do not introduce outside facts.
+- Ground every claim in the listed sources. If a source is missing, say so instead of guessing.
 - Do not invent price, news, fundamentals, or certainty.
 - Do not copy the opening summary as the final summary.
 - Prioritize decision-useful points over long explanation.
@@ -34,6 +37,7 @@ def build_research_prompt(brief: ResearchBrief) -> str:
             f"revenue={fundamentals.revenue}; sector={fundamentals.sector}; industry={fundamentals.industry}"
         )
     )
+    sources = "\n".join(f"- {source.citation()}" for source in brief.sources) or "- No external sources."
     return (
         f"{RESEARCH_WORKSPACE_PROMPT}\n\n"
         f"Symbol: {brief.symbol}\n"
@@ -42,9 +46,12 @@ def build_research_prompt(brief: ResearchBrief) -> str:
         f"Snapshot: {brief.snapshot}\n"
         f"Signal: {brief.signal}\n"
         f"Risk: {brief.risk}\n"
+        f"Context Blend: {brief.context_blend}\n"
+        f"Macro Context: {'; '.join(brief.macro_context) if brief.macro_context else 'none'}\n"
         f"Data Trust Gate: {brief.trust_gate}\n"
         f"Missing Data: {brief.missing_data}\n"
         f"Source Quality: {brief.source_quality}\n"
+        f"Cited Sources:\n{sources}\n"
         f"Quote: {overview.quote.price} {overview.quote.currency} via {overview.quote.provider} ({overview.quote.status})\n"
         f"Data Quality: {overview.data_quality.score}/100; OHLCV={overview.data_quality.ohlcv}; News={overview.data_quality.news}; Fundamentals={overview.data_quality.fundamentals}\n"
         f"Technical: trend={overview.technical.trend_bias}; rsi={overview.technical.rsi}; macd={overview.technical.macd}; support={overview.technical.support}; resistance={overview.technical.resistance}; atr={overview.technical.atr}\n"

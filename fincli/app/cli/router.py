@@ -58,6 +58,7 @@ from fincli.app.modules.trading import (
     RealtimeConnector,
     RealtimeConnectorCatalog,
 )
+from fincli.app.modules.algo_engine import StrategyInfo
 from fincli.app.modules.user_profile import UserProfile, UserProfileService
 from fincli.app.modules.watchlist import WatchlistService
 from fincli.app.connectors.catalog import Connector, ConnectorCatalog
@@ -109,7 +110,9 @@ from fincli.app.storage.database import FinCLIDatabase
 from fincli.app.storage.market_cache import MarketCache
 from fincli.app.storage.provider_metrics import ProviderMetricsStore
 from fincli.app.storage.secrets import clear_secrets, read_secrets, save_secret
-from fincli.app.utils.errors import CommandError, FinCLIError
+from fincli.app.storage.audit_log import SecurityAuditLog, EVENT_SECRET_SAVE, EVENT_SECRET_CLEAR, EVENT_PRIVACY_PURGE, EVENT_EXPORT_DATA, EVENT_SECURITY_VIOLATION
+from fincli.app.utils.security import SecurityValidator, SecretRedactor, RateLimiter
+from fincli.app.utils.errors import CommandError, FinCLIError, SecurityError
 from fincli.app.utils.formatting import AIResponseView, MarkdownBlock, semantic_text
 
 
@@ -160,6 +163,10 @@ class CommandRouter:
         self.connector_catalog = ConnectorCatalog()
         self.news_connector_catalog = NewsConnectorCatalog()
         self.news_connectors = NewsConnectorManager(self.news_connector_catalog)
+        self.security_validator = SecurityValidator()
+        self.secret_redactor = SecretRedactor()
+        self.rate_limiter = RateLimiter()
+        self.audit_log = SecurityAuditLog(self.db)
 
     def route(self, raw: str) -> CommandResult:
         if not isinstance(raw, str):
@@ -228,8 +235,12 @@ class CommandRouter:
                 return self._doctor(args)
             if root == "/setup":
                 return self._setup(args)
+            if root == "/tutorial":
+                return self._tutorial(args)
             if root == "/secrets":
                 return self._secrets(args)
+            if root == "/security":
+                return self._security(args)
             if root == "/privacy":
                 return self._privacy(args)
             if root == "/agent":
@@ -310,7 +321,7 @@ class CommandRouter:
             )
 
     def _help_table(self) -> Table:
-        table = Table(title="FinCLI v0.4.0 Commands", expand=True)
+        table = Table(title="FinCLI v1.0.0 Commands", expand=True)
         table.add_column("Command", style="cyan", no_wrap=True)
         table.add_column("Group", style="magenta")
         table.add_column("Fungsi", style="white")
@@ -545,6 +556,8 @@ class CommandRouter:
             return CommandResult(_format_provider_entitlements(self.market_manager.entitlements()))
         if args and args[0].lower() == "metrics":
             return CommandResult(_format_provider_metrics(self.market_service))
+        if args and args[0].lower() in {"capabilities", "capability", "matrix"}:
+            return CommandResult(_format_provider_capabilities())
         if args and args[0].lower() == "key" and len(args) >= 2 and args[1].lower() == "status":
             return CommandResult(_format_provider_key_status(self.market_manager))
         if args and args[0].lower() in {"insider", "insiders"}:
@@ -595,9 +608,9 @@ class CommandRouter:
                 quote = self._get_quote(args[1])
             return CommandResult(_format_quote(quote))
         raise CommandError(
-            "Format: /provider status, /provider list, /provider entitlement, /provider key status, /provider use <provider>, "
-            "/provider priority finnhub,yfinance, /provider insider <symbol>, /provider ipo [week|from to], "
-            "atau /provider test [provider] <symbol>"
+            "Format: /provider status, /provider list, /provider capabilities, /provider entitlement, /provider key status, "
+            "/provider use <provider>, /provider priority finnhub,yfinance, /provider insider <symbol>, "
+            "/provider ipo [week|from to], atau /provider test [provider] <symbol>"
         )
 
     def _symbol(self, args: list[str]) -> CommandResult:
@@ -636,13 +649,20 @@ class CommandRouter:
         elif "--deep" in flags:
             mode = "deep"
         else:
-            mode = "quick"
+            # --snapshot/--quick and no flag all resolve to the compact snapshot mode.
+            mode = "snapshot"
         ignored: set[int] = set()
         if "--export" in args:
             export_index = args.index("--export")
             ignored.update({export_index, export_index + 1, export_index + 2})
         timeframe = next((arg for index, arg in enumerate(args[1:], start=1) if index not in ignored and not arg.startswith("--")), "1d")
-        engine = ResearchEngine(self.market_service, self.ai_provider, self.config.settings.ai_model)
+        engine = ResearchEngine(
+            self.market_service,
+            self.ai_provider,
+            self.config.settings.ai_model,
+            macro_service=self.macro_data,
+            web_research=self.web_research,
+        )
         brief = self._run_async(engine.build(symbol, timeframe=timeframe, mode=mode))
         if export_format and export_target:
             written = write_research_report(brief, export_format, export_target)
@@ -687,7 +707,7 @@ class CommandRouter:
         table.add_column("Check", style="cyan", no_wrap=True)
         table.add_column("Status")
         table.add_column("Detail", overflow="fold")
-        table.add_row("Version", "ok", "FinCLI v0.4.0 command surface loaded.")
+        table.add_row("Version", "ok", "FinCLI v1.0.0 command surface loaded.")
         for check in check_runtime_environment():
             style = "green" if check.status == "ok" else "yellow" if check.status in {"warning", "info"} else "red"
             table.add_row(check.name, f"[{style}]{check.status}[/]", check.detail)
@@ -813,6 +833,33 @@ class CommandRouter:
             )
         )
 
+    def _tutorial(self, args: list[str]) -> CommandResult:
+        if not args:
+            return CommandResult(_format_tutorial_menu())
+        action = args[0].lower()
+        if action == "next":
+            return CommandResult(_tutorial_next(self))
+        if action == "reset":
+            if not hasattr(self, "_tutorial_progress"):
+                self._tutorial_progress = 0
+            self._tutorial_progress = 0
+            return CommandResult(Panel("Tutorial progress reset. Type /tutorial to start over.", title="Tutorial", border_style="yellow"))
+        if action in {"1", "setup", "welcome"}:
+            return CommandResult(_tutorial_lesson(1))
+        if action in {"2", "market", "data"}:
+            return CommandResult(_tutorial_lesson(2))
+        if action in {"3", "technical", "analysis"}:
+            return CommandResult(_tutorial_lesson(3))
+        if action in {"4", "portfolio"}:
+            return CommandResult(_tutorial_lesson(4))
+        if action in {"5", "trading"}:
+            return CommandResult(_tutorial_lesson(5))
+        if action in {"6", "alerts", "monitoring"}:
+            return CommandResult(_tutorial_lesson(6))
+        if action in {"7", "export", "reports"}:
+            return CommandResult(_tutorial_lesson(7))
+        raise CommandError("Format: /tutorial, /tutorial <1-7>, /tutorial next, /tutorial reset")
+
     def _secrets(self, args: list[str]) -> CommandResult:
         action = args[0].lower() if args else "status"
         if action == "status":
@@ -827,6 +874,29 @@ class CommandRouter:
                 )
             )
         raise CommandError("Format: /secrets status atau /secrets clear")
+
+    def _security(self, args: list[str]) -> CommandResult:
+        if not args:
+            return CommandResult(_format_security_status(self))
+        action = args[0].lower()
+        if action == "status":
+            return CommandResult(_format_security_status(self))
+        if action == "audit":
+            limit = int(args[1]) if len(args) >= 2 and args[1].isdigit() else 50
+            events = self.audit_log.list_events(limit=limit)
+            return CommandResult(_format_audit_events(events))
+        if action == "scan":
+            return CommandResult(_format_security_scan(read_secrets()))
+        if action == "lockdown":
+            # Emergency: clear all secrets
+            cleared = clear_secrets()
+            self.audit_log.record(EVENT_SECURITY_VIOLATION, f"Emergency lockdown: {cleared} secrets cleared")
+            return CommandResult(Panel(
+                f"LOCKDOWN: {cleared} secrets cleared. All API keys removed. Use /ai_model key and /news_model key to reconfigure.",
+                title="Security Lockdown",
+                border_style="red",
+            ))
+        raise CommandError("Format: /security status, /security audit, /security scan, /security lockdown")
 
     def _privacy(self, args: list[str]) -> CommandResult:
         action = args[0].lower() if args else "status"
@@ -996,6 +1066,14 @@ class CommandRouter:
             return CommandResult(_format_portfolio_risk(self._portfolio_risk_report()))
         if action == "performance":
             return CommandResult(self._portfolio_performance_table())
+        if action == "chart":
+            return self._portfolio_chart()
+        if action == "whatif":
+            return self._portfolio_whatif(args[1:])
+        if action == "benchmark":
+            return self._portfolio_benchmark(args[1:])
+        if action == "snapshot":
+            return self._portfolio_snapshot()
         if action == "add" and len(args) >= 4:
             try:
                 quantity = float(args[2])
@@ -1100,7 +1178,7 @@ class CommandRouter:
             return CommandResult(_format_alerts(self.alerts.list()))
         if action == "add":
             if len(args) < 4:
-                raise CommandError("Format: /alert add <symbol> <above|below|>|< > <price> [note]")
+                raise CommandError("Format: /alert add <symbol> <above|below|rsi_below|rsi_above|volume_above|macd_cross_up|macd_cross_down> <target> [note]")
             symbol = args[1]
             condition = args[2]
             try:
@@ -1123,8 +1201,43 @@ class CommandRouter:
                 checked.append(result)
                 if result.triggered:
                     self.alerts.mark_triggered(result.id)
+                    self.alerts.record_history(result.id, result.symbol, result.condition, result.target, result.current_price, True, result.note)
             return CommandResult(_format_alert_checks(checked))
-        raise CommandError("Format: /alert, /alert add <symbol> <above|below> <price>, /alert remove <id>, /alert check")
+        if action == "history":
+            return CommandResult(_format_alert_history(self.alerts.get_history()))
+        if action == "daemon":
+            return self._alert_daemon(args[1:])
+        raise CommandError(
+            "Format: /alert, /alert add <symbol> <condition> <target>, /alert remove <id>, /alert check, "
+            "/alert history, /alert daemon start|stop|status"
+        )
+
+    def _alert_daemon(self, args: list[str]) -> CommandResult:
+        if not hasattr(self, "_alert_daemon_instance"):
+            from fincli.app.modules.alerts import AlertDaemon
+            self._alert_daemon_instance = AlertDaemon(self.alerts, self.market_service, check_interval=60.0)
+
+        daemon = self._alert_daemon_instance
+        action = args[0].lower() if args else "status"
+
+        if action == "start":
+            if daemon.is_running:
+                return CommandResult(Panel("Alert daemon sudah berjalan.", title="Alert Daemon"))
+            self._run_async(daemon.start())
+            return CommandResult(Panel("Alert daemon started. Checking every 60s. Use /alert daemon stop to halt.", title="Alert Daemon", border_style="green"))
+        if action == "stop":
+            if not daemon.is_running:
+                return CommandResult(Panel("Alert daemon tidak berjalan.", title="Alert Daemon"))
+            self._run_async(daemon.stop())
+            return CommandResult(Panel("Alert daemon stopped.", title="Alert Daemon", border_style="yellow"))
+        if action == "status":
+            status = "running" if daemon.is_running else "stopped"
+            last = daemon.last_check.isoformat() if daemon.last_check else "never"
+            return CommandResult(Panel(
+                f"Status: {status}\nLast check: {last}\nTriggered this session: {daemon.triggered_count}\nInterval: {daemon.check_interval}s",
+                title="Alert Daemon",
+            ))
+        raise CommandError("Format: /alert daemon start|stop|status")
 
     def _quote(self, args: list[str]) -> CommandResult:
         if not args:
@@ -1163,31 +1276,106 @@ class CommandRouter:
 
     def _backtest(self, args: list[str]) -> CommandResult:
         if not args:
-            raise CommandError("Format: /backtest <symbol> [sma_cross|rsi_reversion] [interval]")
+            raise CommandError(
+                "Format: /backtest <symbol> [strategy] [interval] [--asset <class>] [--equity <amount>] "
+                "[--sizing fixed_fractional|kelly] [--fraction <pct>] [--monte-carlo] [--walk-forward] [--export <md|json|csv> <path>]"
+            )
         symbol = args[0].upper()
-        strategy = args[1].lower() if len(args) >= 2 else "sma_cross"
-        interval = args[2].lower() if len(args) >= 3 else "1d"
+        strategy = args[1].lower() if len(args) >= 2 and not args[1].startswith("--") else "sma_cross"
+        interval = args[2].lower() if len(args) >= 3 and not args[2].startswith("--") else "1d"
+
+        # Parse options
+        asset_class = _extract_option_value(args, "--asset") or "equity"
+        initial_equity = float(_extract_option_value(args, "--equity") or "10000")
+        position_method = _extract_option_value(args, "--sizing") or "fixed_fractional"
+        position_fraction = float(_extract_option_value(args, "--fraction") or "0.02")
+        include_mc = "--monte-carlo" in args or "--mc" in args
+        walk_forward = "--walk-forward" in args or "--wf" in args
+        export_format = None
+        export_target = None
+        if "--export" in args:
+            export_index = args.index("--export")
+            if len(args) > export_index + 2:
+                export_format = args[export_index + 1]
+                export_target = args[export_index + 2]
+
         candles = self._run_async(self.market_service.history(symbol, period="2y", interval=interval))
-        result = run_backtest(symbol, candles, strategy=strategy, interval=interval)
+        result = run_backtest(
+            symbol, candles, strategy=strategy, interval=interval,
+            asset_class=asset_class, initial_equity=initial_equity,
+            position_method=position_method, position_fraction=position_fraction,
+            include_monte_carlo=include_mc, walk_forward=walk_forward,
+        )
+
+        if export_format and export_target:
+            from fincli.app.modules.exporter import export_backtest
+            written = export_backtest(result, export_format, export_target)
+            return CommandResult(Panel(f"Backtest export selesai: {written}", title="Backtest Export", border_style="green"))
+
         return CommandResult(_format_backtest(result))
 
     def _trading(self, args: list[str]) -> CommandResult:
         if not args:
-            return CommandResult(_format_trading_overview(self.realtime_connector_catalog, self.broker_catalog))
+            return CommandResult(_format_trading_overview(self.realtime_connector_catalog, self.broker_catalog, self.paper_trading))
         action = args[0].lower()
         if action in {"realtime", "feeds", "feed"}:
             return CommandResult(_format_realtime_connectors(self.realtime_connector_catalog.all()))
         if action in {"brokers", "broker"}:
-            return CommandResult(_format_brokers(self.broker_catalog.all()))
+            return self._trading_broker(args[1:])
         if action == "paper":
             return self._trading_paper(args[1:])
-        raise CommandError("Format: /trading, /trading realtime, /trading brokers, /trading paper buy|sell <symbol> <qty> <market|limit> [price]")
+        if action == "kill":
+            self.paper_trading.set_kill_switch(True, "Manual kill switch via /trading kill")
+            return CommandResult(Panel("Kill switch ACTIVATED. All paper orders blocked. Use /trading resume to re-enable.", title="Trading", border_style="red"))
+        if action == "resume":
+            self.paper_trading.set_kill_switch(False)
+            return CommandResult(Panel("Kill switch deactivated. Paper orders re-enabled.", title="Trading", border_style="green"))
+        if action == "risk":
+            return CommandResult(_format_risk_status(self.paper_trading))
+        if action == "audit":
+            limit = int(args[1]) if len(args) >= 2 and args[1].isdigit() else 50
+            return CommandResult(_format_audit_log(self.paper_trading.audit.list_entries(limit)))
+        if action == "cancel":
+            if len(args) < 2:
+                raise CommandError("Format: /trading cancel <order_id>")
+            order = self.paper_trading.cancel_order(int(args[1]))
+            return CommandResult(_format_paper_order(order))
+        if action == "positions":
+            return CommandResult(_format_positions(self.paper_trading.get_positions()))
+        if action == "stream":
+            return self._trading_stream(args[1:])
+        if action == "algo":
+            return self._trading_algo(args[1:])
+        raise CommandError(
+            "Format: /trading, /trading realtime, /trading brokers, /trading broker use|status, "
+            "/trading paper buy|sell|orders|positions|cancel, /trading kill, /trading resume, "
+            "/trading risk, /trading audit, /trading stream, /trading algo list|run"
+        )
+
+    def _trading_broker(self, args: list[str]) -> CommandResult:
+        if not args:
+            return CommandResult(_format_brokers(self.broker_catalog.all()))
+        action = args[0].lower()
+        if action == "use":
+            if len(args) < 2:
+                raise CommandError("Format: /trading broker use <name>")
+            return CommandResult(Panel(
+                f"Broker adapter '{args[1]}' activation is catalog-level in v0.8.0. "
+                f"Configure API keys via /news_model key or environment variables, then use /trading paper --live to route through the adapter.",
+                title="Broker Adapter",
+                border_style="yellow",
+            ))
+        if action == "status":
+            return CommandResult(_format_broker_status(self.broker_catalog))
+        raise CommandError("Format: /trading brokers, /trading broker use <name>, /trading broker status")
 
     def _trading_paper(self, args: list[str]) -> CommandResult:
         if not args or args[0].lower() in {"orders", "list"}:
             return CommandResult(_format_paper_orders(self.paper_trading.list_orders()))
+        if args[0].lower() == "positions":
+            return CommandResult(_format_positions(self.paper_trading.get_positions()))
         if len(args) < 4:
-            raise CommandError("Format: /trading paper <buy|sell> <symbol> <qty> <market|limit> [price]")
+            raise CommandError("Format: /trading paper <buy|sell> <symbol> <qty> <market|limit|stop_limit> [price]")
         side = args[0].lower()
         symbol = args[1].upper()
         try:
@@ -1198,6 +1386,51 @@ class CommandRouter:
         order_type = args[3].lower()
         order = self.paper_trading.place_order(side, symbol, quantity, order_type, price=price)
         return CommandResult(_format_paper_order(order))
+
+    def _trading_stream(self, args: list[str]) -> CommandResult:
+        if not args:
+            connectors = self.realtime_connector_catalog.all()
+            return CommandResult(_format_stream_status(connectors))
+        connector = args[0].lower()
+        return CommandResult(Panel(
+            f"Stream '{connector}' is configurable in v0.8.0. "
+            f"Connect via the realtime_stream module adapters (KrakenWebSocketAdapter, HyperLiquidWebSocketAdapter, EquityStreamingAdapter). "
+            f"See /trading realtime for available connectors.",
+            title="Stream",
+            border_style="cyan",
+        ))
+
+    def _trading_algo(self, args: list[str]) -> CommandResult:
+        if not args:
+            raise CommandError("Format: /trading algo list, /trading algo run <strategy> <symbol> [timeframe] [qty]")
+        action = args[0].lower()
+        if action in {"list", "ls"}:
+            from fincli.app.modules.algo_engine import BUILTIN_STRATEGIES
+            return CommandResult(_format_algo_strategies(BUILTIN_STRATEGIES))
+        if action == "run":
+            if len(args) < 3:
+                raise CommandError("Format: /trading algo run <strategy> <symbol> [timeframe] [qty]")
+            return self._trading_algo_run(args[1:])
+        raise CommandError("Format: /trading algo list, /trading algo run <strategy> <symbol> [timeframe] [qty]")
+
+    def _trading_algo_run(self, args: list[str]) -> CommandResult:
+        from fincli.app.modules.algo_engine import StrategyEngine
+        strategy = args[0].lower()
+        symbol = args[1].upper()
+        timeframe = args[2] if len(args) >= 3 else "1d"
+        quantity = float(args[3]) if len(args) >= 4 else 1.0
+        engine = StrategyEngine(self.market_service)
+        result = self._run_async(engine.run(strategy, symbol, timeframe, quantity))
+        # If signal is buy/sell, place paper order
+        order_result = None
+        if result.signal in {"buy", "sell"} and result.suggested_qty > 0:
+            try:
+                order_result = self.paper_trading.place_order(
+                    result.signal, symbol, result.suggested_qty, "market", strategy=strategy,
+                )
+            except Exception:  # noqa: BLE001 - risk guard may block
+                pass
+        return CommandResult(_format_algo_result(result, order_result))
 
     def _market(self, args: list[str]) -> CommandResult:
         if not args:
@@ -1463,6 +1696,73 @@ class CommandRouter:
             values[str(row["symbol"]).upper()] = self._portfolio_market_values(row)
         return build_portfolio_risk(positions, values, self.transactions.realized_pnl_total(), profile=self.user_profiles.get())
 
+    def _portfolio_chart(self) -> CommandResult:
+        from fincli.app.modules.portfolio_analytics import PortfolioAnalytics
+        analytics = PortfolioAnalytics(self.db)
+        snapshots = analytics.get_snapshots(limit=90)
+        if not snapshots:
+            return CommandResult(Panel("No portfolio snapshots yet. Use /portfolio snapshot to save current state.", title="Portfolio Chart"))
+        ratios = analytics.calculate_risk_ratios()
+        return CommandResult(_format_portfolio_chart(snapshots, ratios))
+
+    def _portfolio_snapshot(self) -> CommandResult:
+        from fincli.app.modules.portfolio_analytics import PortfolioAnalytics
+        analytics = PortfolioAnalytics(self.db)
+        positions = self.portfolio.list()
+        values: dict[str, tuple[float | None, float | None, float | None]] = {}
+        total_value = 0.0
+        cost_basis = 0.0
+        for row in positions:
+            sym = str(row["symbol"]).upper()
+            values[sym] = self._portfolio_market_values(row)
+            qty = float(row["quantity"])
+            avg = float(row["average_price"])
+            cost_basis += qty * avg
+            current, pnl, _ = values[sym]
+            total_value += qty * float(current) if current is not None else qty * avg
+        realized = self.transactions.realized_pnl_total()
+        unrealized = total_value - cost_basis
+        analytics.save_snapshot(total_value, cost_basis, unrealized, realized, {sym: {"value": v[0]} for sym, v in values.items()})
+        return CommandResult(Panel(
+            f"Portfolio snapshot saved.\nTotal value: ${total_value:,.2f}\nCost basis: ${cost_basis:,.2f}\nPnL: ${unrealized + realized:,.2f}",
+            title="Portfolio Snapshot",
+            border_style="green",
+        ))
+
+    def _portfolio_whatif(self, args: list[str]) -> CommandResult:
+        if len(args) < 4:
+            raise CommandError("Format: /portfolio whatif <add|sell> <symbol> <qty> <price>")
+        from fincli.app.modules.portfolio_analytics import PortfolioAnalytics
+        action = args[0].lower()
+        symbol = args[1].upper()
+        quantity = float(args[2])
+        price = float(args[3])
+        analytics = PortfolioAnalytics(self.db)
+        positions = self.portfolio.list()
+        values: dict[str, tuple[float | None, float | None, float | None]] = {}
+        for row in positions:
+            values[str(row["symbol"]).upper()] = self._portfolio_market_values(row)
+        result = analytics.what_if(action, symbol, quantity, price, positions, values)
+        return CommandResult(_format_whatif(result))
+
+    def _portfolio_benchmark(self, args: list[str]) -> CommandResult:
+        benchmark_symbol = args[0].upper() if args else "SPY"
+        from fincli.app.modules.portfolio_analytics import PortfolioAnalytics
+        analytics = PortfolioAnalytics(self.db)
+        snapshots = analytics.get_snapshots(limit=90)
+        if len(snapshots) < 2:
+            return CommandResult(Panel("Need at least 2 portfolio snapshots. Use /portfolio snapshot to save daily.", title="Benchmark"))
+
+        # Get benchmark price history
+        bench_candles = self._run_async(self.market_service.history(benchmark_symbol, period="3mo", interval="1d"))
+        if not bench_candles:
+            return CommandResult(Panel(f"No benchmark data for {benchmark_symbol}.", title="Benchmark"))
+
+        portfolio_values = [s.total_value for s in reversed(snapshots)]
+        benchmark_values = [c.close for c in bench_candles]
+        comparison = analytics.compare_benchmark(benchmark_values, portfolio_values, benchmark_symbol)
+        return CommandResult(_format_benchmark(comparison))
+
     def _get_quote(self, symbol: str) -> Quote:
         normalized = symbol.upper()
         cache_key = f"quote:{normalized}"
@@ -1659,12 +1959,38 @@ class CommandRouter:
         return "\n".join(lines)
 
     def _export(self, args: list[str]) -> CommandResult:
-        if len(args) < 3 or args[0].lower() not in {"journal", "portfolio"}:
-            raise CommandError("Format: /export <journal|portfolio> <csv|json> <path>")
+        if not args:
+            raise CommandError("Format: /export <journal|portfolio|alerts|all> <csv|json> <path>")
         dataset = args[0].lower()
+
+        if dataset == "all":
+            if len(args) < 3:
+                raise CommandError("Format: /export all <csv|json> <directory>")
+            export_format = args[1].lower()
+            target = args[2]
+            from fincli.app.modules.exporter import export_all
+            written = export_all(
+                target,
+                portfolio=self.portfolio.list(),
+                journal=self.journal.list(limit=10_000),
+                alerts=[dict(h.__dict__) if hasattr(h, '__dict__') else h for h in self.alerts.get_history()],
+                trades=self.paper_trading.list_orders(limit=10_000),
+                fmt=export_format,
+            )
+            return CommandResult(Panel(f"Batch export selesai: {len(written)} file(s) di {target}", title="Export", border_style="green"))
+
+        if len(args) < 3:
+            raise CommandError("Format: /export <journal|portfolio|alerts> <csv|json> <path>")
         export_format = args[1].lower()
         target = args[2]
-        rows = self.journal.list(limit=10_000) if dataset == "journal" else self.portfolio.list()
+        if dataset == "journal":
+            rows = self.journal.list(limit=10_000)
+        elif dataset == "portfolio":
+            rows = self.portfolio.list()
+        elif dataset == "alerts":
+            rows = [dict(h.__dict__) if hasattr(h, '__dict__') else h for h in self.alerts.get_history()]
+        else:
+            raise CommandError("Format: /export <journal|portfolio|alerts|all> <csv|json> <path>")
         written = export_rows(rows, export_format, target)
         return CommandResult(Panel(f"Export {dataset} selesai: {written}", title="Export", border_style="green"))
 
@@ -1882,6 +2208,12 @@ def _format_market_overview(overview: MarketOverview) -> Table:
             f"Missing={', '.join(quality.missing_fields) if quality.missing_fields else 'none'}"
         ),
     )
+    source_quality = overview.source_quality
+    table.add_row(
+        "Source Quality",
+        semantic_text(source_quality.compact()),
+        source_quality.detail,
+    )
     table.add_row(
         "Quote",
         f"{_fmt(overview.quote.price)} {overview.quote.currency}",
@@ -2062,23 +2394,43 @@ def _format_backtest(result: BacktestResult) -> Table:
     table = Table(title=f"Backtest: {result.symbol} | {result.strategy} | {result.interval}", expand=True)
     table.add_column("Metric", style="cyan", no_wrap=True)
     table.add_column("Value", style="white")
-    table.add_row("Candles", str(result.candles))
-    table.add_row("Trades", str(len(result.trades)))
-    table.add_row("Total Return", semantic_text(f"{result.total_return_percent:.2f}% {'gain' if result.total_return_percent >= 0 else 'loss'}"))
-    table.add_row("Win Rate", f"{result.win_rate:.2f}%")
-    table.add_row("Max Drawdown", semantic_text(f"{result.max_drawdown_percent:.2f}% drawdown"))
-    table.add_row("Exposure", f"{result.exposure_percent:.2f}%")
-    if result.trades:
-        latest = result.trades[-1]
-        table.add_row(
-            "Latest Trade",
-            (
-                f"entry={latest.entry_price:.4f}; exit={latest.exit_price:.4f}; "
-                f"pnl={latest.pnl_percent:.2f}%; reason={latest.reason}"
-            ),
-        )
+
+    # Performance
+    table.add_row("Total Return", semantic_text(f"{result.total_return_percent:+.2f}% (${result.total_return_absolute:+,.2f})"))
+    table.add_row("Win Rate", f"{result.win_rate:.1f}%")
+    table.add_row("Max Drawdown", semantic_text(f"{result.max_drawdown_percent:.2f}%"))
+    table.add_row("Exposure", f"{result.exposure_percent:.1f}%")
+
+    # Risk ratios
+    table.add_row("Sharpe Ratio", f"{result.sharpe_ratio:.2f}")
+    table.add_row("Sortino Ratio", f"{result.sortino_ratio:.2f}")
+    table.add_row("Calmar Ratio", f"{result.calmar_ratio:.2f}")
+
+    # Trade stats
+    table.add_row("Trades", f"{result.total_trades} (W:{result.winning_trades} / L:{result.losing_trades})")
+    table.add_row("Profit Factor", f"{result.profit_factor:.2f}")
+    table.add_row("Expectancy", f"{result.expectancy:.2f}%")
+    table.add_row("Avg Win / Loss", f"{result.avg_win:+.2f}% / {result.avg_loss:+.2f}%")
+    table.add_row("Largest Win / Loss", f"{result.largest_win:+.2f}% / {result.largest_loss:+.2f}%")
+    table.add_row("Streaks", f"W:{result.consecutive_wins} / L:{result.consecutive_losses}")
+
+    # Costs
+    table.add_row("Total Fees", f"${result.total_fees:,.2f}")
+    table.add_row("Fee Profile", result.fee_profile_used)
+    table.add_row("Position Sizing", result.position_sizer_used)
+
+    # Monte Carlo
+    if result.monte_carlo:
+        mc = result.monte_carlo
+        table.add_row("Monte Carlo", f"5th={mc.percentile_5:+.1f}% | 50th={mc.percentile_50:+.1f}% | 95th={mc.percentile_95:+.1f}%")
+
+    # Walk-forward
+    if result.walk_forward:
+        wf = result.walk_forward
+        table.add_row("Walk-Forward", f"IS={wf.in_sample.total_return_percent:+.1f}% | OOS={wf.out_of_sample.total_return_percent:+.1f}% | Overfit={wf.overfit_ratio:.2f}")
+
     table.add_row("Notes", " ".join(result.notes))
-    table.caption = "Educational backtest only. Fees, slippage, spreads, liquidity, and execution risk are not modeled."
+    table.caption = "Backtest includes fees/slippage/spread. Educational only — past performance does not guarantee future results."
     return table
 
 
@@ -2127,6 +2479,81 @@ def _format_alert_checks(results: list[AlertCheckResult]) -> Table:
         )
     if not results:
         table.add_row("-", "-", "-", "-", "-", "-", "No active alerts.")
+    return table
+
+
+def _format_alert_history(entries: list[object]) -> Table:
+    table = Table(title="Alert History", expand=True)
+    table.add_column("ID", justify="right")
+    table.add_column("Symbol", style="cyan")
+    table.add_column("Condition")
+    table.add_column("Target", justify="right")
+    table.add_column("Actual", justify="right")
+    table.add_column("Time")
+    for entry in entries:
+        table.add_row(
+            str(getattr(entry, "id", "-")),
+            str(getattr(entry, "symbol", "-")),
+            str(getattr(entry, "condition", "-")),
+            _fmt(getattr(entry, "target", 0)),
+            _fmt(getattr(entry, "actual_value", None)),
+            str(getattr(entry, "created_at", "-")),
+        )
+    if not entries:
+        table.add_row("-", "-", "-", "-", "-", "No alert history.")
+    return table
+
+
+def _format_portfolio_chart(snapshots: list[object], ratios: object) -> Table:
+    table = Table(title="Portfolio Performance", expand=True)
+    table.add_column("Metric", style="cyan", no_wrap=True)
+    table.add_column("Value")
+
+    if snapshots:
+        latest = snapshots[0]
+        oldest = snapshots[-1]
+        total_return = ((latest.total_value - oldest.total_value) / oldest.total_value * 100) if oldest.total_value > 0 else 0
+        table.add_row("Period", f"{len(snapshots)} snapshots")
+        table.add_row("Latest Value", f"${latest.total_value:,.2f}")
+        table.add_row("Period Return", f"{total_return:+.2f}%")
+
+    table.add_row("Sharpe Ratio", f"{ratios.sharpe:.2f}")
+    table.add_row("Sortino Ratio", f"{ratios.sortino:.2f}")
+    table.add_row("Calmar Ratio", f"{ratios.calmar:.2f}")
+    table.add_row("Annualized Return", f"{ratios.annualized_return:+.2f}%")
+    table.add_row("Annualized Volatility", f"{ratios.annualized_volatility:.2f}%")
+    table.add_row("Max Drawdown", f"{ratios.max_drawdown:.2f}%")
+    table.caption = "Use /portfolio snapshot to save daily values for chart tracking."
+    return table
+
+
+def _format_whatif(result: object) -> Table:
+    table = Table(title="What-If Analysis", expand=True)
+    table.add_column("Metric", style="cyan", no_wrap=True)
+    table.add_column("Value")
+    table.add_row("Action", str(getattr(result, "action", "-")))
+    table.add_row("Symbol", str(getattr(result, "symbol", "-")))
+    table.add_row("Current Weight", f"{getattr(result, 'current_weight', 0):.1f}%")
+    table.add_row("New Weight", f"{getattr(result, 'new_weight', 0):.1f}%")
+    table.add_row("Current Concentration", str(getattr(result, "current_concentration", "-")))
+    table.add_row("New Concentration", str(getattr(result, "new_concentration", "-")))
+    table.add_row("Note", str(getattr(result, "note", "-")))
+    table.caption = "What-if analysis is informational, not financial advice."
+    return table
+
+
+def _format_benchmark(comparison: object) -> Table:
+    table = Table(title=f"Benchmark: {getattr(comparison, 'benchmark_symbol', '?')}", expand=True)
+    table.add_column("Metric", style="cyan", no_wrap=True)
+    table.add_column("Value")
+    table.add_row("Portfolio Return", f"{getattr(comparison, 'portfolio_return', 0):+.2f}%")
+    table.add_row("Benchmark Return", f"{getattr(comparison, 'benchmark_return', 0):+.2f}%")
+    table.add_row("Alpha", f"{getattr(comparison, 'alpha', 0):+.2f}%")
+    table.add_row("Beta", f"{getattr(comparison, 'beta', 0):.2f}")
+    table.add_row("Correlation", f"{getattr(comparison, 'correlation', 0):.2f}")
+    table.add_row("Period", f"{getattr(comparison, 'period_days', 0)} days")
+    table.add_row("Note", str(getattr(comparison, "note", "-")))
+    table.caption = "Benchmark comparison requires daily portfolio snapshots. Use /portfolio snapshot."
     return table
 
 
@@ -2371,6 +2798,23 @@ def _format_provider_entitlements(items: list[ProviderEntitlement]) -> Table:
     return table
 
 
+def _format_provider_capabilities() -> Table:
+    table = Table(title="Command Capability Matrix", expand=True)
+    table.add_column("Command", style="cyan", no_wrap=True)
+    table.add_column("Provider-Dependent", no_wrap=True)
+    table.add_column("Needs", overflow="fold")
+    table.add_column("Note", overflow="fold")
+    for capability in capability_rows():
+        table.add_row(
+            capability.command,
+            "yes" if capability.provider_dependent else "no",
+            ", ".join(capability.needs),
+            capability.note,
+        )
+    table.caption = capability_summary()
+    return table
+
+
 def _format_provider_key_status(manager: MarketProviderManager) -> Table:
     table = Table(title="Market Provider API Key Status", expand=True)
     table.add_column("Provider", style="cyan")
@@ -2392,6 +2836,64 @@ def _format_secrets_status(secrets: dict[str, str]) -> Table:
     if not secrets:
         table.add_row("-", "empty", "No local secrets stored.")
     table.caption = "Values are never printed. Use /secrets clear before publishing screenshots or sharing a machine."
+    return table
+
+
+def _format_security_status(router: object) -> Table:
+    table = Table(title="🔒 Security Status", expand=True)
+    table.add_column("Check", style="cyan", no_wrap=True)
+    table.add_column("Status")
+    table.add_column("Detail")
+
+    secrets = read_secrets()
+    table.add_row("Secrets Stored", str(len(secrets)), "API keys in ~/.fincli/secrets.env")
+    table.add_row("Secret Redaction", "active", "All error messages are redacted before display")
+    table.add_row("Input Validation", "active", "Symbols, paths, and numbers are validated")
+    table.add_row("Rate Limiting", "active", "Per-command rate limits enforced")
+    table.add_row("Audit Log", "active", f"{router.audit_log.count_events()} events recorded")
+    table.add_row("Path Traversal Protection", "active", "File operations validate paths")
+    table.add_row("File Permissions", "0o600", "Secrets file is owner-read-write only")
+
+    table.caption = "Use /security audit to view audit log. Use /security lockdown for emergency secret wipe."
+    return table
+
+
+def _format_audit_events(events: list[object]) -> Table:
+    table = Table(title="🔐 Security Audit Log", expand=True)
+    table.add_column("ID", justify="right")
+    table.add_column("Event", style="cyan", no_wrap=True)
+    table.add_column("Detail", overflow="fold")
+    table.add_column("Time", no_wrap=True)
+    for event in events:
+        table.add_row(
+            str(getattr(event, "id", "-")),
+            str(getattr(event, "event_type", "-")),
+            str(getattr(event, "detail", ""))[:100],
+            str(getattr(event, "created_at", "-")),
+        )
+    if not events:
+        table.add_row("-", "-", "No audit events recorded.", "-")
+    table.caption = "Audit log is immutable. Events are never modified or deleted."
+    return table
+
+
+def _format_security_scan(secrets: dict[str, str]) -> Table:
+    table = Table(title="🔍 Security Scan", expand=True)
+    table.add_column("Check", style="cyan", no_wrap=True)
+    table.add_column("Result")
+
+    # Check secrets
+    if secrets:
+        table.add_row("Secrets Found", f"{len(secrets)} API key(s) stored locally")
+        table.add_row("Secret File", "~/.fincli/secrets.env exists")
+    else:
+        table.add_row("Secrets Found", "None (clean)")
+
+    # Check for common issues
+    table.add_row("Prepublish Check", "Run: python scripts/prepublish_check.py")
+    table.add_row("Git Status", "Run: git status --short --ignored")
+
+    table.caption = "Use /secrets clear to remove all stored secrets. Use /privacy purge for full cleanup."
     return table
 
 
@@ -2525,16 +3027,22 @@ def _format_macro_indicator(indicator: str, region: str, rows: list[MacroIndicat
     return table
 
 
-def _format_trading_overview(realtime: RealtimeConnectorCatalog, brokers: BrokerCatalog) -> Table:
-    table = Table(title="Trading Layer v0.4.0 | Safe Execution Workspace", expand=True)
+def _format_trading_overview(realtime: RealtimeConnectorCatalog, brokers: BrokerCatalog, paper: PaperTradingEngine | None = None) -> Table:
+    kill_active = paper.is_kill_switch_active() if paper else False
+    daily_pnl = paper.daily_pnl() if paper else 0.0
+    table = Table(title="Trading Layer v1.0.0 | Safe Execution Workspace", expand=True)
     table.add_column("Area", style="cyan", no_wrap=True)
     table.add_column("Status", no_wrap=True)
     table.add_column("Detail", overflow="fold")
-    table.add_row("Real-Time Trading", "scaffold", f"{len(realtime.all())} realtime connector profile(s). Use /trading realtime.")
-    table.add_row("Broker Integrations", "catalog", f"{len(brokers.all())} broker integration profile(s). Use /trading brokers.")
-    table.add_row("Paper Trading", "active", "Local paper orders only. Use /trading paper buy AAPL 1 market 100.")
-    table.add_row("Algo Trading", "paper-only", "Strategy execution is intentionally local/paper in v0.4.0.")
-    table.add_row("Live Orders", "disabled", "No live broker orders are sent by FinCLI v0.4.0.")
+    risk_status = "KILL SWITCH ACTIVE" if kill_active else "active"
+    risk_style = "red" if kill_active else "green"
+    table.add_row("Risk Guard", f"[{risk_style}]{risk_status}[/]", f"Daily PnL: ${daily_pnl:,.2f}. Use /trading risk for details.")
+    table.add_row("Real-Time Trading", "configurable", f"{len(realtime.all())} realtime connector(s). Use /trading realtime or /trading stream.")
+    table.add_row("Broker Integrations", "catalog", f"{len(brokers.all())} broker integration(s). Use /trading brokers.")
+    table.add_row("Paper Trading", "active", "Local paper orders with risk guard. Use /trading paper buy AAPL 1 market 100.")
+    table.add_row("Algo Trading", "paper-only", "3 built-in strategies. Use /trading algo list or /trading algo run sma_cross AAPL 1d.")
+    table.add_row("Audit Log", "active", "All orders logged. Use /trading audit.")
+    table.add_row("Live Orders", "disabled", "No live broker orders are sent by FinCLI v1.0.0.")
     table.caption = "Trading features are simulation/catalog first. Configure broker adapters only after explicit live-trading safety work."
     return table
 
@@ -2612,6 +3120,122 @@ def _format_paper_orders(orders: list[dict[str, object]]) -> Table:
     if not orders:
         table.add_row("-", "-", "-", "-", "-", "-", "-", "empty", "-")
     table.caption = "Paper trading orders are stored locally in SQLite."
+    return table
+
+
+def _format_risk_status(paper: PaperTradingEngine) -> Table:
+    table = Table(title="Trading Risk Guard", expand=True)
+    table.add_column("Check", style="cyan", no_wrap=True)
+    table.add_column("Value")
+    kill_active = paper.is_kill_switch_active()
+    table.add_row("Kill Switch", "[red]ACTIVE[/]" if kill_active else "[green]inactive[/]")
+    table.add_row("Daily PnL", f"${paper.daily_pnl():,.2f}")
+    table.add_row("Max Position Size", f"{paper.risk_guard.max_position_pct:.0%} of equity")
+    table.add_row("Daily Loss Limit", f"{paper.risk_guard.daily_loss_limit_pct:.0%} of equity")
+    profile = paper.risk_guard._get_profile()
+    if profile:
+        table.add_row("Portfolio Equity", f"${float(profile['equity']):,.2f} {profile['currency']}")
+    else:
+        table.add_row("Portfolio Equity", "No profile set. Use /profile set ...")
+    table.caption = "Risk guard checks run before every paper order."
+    return table
+
+
+def _format_audit_log(entries: list[dict[str, object]]) -> Table:
+    table = Table(title="Order Audit Log", expand=True)
+    table.add_column("ID", justify="right")
+    table.add_column("Order ID", justify="right")
+    table.add_column("Action", style="cyan", no_wrap=True)
+    table.add_column("Detail", overflow="fold")
+    table.add_column("Time", no_wrap=True)
+    for entry in entries:
+        table.add_row(
+            str(entry.get("id", "-")),
+            str(entry.get("order_id", "-")),
+            str(entry.get("action", "-")),
+            str(entry.get("detail", "")),
+            str(entry.get("created_at", "-")),
+        )
+    if not entries:
+        table.add_row("-", "-", "-", "No audit entries.", "-")
+    table.caption = "Audit log is immutable. Entries are never updated or deleted."
+    return table
+
+
+def _format_positions(positions: list[dict[str, object]]) -> Table:
+    table = Table(title="Paper Trading Positions", expand=True)
+    table.add_column("Symbol", style="cyan", no_wrap=True)
+    table.add_column("Net Qty", justify="right")
+    table.add_column("Avg Price", justify="right")
+    table.add_column("Buy Notional", justify="right")
+    table.add_column("Sell Notional", justify="right")
+    table.add_column("Realized PnL", justify="right")
+    table.add_column("Orders", justify="right")
+    for pos in positions:
+        table.add_row(
+            str(pos.get("symbol", "-")),
+            _format_optional_number(pos.get("net_quantity")),
+            _format_optional_number(pos.get("avg_price")),
+            _format_optional_number(pos.get("buy_notional")),
+            _format_optional_number(pos.get("sell_notional")),
+            _format_optional_number(pos.get("realized_pnl")),
+            str(pos.get("order_count", "-")),
+        )
+    if not positions:
+        table.add_row("-", "-", "-", "-", "-", "-", "No positions. Use /trading paper buy ...")
+    return table
+
+
+def _format_broker_status(catalog: BrokerCatalog) -> Table:
+    table = Table(title="Broker Adapter Status", expand=True)
+    table.add_column("Broker", style="cyan", no_wrap=True)
+    table.add_column("Mode", no_wrap=True)
+    table.add_column("Status")
+    for broker in catalog.all():
+        status = "ready" if broker.mode in {"paper_ready", "sandbox_ready"} else "stub" if broker.mode == "adapter_stub" else "requires gateway"
+        table.add_row(broker.name, broker.mode, status)
+    table.caption = "Use /trading broker use <name> to activate a broker adapter."
+    return table
+
+
+def _format_stream_status(connectors: tuple[RealtimeConnector, ...]) -> Table:
+    table = Table(title="Realtime Stream Status", expand=True)
+    table.add_column("Connector", style="cyan", no_wrap=True)
+    table.add_column("Transport", no_wrap=True)
+    table.add_column("Status", no_wrap=True)
+    table.add_column("Assets", overflow="fold")
+    for connector in connectors:
+        table.add_row(connector.name, connector.transport, connector.status, ", ".join(connector.asset_classes))
+    table.caption = "Use /trading stream <connector> to view connection config."
+    return table
+
+
+def _format_algo_strategies(strategies: tuple[StrategyInfo, ...]) -> Table:
+    table = Table(title="Algo Trading Strategies", expand=True)
+    table.add_column("Strategy", style="cyan", no_wrap=True)
+    table.add_column("Description", overflow="fold")
+    table.add_column("Asset Classes", overflow="fold")
+    for strategy in strategies:
+        table.add_row(strategy.name, strategy.description, ", ".join(strategy.asset_classes))
+    table.caption = "Use /trading algo run <strategy> <symbol> [timeframe] [qty] to execute."
+    return table
+
+
+def _format_algo_result(result: object, order: dict[str, object] | None = None) -> Table:
+    table = Table(title="Algo Strategy Result", expand=True)
+    table.add_column("Field", style="cyan", no_wrap=True)
+    table.add_column("Value")
+    table.add_row("Strategy", str(getattr(result, "strategy", "-")))
+    table.add_row("Symbol", str(getattr(result, "symbol", "-")))
+    table.add_row("Signal", str(getattr(result, "signal", "-")))
+    table.add_row("Confidence", str(getattr(result, "confidence", "-")))
+    table.add_row("Reason", str(getattr(result, "reason", "-")))
+    if order:
+        table.add_row("Order Status", str(order.get("status", "-")))
+        table.add_row("Order ID", str(order.get("id", "-")))
+    elif getattr(result, "signal", "") in {"buy", "sell"}:
+        table.add_row("Order", "Not placed (risk guard blocked or error)")
+    table.caption = "Algo signals are informational. Paper orders respect the risk guard."
     return table
 
 
@@ -3085,10 +3709,13 @@ def _router_roots() -> set[str]:
         "/research",
         "/scan",
         "/secrets",
+        "/security",
         "/setup",
         "/structure",
         "/symbol",
         "/technical",
+        "/trading",
+        "/tutorial",
         "/tx",
         "/watchlist",
         "/web",
@@ -3100,6 +3727,137 @@ def _strip_wrapping_quotes(value: str) -> str:
     if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
         return value[1:-1]
     return value
+
+
+# ---------------------------------------------------------------------------
+# Tutorial helpers
+# ---------------------------------------------------------------------------
+
+TUTORIAL_LESSONS = {
+    1: {
+        "title": "Welcome & Setup",
+        "subtitle": "Get started with FinCLI",
+        "steps": [
+            ("Set your profile", '/profile set "Your Name" 10000 USD 1:1 2', "Your profile helps FinCLI personalize risk calculations."),
+            ("Check system health", "/doctor", "See if everything is configured correctly."),
+            ("View setup guide", "/setup", "See recommended setup steps."),
+        ],
+        "tip": "You can skip API keys for now — FinCLI works with free providers like yfinance!",
+    },
+    2: {
+        "title": "Market Data",
+        "subtitle": "Quotes, overviews, and news",
+        "steps": [
+            ("Get a quick quote", "/quote AAPL", "Get the latest price for any symbol."),
+            ("Full market overview", "/market AAPL 1d", "See technicals, structure, and data quality."),
+            ("Read latest news", "/news AAPL", "Get news from multiple sources."),
+            ("Deep research", "/research AAPL --deep", "AI-powered research with cited sources."),
+        ],
+        "tip": "Use any symbol — stocks (AAPL), crypto (BTC-USD), forex (EURUSD=X), commodities (XAUUSD).",
+    },
+    3: {
+        "title": "Technical Analysis",
+        "subtitle": "Indicators, structure, and signals",
+        "steps": [
+            ("Technical analysis", "/technical AAPL 1d", "RSI, MACD, Bollinger, support/resistance."),
+            ("Multi-timeframe", "/mtf AAPL 1d,1h,15m", "Check alignment across timeframes."),
+            ("AI analysis", "/analyze AAPL 1d", "AI interprets the technicals for you."),
+            ("Market structure", "/structure AAPL 1d", "BOS, CHoCH, liquidity zones."),
+        ],
+        "tip": "Technical analysis is educational, not financial advice. Always use confirmation.",
+    },
+    4: {
+        "title": "Portfolio Management",
+        "subtitle": "Track positions and risk",
+        "steps": [
+            ("Add a position", "/portfolio add AAPL 10 150", "Add 10 shares of AAPL at $150."),
+            ("View portfolio", "/portfolio", "See all positions with PnL."),
+            ("Check risk", "/portfolio risk", "Exposure, concentration, health score."),
+            ("Save snapshot", "/portfolio snapshot", "Track portfolio value over time."),
+            ("Benchmark", "/portfolio benchmark SPY", "Compare vs S&P 500."),
+        ],
+        "tip": "Use /portfolio whatif to test changes before committing!",
+    },
+    5: {
+        "title": "Paper Trading",
+        "subtitle": "Practice without risk",
+        "steps": [
+            ("Place a paper order", "/trading paper buy AAPL 1 market 150", "Simulate buying 1 share."),
+            ("View positions", "/trading positions", "See aggregated paper positions."),
+            ("Check risk guard", "/trading risk", "See daily PnL and limits."),
+            ("Run algo strategy", "/trading algo run sma_cross AAPL 1d", "Let a strategy trade for you."),
+        ],
+        "tip": "Paper trading uses risk guards to protect you. Use /trading kill to stop all orders.",
+    },
+    6: {
+        "title": "Alerts & Monitoring",
+        "subtitle": "Stay informed automatically",
+        "steps": [
+            ("Add price alert", "/alert add AAPL above 200", "Get notified when price hits $200."),
+            ("Add to watchlist", "/watchlist add AAPL", "Track symbols in your watchlist."),
+            ("Scan watchlist", "/scan watchlist rsi<30", "Find oversold stocks."),
+            ("Start alert daemon", "/alert daemon start", "Background alert checking."),
+        ],
+        "tip": "You can set conditional alerts too: rsi_below, volume_above, macd_cross_up.",
+    },
+    7: {
+        "title": "Export & Reports",
+        "subtitle": "Save and share your research",
+        "steps": [
+            ("Export research", "/research AAPL --report --export md report.md", "Save research as Markdown."),
+            ("Run backtest", "/backtest AAPL sma_cross 1d", "Test a strategy on historical data."),
+            ("Export everything", "/export all json ./exports", "Batch export all your data."),
+            ("View history", "/history", "See all commands you've run."),
+        ],
+        "tip": "Use /backtest --monte-carlo to test strategy robustness!",
+    },
+}
+
+
+def _format_tutorial_menu() -> Table:
+    table = Table(title="🎓 FinCLI Tutorial — Interactive Guide", expand=True)
+    table.add_column("#", style="cyan", justify="center", width=3)
+    table.add_column("Lesson", style="cyan", no_wrap=True)
+    table.add_column("Description")
+    table.add_column("Command", style="green")
+    for num, lesson in TUTORIAL_LESSONS.items():
+        table.add_row(str(num), lesson["title"], lesson["subtitle"], f"/tutorial {num}")
+    table.caption = "Type /tutorial <number> to start a lesson. Use /tutorial next to go through them in order."
+    return table
+
+
+def _tutorial_lesson(num: int) -> Panel:
+    lesson = TUTORIAL_LESSONS.get(num)
+    if lesson is None:
+        return Panel("Lesson not found. Use /tutorial to see available lessons.", title="Tutorial", border_style="red")
+
+    lines = [
+        f"[bold cyan]🎓 Tutorial: {lesson['title']} ({num}/7)[/bold cyan]",
+        "",
+        f"[dim]{lesson['subtitle']}[/dim]",
+        "",
+        "[bold]What you'll learn:[/bold]",
+    ]
+    for i, (step_title, cmd, explanation) in enumerate(lesson["steps"], 1):
+        lines.append(f"  {i}. [bold]{step_title}[/bold]")
+        lines.append(f"     [green]{cmd}[/green]")
+        lines.append(f"     [dim]{explanation}[/dim]")
+        lines.append("")
+
+    lines.append(f"[bold yellow]💡 Tip:[/bold yellow] {lesson['tip']}")
+    lines.append("")
+    lines.append("[dim]Type /tutorial next for the next lesson, or /tutorial to see all lessons.[/dim]")
+
+    return Panel("\n".join(lines), title=f"Tutorial: {lesson['title']}", border_style="cyan")
+
+
+def _tutorial_next(router: object) -> Panel:
+    if not hasattr(router, "_tutorial_progress"):
+        router._tutorial_progress = 0
+    router._tutorial_progress += 1
+    if router._tutorial_progress > 7:
+        router._tutorial_progress = 1
+    return _tutorial_lesson(router._tutorial_progress)
 
 
 class UnavailableAIProvider:

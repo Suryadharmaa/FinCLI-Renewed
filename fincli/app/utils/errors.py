@@ -31,3 +31,8 @@ class ProviderError(FinCLIError):
 
 class RateLimitError(ProviderError):
     """Raised when a provider is rate-limited."""
+
+
+class SecurityError(FinCLIError):
+    """Raised when a security violation is detected."""
+    pass

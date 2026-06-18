@@ -70,94 +70,114 @@ class YFinanceProvider(BaseMarketProvider):
         return yf.Ticker(symbol)
 
     def _quote_sync(self, symbol: str) -> Quote:
-        resolved = resolve_yfinance_symbol(symbol)
-        ticker = self._ticker(resolved.symbol)
-        info = getattr(ticker, "fast_info", None)
-        price = None
-        currency = "USD"
-        if info is not None:
-            price = _safe_float(_safe_get(info, "last_price") or _safe_get(info, "lastPrice"))
-            currency = str(_safe_get(info, "currency") or currency)
+        try:
+            resolved = resolve_yfinance_symbol(symbol)
+            ticker = self._ticker(resolved.symbol)
+            info = getattr(ticker, "fast_info", None)
+            price = None
+            currency = "USD"
+            if info is not None:
+                price = _safe_float(_safe_get(info, "last_price") or _safe_get(info, "lastPrice"))
+                currency = str(_safe_get(info, "currency") or currency)
 
-        if price is None:
-            history = ticker.history(period="5d", interval="1d")
-            if history.empty:
-                raise ProviderError(f"Data harga kosong untuk {symbol}.", "Coba symbol lain, contoh AAPL atau BTC-USD.")
-            price = float(history["Close"].dropna().iloc[-1])
+            if price is None:
+                history = ticker.history(period="5d", interval="1d")
+                if history.empty:
+                    raise ProviderError(f"Data harga kosong untuk {symbol}.", "Coba symbol lain, contoh AAPL atau BTC-USD.")
+                price = float(history["Close"].dropna().iloc[-1])
 
-        return Quote(
-            symbol=resolved.symbol.upper(),
-            price=price,
-            currency=currency,
-            provider=self.name,
-            timestamp=datetime.now(),
-            status="delayed",
-        )
+            return Quote(
+                symbol=resolved.symbol.upper(),
+                price=price,
+                currency=currency,
+                provider=self.name,
+                timestamp=datetime.now(),
+                status="delayed",
+            )
+        except ProviderError:
+            raise
+        except Exception as exc:
+            raise ProviderError(f"Gagal mengambil quote dari yfinance untuk {symbol}: {exc}") from exc
 
     def _history_sync(self, symbol: str, period: str, interval: str) -> list[Candle]:
-        resolved = resolve_yfinance_symbol(symbol)
-        ticker = self._ticker(resolved.symbol)
-        frame = ticker.history(period=period, interval=interval)
-        if frame.empty:
-            raise ProviderError(
-                f"Data OHLCV kosong untuk {symbol} ({resolved.symbol}).",
-                "Coba provider twelvedata/finnhub atau symbol lain, contoh EURUSD, XAUUSD, SPX, AAPL.",
-            )
-
-        candles: list[Candle] = []
-        for index, row in frame.dropna(subset=["Open", "High", "Low", "Close"]).iterrows():
-            timestamp = index.to_pydatetime() if hasattr(index, "to_pydatetime") else datetime.now()
-            candles.append(
-                Candle(
-                    timestamp=timestamp,
-                    open=float(row["Open"]),
-                    high=float(row["High"]),
-                    low=float(row["Low"]),
-                    close=float(row["Close"]),
-                    volume=float(row.get("Volume", 0.0)),
+        try:
+            resolved = resolve_yfinance_symbol(symbol)
+            ticker = self._ticker(resolved.symbol)
+            frame = ticker.history(period=period, interval=interval)
+            if frame.empty:
+                raise ProviderError(
+                    f"Data OHLCV kosong untuk {symbol} ({resolved.symbol}).",
+                    "Coba provider twelvedata/finnhub atau symbol lain, contoh EURUSD, XAUUSD, SPX, AAPL.",
                 )
-            )
-        return candles
+
+            candles: list[Candle] = []
+            for index, row in frame.dropna(subset=["Open", "High", "Low", "Close"]).iterrows():
+                timestamp = index.to_pydatetime() if hasattr(index, "to_pydatetime") else datetime.now()
+                candles.append(
+                    Candle(
+                        timestamp=timestamp,
+                        open=float(row["Open"]),
+                        high=float(row["High"]),
+                        low=float(row["Low"]),
+                        close=float(row["Close"]),
+                        volume=float(row.get("Volume", 0.0)),
+                    )
+                )
+            return candles
+        except ProviderError:
+            raise
+        except Exception as exc:
+            raise ProviderError(f"Gagal mengambil history dari yfinance untuk {symbol}: {exc}") from exc
 
     def _news_sync(self, symbol: str, limit: int) -> list[NewsItem]:
-        resolved = resolve_yfinance_symbol(symbol)
-        ticker = self._ticker(resolved.symbol)
-        raw_news = getattr(ticker, "news", []) or []
-        items: list[NewsItem] = []
-        for item in raw_news[:limit]:
-            content = item.get("content", item) if isinstance(item, dict) else {}
-            title = str(content.get("title") or item.get("title") or "Untitled")
-            provider = content.get("provider") or {}
-            source = str(provider.get("displayName") if isinstance(provider, dict) else provider or "yfinance")
-            url = content.get("canonicalUrl") or content.get("clickThroughUrl") or item.get("link")
-            if isinstance(url, dict):
-                url = url.get("url")
-            published_at = None
-            timestamp = content.get("pubDate") or item.get("providerPublishTime")
-            if isinstance(timestamp, int):
-                published_at = datetime.fromtimestamp(timestamp)
-            elif isinstance(timestamp, str):
-                published_at = _parse_datetime(timestamp)
-            summary = str(content.get("summary") or "")
-            items.append(NewsItem(title=title, source=source, url=url, published_at=published_at, summary=summary))
-        return items
+        try:
+            resolved = resolve_yfinance_symbol(symbol)
+            ticker = self._ticker(resolved.symbol)
+            raw_news = getattr(ticker, "news", []) or []
+            items: list[NewsItem] = []
+            for item in raw_news[:limit]:
+                content = item.get("content", item) if isinstance(item, dict) else {}
+                title = str(content.get("title") or item.get("title") or "Untitled")
+                provider = content.get("provider") or {}
+                source = str(provider.get("displayName") if isinstance(provider, dict) else provider or "yfinance")
+                url = content.get("canonicalUrl") or content.get("clickThroughUrl") or item.get("link")
+                if isinstance(url, dict):
+                    url = url.get("url")
+                published_at = None
+                timestamp = content.get("pubDate") or item.get("providerPublishTime")
+                if isinstance(timestamp, int):
+                    published_at = datetime.fromtimestamp(timestamp)
+                elif isinstance(timestamp, str):
+                    published_at = _parse_datetime(timestamp)
+                summary = str(content.get("summary") or "")
+                items.append(NewsItem(title=title, source=source, url=url, published_at=published_at, summary=summary))
+            return items
+        except ProviderError:
+            raise
+        except Exception as exc:
+            raise ProviderError(f"Gagal mengambil news dari yfinance untuk {symbol}: {exc}") from exc
 
     def _fundamentals_sync(self, symbol: str) -> FundamentalSnapshot:
-        resolved = resolve_yfinance_symbol(symbol)
-        ticker = self._ticker(resolved.symbol)
-        info = ticker.info or {}
-        return FundamentalSnapshot(
-            symbol=resolved.symbol.upper(),
-            provider=self.name,
-            currency=str(info.get("financialCurrency") or info.get("currency") or "USD"),
-            market_cap=_safe_float(info.get("marketCap")),
-            pe_ratio=_safe_float(info.get("trailingPE")),
-            eps=_safe_float(info.get("trailingEps")),
-            revenue=_safe_float(info.get("totalRevenue")),
-            beta=_safe_float(info.get("beta")),
-            sector=info.get("sector"),
-            industry=info.get("industry"),
-        )
+        try:
+            resolved = resolve_yfinance_symbol(symbol)
+            ticker = self._ticker(resolved.symbol)
+            info = ticker.info or {}
+            return FundamentalSnapshot(
+                symbol=resolved.symbol.upper(),
+                provider=self.name,
+                currency=str(info.get("financialCurrency") or info.get("currency") or "USD"),
+                market_cap=_safe_float(info.get("marketCap")),
+                pe_ratio=_safe_float(info.get("trailingPE")),
+                eps=_safe_float(info.get("trailingEps")),
+                revenue=_safe_float(info.get("totalRevenue")),
+                beta=_safe_float(info.get("beta")),
+                sector=info.get("sector"),
+                industry=info.get("industry"),
+            )
+        except ProviderError:
+            raise
+        except Exception as exc:
+            raise ProviderError(f"Gagal mengambil fundamentals dari yfinance untuk {symbol}: {exc}") from exc
 
     def _yahoo_table_sync(self, symbol: str, section: str, period: str, interval: str) -> YahooTable:
         resolved = resolve_yfinance_symbol(symbol)

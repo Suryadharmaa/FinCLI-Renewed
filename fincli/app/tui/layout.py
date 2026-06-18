@@ -10,15 +10,15 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.css.query import NoMatches
 from textual.screen import Screen
 from textual.worker import Worker, WorkerState
-from textual.widgets import Header, Input, RichLog, Static
+from textual.widgets import Input, RichLog, Static
 
 from fincli import __version__
 from fincli.app.cli.autocomplete import SlashAutocomplete
 from fincli.app.cli.commands import CommandRegistry
 from fincli.app.cli.router import CommandResult, CommandRouter
 from fincli.app.providers.ai.manager import AIProviderManager
-from fincli.app.tui.components import CommandPalette, format_thinking_message, format_user_message
-from fincli.app.tui.components import write_output_entry
+from fincli.app.tui.components import CommandPalette, WorkingIndicator, working_verb
+from fincli.app.tui.components import format_user_message, write_output_entry
 from fincli.app.tui.market_provider_selector import MarketProviderSelectorScreen
 from fincli.app.tui.model_selector import AIModelSelectorScreen
 from fincli.app.tui.theme import APP_CSS
@@ -33,6 +33,7 @@ class FinCLIApp(App[None]):
     BINDINGS = [
         ("ctrl+c", "quit", "Quit"),
         ("ctrl+l", "clear_output", "Clear"),
+        ("escape", "interrupt", "Interrupt"),
         ("f1", "help", "Help"),
     ]
 
@@ -47,24 +48,15 @@ class FinCLIApp(App[None]):
         self._worker_meta: dict[str, dict[str, str | bool]] = {}
 
     def compose(self) -> ComposeResult:
-        yield Header(show_clock=True)
         with Vertical(id="workspace"):
-            yield Static(
-                f"FINCLI v{__version__} | PROFESSIONAL RESEARCH TERMINAL | LIVE WORKSPACE",
-                id="top_strip",
-            )
-            yield Static(
-                "MARKET DESK  /research  /news  /macro    ANALYSIS  /technical  /analyze  /mtf    RISK  /profile  /portfolio  /journal",
-                id="market_ribbon",
-            )
-            yield Static("OUTPUT STREAM | green=bullish/positive | red=bearish/negative | yellow=caution/wait", id="output_header")
             with Vertical(id="output_frame"):
                 yield RichLog(id="output", wrap=True, markup=True, highlight=True)
+        yield WorkingIndicator(id="working")
         yield Static("ready | /research AAPL --quick | /analyze XAUUSD | /provider status", id="status_bar")
         with Vertical(id="command_area"):
-            yield Static("Type a question for AI chat or use slash commands. Start with / for autocomplete.", id="command_hint")
+            yield Static("Type a question for AI chat, or / for commands.", id="command_hint")
             with Horizontal(id="command_line"):
-                yield Static("F> ", id="command_prompt")
+                yield Static("> ", id="command_prompt")
                 yield Input(placeholder="Ask FinCLI or type /help", id="command_input")
             with VerticalScroll(id="command_palette_scroll"):
                 yield CommandPalette(id="command_palette")
@@ -74,8 +66,9 @@ class FinCLIApp(App[None]):
         palette.clear_palette()
         self.query_one("#command_palette_scroll", VerticalScroll).styles.display = "none"
         output = self.query_one("#output", RichLog)
-        write_output_entry(output, "Loading dashboard...")
-        self._submit_route("/dashboard", display_raw="/dashboard", clear_output_before_result=True)
+        write_output_entry(output, f"[bold]FinCLI[/] [#7a7a7a]v{__version__}[/]")
+        write_output_entry(output, "[#7a7a7a]Welcome back. Type [/][#d97757]/[/][#7a7a7a] for commands.[/]")
+        self._submit_route("/dashboard", display_raw="/dashboard")
         self.query_one("#command_input", Input).focus()
 
     def on_input_changed(self, event: Input.Changed) -> None:
@@ -116,6 +109,7 @@ class FinCLIApp(App[None]):
 
         if raw.lower() == "/clear":
             self._invalidate_pending_workers()
+            self.query_one(WorkingIndicator).stop()
             output.clear()
             status.update("cleared | /help untuk command")
             return
@@ -127,8 +121,18 @@ class FinCLIApp(App[None]):
 
     def action_clear_output(self) -> None:
         self._invalidate_pending_workers()
+        self.query_one(WorkingIndicator).stop()
         self.query_one("#output", RichLog).clear()
         self.query_one("#status_bar", Static).update("cleared | /help untuk command")
+
+    def action_interrupt(self) -> None:
+        # Thread workers cannot be force-killed mid-call; this abandons their
+        # result and stops the animation, matching the _invalidate_pending_workers
+        # pattern. Selector screens use esc-to-close via their own push_screen flow.
+        self.workers.cancel_group(self, "router")
+        self._invalidate_pending_workers()
+        self.query_one(WorkingIndicator).stop()
+        self.query_one("#status_bar", Static).update("interrupted | esc")
 
     def action_help(self) -> None:
         output = self.query_one("#output", RichLog)
@@ -190,9 +194,7 @@ class FinCLIApp(App[None]):
 
     def _handle_ai_chat(self, prompt: str) -> None:
         output = self.query_one("#output", RichLog)
-        status = self.query_one("#status_bar", Static)
         write_output_entry(output, format_user_message(prompt))
-        write_output_entry(output, format_thinking_message("routing prompt to active AI provider..."))
         self._submit_route(f"/ai {prompt}", display_raw="/ai", chat=True)
 
     def _submit_route(
@@ -215,6 +217,7 @@ class FinCLIApp(App[None]):
             "sequence": str(self._worker_index),
         }
         self.query_one("#status_bar", Static).update(f"running | {display_raw}")
+        self.query_one(WorkingIndicator).start(working_verb(raw))
         self.run_worker(
             lambda: self._route_in_worker(raw),
             name=worker_name,
@@ -241,7 +244,9 @@ class FinCLIApp(App[None]):
         self._worker_meta.pop(worker.name or "", None)
         sequence = int(str(meta.get("sequence", "0")))
         if sequence < self._latest_worker_sequence:
+            # A newer worker owns the spinner; let it keep animating.
             return
+        self.query_one(WorkingIndicator).stop()
         try:
             output = self.query_one("#output", RichLog)
             status = self.query_one("#status_bar", Static)

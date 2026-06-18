@@ -8,6 +8,24 @@ from fincli.app.services.market_overview import MarketOverview
 
 
 @dataclass(frozen=True, slots=True)
+class ResearchSource:
+    """A cited source used to ground the research brief."""
+
+    kind: str
+    title: str
+    detail: str = ""
+    url: str = ""
+
+    def citation(self) -> str:
+        base = f"[{self.kind}] {self.title}"
+        if self.detail:
+            base = f"{base} - {self.detail}"
+        if self.url:
+            base = f"{base} ({self.url})"
+        return base
+
+
+@dataclass(frozen=True, slots=True)
 class ResearchBrief:
     symbol: str
     mode: str
@@ -23,3 +41,6 @@ class ResearchBrief:
     final_summary: str
     ai_summary: str = ""
     report_notes: tuple[str, ...] = ()
+    sources: tuple[ResearchSource, ...] = ()
+    context_blend: str = ""
+    macro_context: tuple[str, ...] = ()

@@ -71,8 +71,9 @@ def test_output_entry_spacing_uses_single_blank_line_without_barriers() -> None:
     assert all("<<<" not in str(item) and ">>>" not in str(item) for item in log.items)
 
 
-def test_tui_css_has_professional_financial_terminal_surface() -> None:
-    assert "#top_strip" in APP_CSS
+def test_tui_css_has_minimal_claude_style_surface() -> None:
     assert "#output_frame" in APP_CSS
     assert "#command_line" in APP_CSS
-    assert "border: heavy #15803d" in APP_CSS
+    # Coral accent replaces the heavy neon-green financial-terminal chrome.
+    assert "#d97757" in APP_CSS
+    assert "border: heavy" not in APP_CSS

@@ -52,7 +52,7 @@ def test_broker_catalog_contains_requested_16_integrations() -> None:
         "Tradier",
         "Saxo",
     }.issubset(names)
-    assert all(broker.mode in {"catalog", "paper_ready", "adapter_stub"} for broker in brokers)
+    assert all(broker.mode in {"catalog", "paper_ready", "sandbox_ready", "gateway_required", "adapter_stub"} for broker in brokers)
 
 
 def test_paper_trading_engine_records_orders_locally(tmp_path: Path) -> None:
@@ -77,20 +77,29 @@ def test_trading_command_routes_without_live_execution(tmp_path: Path) -> None:
     realtime = render_text(router.route("/trading realtime").renderable)
     paper = router.route("/trading paper buy AAPL 1 market 100")
     orders = render_text(router.route("/trading paper orders").renderable)
+    risk = render_text(router.route("/trading risk").renderable)
+    positions = render_text(router.route("/trading positions").renderable)
+    algo_list = render_text(router.route("/trading algo list").renderable)
+    audit = render_text(router.route("/trading audit").renderable)
     command_names = {command.name for command in CommandRegistry().all()}
 
     assert "/trading" in command_names
     assert "Paper Trading" in overview
+    assert "Risk Guard" in overview
     assert "Zerodha" in brokers
     assert "Kraken WebSocket" in realtime
     assert paper.status == "ready"
     assert "AAPL" in orders
+    assert "Kill Switch" in risk
+    assert "sma_cross" in algo_list
+    assert "Audit" in audit or "audit" in audit.lower()
+    assert "Position" in positions
 
 
 def test_version_bumped_to_040() -> None:
     pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
     package = json.loads(Path("package.json").read_text(encoding="utf-8"))
 
-    assert fincli.__version__ == "0.4.0"
-    assert pyproject["project"]["version"] == "0.4.0"
-    assert package["version"] == "0.4.0"
+    assert fincli.__version__ == "1.0.0"
+    assert pyproject["project"]["version"] == "1.0.0"
+    assert package["version"] == "1.0.0"

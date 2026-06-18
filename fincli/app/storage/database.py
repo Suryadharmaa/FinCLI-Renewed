@@ -138,14 +138,61 @@ class FinCLIDatabase:
                             quantity REAL NOT NULL,
                             order_type TEXT NOT NULL,
                             price REAL,
+                            stop_price REAL,
                             notional REAL DEFAULT 0,
                             status TEXT NOT NULL,
                             strategy TEXT DEFAULT 'manual',
                             created_at TEXT DEFAULT CURRENT_TIMESTAMP
                         );
+
+                        CREATE TABLE IF NOT EXISTS order_audit_log (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            order_id INTEGER,
+                            action TEXT NOT NULL,
+                            detail TEXT DEFAULT '',
+                            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                        );
+
+                        CREATE TABLE IF NOT EXISTS kill_switch (
+                            id INTEGER PRIMARY KEY CHECK (id = 1),
+                            active INTEGER NOT NULL DEFAULT 0,
+                            reason TEXT DEFAULT '',
+                            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                        );
+
+                        CREATE TABLE IF NOT EXISTS portfolio_snapshots (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            total_value REAL NOT NULL,
+                            cost_basis REAL NOT NULL,
+                            unrealized_pnl REAL NOT NULL,
+                            realized_pnl REAL NOT NULL,
+                            positions_json TEXT DEFAULT '{}',
+                            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                        );
+
+                        CREATE TABLE IF NOT EXISTS alert_history (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            alert_id INTEGER,
+                            symbol TEXT NOT NULL,
+                            condition TEXT NOT NULL,
+                            target REAL NOT NULL,
+                            actual_value REAL,
+                            triggered INTEGER DEFAULT 1,
+                            note TEXT DEFAULT '',
+                            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                        );
+
+                        CREATE TABLE IF NOT EXISTS security_audit (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            event_type TEXT NOT NULL,
+                            detail TEXT NOT NULL DEFAULT '',
+                            ip_address TEXT DEFAULT 'local',
+                            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                        );
                         """
                     )
                     _migrate_user_profile_schema(db)
+                    _migrate_paper_orders_schema(db)
         except sqlite3.Error as exc:
             raise StorageError("Database lokal gagal diinisialisasi.") from exc
 
@@ -163,6 +210,13 @@ class FinCLIDatabase:
                 return list(db.execute(sql, tuple(params)).fetchall())
         except sqlite3.Error as exc:
             raise StorageError("Query database gagal.") from exc
+
+
+def _migrate_paper_orders_schema(db: sqlite3.Connection) -> None:
+    """Add stop_price column to paper_orders if missing (v0.7.0)."""
+    columns = {str(row["name"]) for row in db.execute("PRAGMA table_info(paper_orders)").fetchall()}
+    if "stop_price" not in columns:
+        db.execute("ALTER TABLE paper_orders ADD COLUMN stop_price REAL")
 
 
 def _migrate_user_profile_schema(db: sqlite3.Connection) -> None:

@@ -13,6 +13,8 @@ STATUS_AUTH_FAILED = "auth_failed"
 STATUS_RATE_LIMITED = "rate_limited"
 STATUS_ENTITLEMENT_MISSING = "entitlement_missing"
 STATUS_PARTIAL_DATA = "partial_data"
+STATUS_DELAYED = "delayed"
+STATUS_FALLBACK = "fallback"
 STATUS_EMPTY_DATA = "empty_data"
 STATUS_NETWORK_ERROR = "network_error"
 STATUS_SCHEDULE_ONLY = "schedule_only"
@@ -25,6 +27,8 @@ GRANULAR_STATUSES = (
     STATUS_RATE_LIMITED,
     STATUS_ENTITLEMENT_MISSING,
     STATUS_PARTIAL_DATA,
+    STATUS_DELAYED,
+    STATUS_FALLBACK,
     STATUS_EMPTY_DATA,
     STATUS_NETWORK_ERROR,
     STATUS_SCHEDULE_ONLY,
@@ -59,9 +63,11 @@ def classify_provider_error(exc: BaseException) -> str:
         return STATUS_AUTH_FAILED
     if "403" in text or "entitlement" in text or "plan" in text or "premium" in text or "forbidden" in text:
         return STATUS_ENTITLEMENT_MISSING
+    if "502" in text or "503" in text or "504" in text or "bad gateway" in text or "service unavailable" in text:
+        return STATUS_NETWORK_ERROR
     if "timeout" in text or "timed out" in text or "network" in text or "connection" in text or "dns" in text:
         return STATUS_NETWORK_ERROR
-    if "empty" in text or "kosong" in text or "no data" in text:
+    if "empty" in text or "kosong" in text or "no data" in text or "not found" in text:
         return STATUS_EMPTY_DATA
     if "missing" in text:
         return STATUS_PARTIAL_DATA
@@ -100,4 +106,3 @@ def result_style(status: str) -> str:
     }:
         return "red"
     return "yellow"
-

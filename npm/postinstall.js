@@ -6,6 +6,7 @@ const { spawnSync } = require("child_process");
 
 const packageRoot = path.resolve(__dirname, "..");
 const venvDir = path.join(packageRoot, ".npm-python");
+const MIN_PYTHON = [3, 11];
 
 function candidates() {
   if (process.env.PYTHON) {
@@ -23,17 +24,45 @@ function candidates() {
   ];
 }
 
-function findPython() {
-  for (const candidate of candidates()) {
-    const result = spawnSync(candidate.command, [...candidate.args, "--version"], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-    if (result.status === 0) {
-      return candidate;
-    }
+function pythonVersion(candidate) {
+  const result = spawnSync(
+    candidate.command,
+    [...candidate.args, "-c", "import sys;print('%d.%d' % sys.version_info[:2])"],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
+  );
+  if (result.status !== 0 || typeof result.stdout !== "string") {
+    return null;
   }
-  return null;
+  const match = result.stdout.trim().match(/^(\d+)\.(\d+)$/);
+  if (!match) {
+    return null;
+  }
+  return [Number(match[1]), Number(match[2])];
+}
+
+function meetsMinimum(version) {
+  if (!version) {
+    return false;
+  }
+  if (version[0] !== MIN_PYTHON[0]) {
+    return version[0] > MIN_PYTHON[0];
+  }
+  return version[1] >= MIN_PYTHON[1];
+}
+
+function findPython() {
+  let foundButTooOld = null;
+  for (const candidate of candidates()) {
+    const version = pythonVersion(candidate);
+    if (!version) {
+      continue;
+    }
+    if (meetsMinimum(version)) {
+      return { candidate, version };
+    }
+    foundButTooOld = foundButTooOld || version;
+  }
+  return { candidate: null, version: foundButTooOld };
 }
 
 function venvPython() {
@@ -54,10 +83,18 @@ function run(command, args, options = {}) {
 }
 
 function main() {
-  const python = findPython();
+  const minimum = MIN_PYTHON.join(".");
+  const { candidate: python, version } = findPython();
   if (!python) {
-    console.error("FinCLI requires Python 3.11+ during npm install.");
-    console.error("Install Python, then rerun: npm install -g fincli");
+    if (version) {
+      console.error(
+        `FinCLI requires Python ${minimum}+, but found Python ${version.join(".")}.`
+      );
+      console.error(`Install Python ${minimum}+ (or set PYTHON to its path), then rerun: npm install -g fincli`);
+    } else {
+      console.error(`FinCLI requires Python ${minimum}+ during npm install.`);
+      console.error("Install Python, then rerun: npm install -g fincli");
+    }
     process.exit(1);
   }
 

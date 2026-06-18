@@ -17,3 +17,10 @@ dist/
 *.db
 *.sqlite
 *.sqlite3
+.claude/
+.vscode/
+.idea/
+.project
+.pydevproject
+.DS_Store
+Thumbs.db

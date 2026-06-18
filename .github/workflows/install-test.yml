@@ -1,0 +1,40 @@
+name: Install Validation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  install:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node.js 18
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+
+      - name: Install via pip
+        run: pip install -e .
+
+      - name: Verify fincli --version
+        run: fincli --version
+
+      - name: NPM pack dry-run
+        run: npm pack --dry-run
+
+      - name: Prepublish safety check
+        run: python scripts/prepublish_check.py --skip-pack

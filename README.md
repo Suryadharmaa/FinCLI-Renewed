@@ -1,23 +1,32 @@
-# FinCLI v0.4.0
+# FinCLI v1.0.0
 
-FinCLI is a modern financial CLI/TUI terminal for market research, technical analysis, AI-assisted analysis, provider management, portfolio risk, journaling, watchlists, and local-first financial workflows.
+FinCLI is a production-ready financial CLI/TUI terminal for market research, technical analysis, AI-assisted analysis, provider management, portfolio risk, journaling, watchlists, backtesting, paper trading, and local-first financial workflows.
 
-FinCLI is an active MVP. Data quality depends on provider availability, API keys, provider plan entitlement, exchange coverage, and rate limits. yfinance remains the default delayed fallback.
+Data quality depends on provider availability, API keys, provider plan entitlement, exchange coverage, and rate limits. yfinance remains the default delayed fallback.
 
 ## Highlights
 
 - Textual + Rich terminal UI with slash commands.
-- Research-first workflow through `/research`.
-- Provider fallback chain with granular reliability labels: `ok`, `auth_failed`, `rate_limited`, `entitlement_missing`, `partial_data`, `schedule_only`, `unavailable`.
+- Research-first workflow through `/research`, now powered by Research Engine v3 (snapshot/deep/report, cited sources, sector/macro/news blending, web fallback).
+- Provider fallback chain with granular reliability labels: `ok`, `auth_failed`, `rate_limited`, `entitlement_missing`, `partial_data`, `delayed`, `fallback`, `schedule_only`, `unavailable`, `circuit_open`.
+- Source quality and freshness scoring (`freshness_score`, source grade A–E) surfaced in `/research` and `/market`.
+- Command capability matrix exposed via `/provider capabilities`, showing which data each command needs.
 - Provider metrics dashboard with runtime success rate, average latency, fallback count, and error count.
 - Persistent provider metrics in SQLite so `/provider metrics` can show current session and all-time call totals.
-- AI Grounding Guard for `/analyze`: AI prompts must consider data quality, provider reliability, missing data, and provider metrics before conclusions.
+- AI Grounding Guard for `/analyze` and `/research`: AI prompts must consider data quality, provider reliability, missing data, cited sources, and provider metrics before conclusions.
 - Market data adapters: yfinance, Finnhub, Twelve Data, Alpha Vantage, and custom provider schema.
 - 100+ news connector catalog with free RSS fallbacks and API-key-ready providers.
 - AI providers: OpenRouter, OpenAI, Groq, Together, HuggingFace, Gemini, Anthropic, and compatible HTTP providers.
 - Technical analysis: RSI, MACD, EMA/SMA, Bollinger Bands, ATR, support/resistance, market structure, and technical debate.
 - Portfolio Risk v3: exposure by asset class/currency, concentration risk, drawdown estimate, risk budget, realized/unrealized PnL, and portfolio health score.
-- Local-first storage: config, secrets, SQLite database, cache, sessions, watchlist, portfolio, journal, alerts.
+- Trading Safety Layer: risk guard (max position size, daily loss limit, kill switch, leverage warning), immutable audit log, paper trading with stop-limit orders, 3 built-in algo strategies (sma_cross, rsi_reversion, momentum).
+- Broker sandbox adapters: Alpaca paper (full HTTP), Tradier sandbox (full HTTP), IBKR (gateway scaffold). 16 broker catalog entries.
+- Realtime streaming: Kraken WebSocket, HyperLiquid WebSocket, Equity polling feed — all configurable adapters with `websockets` library.
+- Professional backtesting: fees/slippage/spread modeling, walk-forward split, position sizing (fixed fractional + Kelly), 5 strategies (sma_cross, rsi_reversion, momentum, bollinger, multi_factor), Sharpe/Sortino/Calmar ratios, Monte Carlo robustness, export (md/json/csv).
+- Portfolio analytics: time-series snapshots, Sharpe/Sortino/Calmar ratios, rebalancing suggestions, benchmark comparison (vs SPY/QQQ/BTC), what-if analysis.
+- Alert daemon: background checking, conditional alerts (RSI, volume, MACD cross), alert history, notification hooks.
+- Unified export: batch export all data (portfolio, journal, alerts, trades) to CSV/JSON.
+- Local-first storage: config, secrets, SQLite database, cache, sessions, watchlist, portfolio, journal, alerts, audit log, portfolio snapshots.
 - Prepublish safety checks for secrets, runtime artifacts, and npm package manifest.
 
 ## Install
@@ -66,6 +75,7 @@ Research and market:
 
 ```text
 /research AAPL
+/research AAPL --snapshot
 /research AAPL --deep
 /research AAPL --report
 /research AAPL --report --export md report.md
@@ -87,6 +97,7 @@ Providers:
 /provider status
 /provider metrics
 /provider list
+/provider capabilities
 /provider entitlement
 /provider key status
 /provider test AAPL
@@ -126,19 +137,28 @@ npm run prepublish:safety
 python scripts/prepublish_check.py
 ```
 
-## Research Engine v2
+## Research Engine v3
 
-`/research` is the central research command. It returns a compact output:
+`/research` is the central research command. It returns a compact, source-aware output:
 
 - Snapshot
 - Signal
 - Risk
+- Context (sector + macro + news blend)
+- Trust Gate
 - Missing Data
-- Source Quality
+- Source Quality (with freshness score and source grade)
 - Decision Points
+- Sources (cited market, news, macro, fundamentals, and web entries)
 - Final Summary
 
-Deep mode sends a concise Research Engine v2 prompt to the active AI provider. Report mode adds report-oriented notes without creating another command surface.
+Modes:
+
+- `--snapshot` (default): compact brief from available provider data.
+- `--deep`: sends a grounded Research Engine v3 prompt to the active AI provider, obeying the Data Trust Gate confidence cap.
+- `--report`: adds report-oriented notes and macro/source sections without creating another command surface.
+
+When provider news is missing, deep/report modes can fall back to public web research for current context. Exports (`--export md|json`) include the cited sources, macro context, and context blend.
 
 ## Portfolio Risk v3
 
@@ -203,14 +223,71 @@ The prepublish checker scans for `.env`, `secrets.env`, logs, SQLite databases, 
 - Provider-specific schema validation for custom data APIs.
 - Improved AI grounding and citations for web/news-assisted answers.
 
-### v0.4
+### v0.5.0 Provider/Data Reliability (done)
 
-- Strategy builder.
-- Alert daemon and notification integrations.
-- Backtesting with fees, slippage, and position sizing.
-- Optional cloud sync.
-- Plugin marketplace-style connector loading.
-- Realtime streaming where provider plans support it.
+- Standard `ProviderResult` envelope with granular statuses, including `delayed` and `fallback`.
+- Command capability matrix exposed via `/provider capabilities`.
+- Source quality and freshness scoring across `/research` and `/market`.
+- Persistent provider metrics across sessions.
+
+### v0.6.0 Research Engine v3 (done)
+
+- Snapshot/deep/report modes with Markdown/JSON export.
+- Cited source summaries (market, news, macro, fundamentals, web).
+- Sector/macro/news context blending in every brief.
+- Stronger AI grounding guard tied to the Data Trust Gate.
+- Public web research fallback when provider news is unavailable.
+
+### v0.7.0 Trading Safety Layer (done)
+
+- Risk guard with max position size, daily loss limit, kill switch, leverage warning, asset class restrictions.
+- Immutable order audit log (never UPDATE/DELETE).
+- Paper trading engine with stop-limit orders, cancel, positions aggregation, daily PnL.
+- Broker sandbox adapters: Alpaca paper (full HTTP), Tradier sandbox (full HTTP), IBKR (gateway scaffold).
+- 16 broker catalog entries with correct API endpoints and modes.
+- Realtime streaming: Kraken WebSocket, HyperLiquid WebSocket, Equity polling feed.
+- Algo trading engine with 3 built-in strategies: sma_cross, rsi_reversion, momentum.
+- New commands: /trading kill, resume, risk, audit, cancel, positions, broker use/status, stream, algo list/run.
+
+### v0.8.0 Portfolio & Backtesting (done)
+
+- Professional backtesting: fees/slippage/spread, walk-forward split, position sizing (fixed fractional + Kelly), 5 strategies, Sharpe/Sortino/Calmar, Monte Carlo robustness.
+- Portfolio time-series snapshots with risk ratios (Sharpe/Sortino/Calmar).
+- Rebalancing suggestions and benchmark comparison (vs SPY, QQQ, BTC, etc.).
+- What-if analysis for portfolio changes.
+- Alert daemon with conditional alerts (RSI, volume, MACD cross), alert history.
+- Unified export: batch export all data to CSV/JSON.
+- New commands: /backtest --export --monte-carlo --walk-forward, /portfolio chart/snapshot/whatif/benchmark, /alert daemon/history, /export all.
+
+### v0.9.0 Production Hardening (done)
+
+- GitHub Actions CI workflow (Python 3.11/3.12/3.13 × ubuntu/windows/macos).
+- Cross-platform install validation workflow.
+- Structured error reporting with secret redaction.
+- Full command smoke test suite (103 commands tested).
+- Release checklist automation script.
+- TUI polish with consistent spacing and rendering.
+- Provider response standardization across all adapters.
+- Setup wizard for first-run configuration.
+- Documentation hardening (docs/ directory with guides).
+- Security hardening with audit-secrets flag.
+- Data quality visibility standardization.
+- Critical path integration tests.
+
+### v1.0.0 — Non-MVP Release
+
+FinCLI v1.0.0 is the stable production release:
+
+- ✅ Commands are stable and documented.
+- ✅ Core TUI is polished and predictable.
+- ✅ Provider fallback is reliable with granular status labels.
+- ✅ Data quality is visible to the user.
+- ✅ Research, analysis, portfolio, journal, watchlist, and paper trading are usable end to end.
+- ✅ NPM and pip installation are reliable.
+- ✅ Security checks prevent accidental secret publication.
+- ✅ Tests cover critical provider, command, storage, and release flows (456 tests).
+- ✅ CI/CD pipeline validates on every push/PR.
+- ✅ No known critical bug remains in normal usage.
 
 ## License
 

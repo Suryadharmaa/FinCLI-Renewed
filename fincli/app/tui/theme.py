@@ -1,15 +1,20 @@
-"""Theme constants for the Textual UI."""
+"""Theme constants for the Textual UI.
 
+Minimal Claude-CLI-inspired surface: neutral off-white text on near-black with a
+single warm coral accent. Financial meaning still rides on the semantic colour
+classes (green/red/yellow) so data keeps its bullish/bearish/caution coding.
+"""
+
+# Palette tokens
+#   bg      #0d0d0d   near-black background
+#   text    #e6e6e6   soft off-white
+#   muted   #7a7a7a   hints, status, secondary text
+#   accent  #d97757   warm coral (prompt, spinner, focus)
+#   line    #3a3a3a   thin neutral borders
 APP_CSS = """
 Screen {
-    background: #00110b;
-    color: #d9f99d;
-}
-
-Header {
-    background: #000805;
-    color: #22c55e;
-    text-style: bold;
+    background: #0d0d0d;
+    color: #e6e6e6;
 }
 
 #workspace {
@@ -21,79 +26,65 @@ Header {
     width: 1fr;
     height: 1fr;
     padding: 1 4 0 4;
-    background: #00110b;
-}
-
-#top_strip {
-    height: 3;
-    content-align: center middle;
-    background: #031b10;
-    color: #86efac;
-    border: heavy #15803d;
-    text-style: bold;
-    margin: 0 0 1 0;
-}
-
-#market_ribbon {
-    height: 1;
-    content-align: center middle;
-    background: #020d08;
-    color: #22c55e;
-    text-style: bold;
-    margin: 0 0 1 0;
-}
-
-#output_header {
-    height: 1;
-    background: #052e16;
-    color: #bbf7d0;
-    text-style: bold;
-    padding: 0 1;
+    background: #0d0d0d;
 }
 
 #output_frame {
     height: 1fr;
-    background: #000805;
-    border: heavy #166534;
+    background: #0d0d0d;
+    border: none;
     padding: 1 2;
 }
 
 #output {
-    background: #000805;
-    color: #e5e7eb;
+    background: #0d0d0d;
+    color: #e6e6e6;
     border: none;
     scrollbar-size: 1 1;
-    scrollbar-background: #000805;
-    scrollbar-color: #22c55e;
+    scrollbar-background: #0d0d0d;
+    scrollbar-color: #d97757;
+}
+
+#working {
+    height: 1;
+    display: none;
+    background: #0d0d0d;
+    color: #d97757;
+    text-style: bold;
+    padding: 0 4;
 }
 
 #command_area {
     dock: bottom;
     height: auto;
-    background: #00110b;
+    background: #0d0d0d;
     padding: 0 4 1 4;
 }
 
 #command_hint {
     height: 1;
-    background: #020d08;
-    color: #84cc16;
+    background: #0d0d0d;
+    color: #7a7a7a;
     padding: 0 1;
 }
 
 #command_line {
     height: 3;
     margin: 0 0 1 0;
-    border: heavy #15803d;
-    background: #031b10;
-    color: #f8fafc;
+    border: round #3a3a3a;
+    background: #0d0d0d;
+    color: #e6e6e6;
+}
+
+#command_line:focus-within {
+    border: round #d97757;
 }
 
 #command_prompt {
-    width: 4;
+    width: 3;
     height: 1;
-    background: #031b10;
-    color: #22c55e;
+    background: #0d0d0d;
+    color: #d97757;
     text-style: bold;
     padding: 0 0 0 1;
 }
@@ -102,8 +93,8 @@ Header {
     width: 1fr;
     height: 1;
     border: none;
-    background: #031b10;
-    color: #f8fafc;
+    background: #0d0d0d;
+    color: #e6e6e6;
     padding: 0 1 0 0;
 }
 
@@ -114,35 +105,35 @@ Header {
 #command_palette_scroll {
     height: 9;
     margin: 0 0 0 0;
-    background: #00110b;
-    color: #f8fafc;
+    background: #0d0d0d;
+    color: #e6e6e6;
     scrollbar-size: 1 1;
-    scrollbar-background: #00110b;
-    scrollbar-color: #22c55e;
+    scrollbar-background: #0d0d0d;
+    scrollbar-color: #d97757;
 }
 
 #command_palette {
     height: auto;
     margin: 0 0 0 0;
-    background: #00110b;
-    color: #f8fafc;
+    background: #0d0d0d;
+    color: #e6e6e6;
 }
 
 #status_bar {
     dock: bottom;
     height: 1;
-    background: #000805;
-    color: #86efac;
+    background: #0d0d0d;
+    color: #7a7a7a;
     padding: 0 4;
 }
 
 .section-title {
-    color: #86efac;
+    color: #e6e6e6;
     text-style: bold;
 }
 
 .muted {
-    color: #64748b;
+    color: #7a7a7a;
 }
 
 .semantic-positive {
@@ -163,55 +154,55 @@ Header {
 #ai_selector_card {
     width: 78;
     height: 30;
-    background: #031b10;
-    color: #f8fafc;
+    background: #0d0d0d;
+    color: #e6e6e6;
     padding: 1;
-    border: heavy #15803d;
+    border: round #d97757;
 }
 
 #ai_selector_title {
     height: 2;
-    color: #f8fafc;
+    color: #e6e6e6;
     text-style: bold;
 }
 
 #ai_selector_provider {
     height: 2;
-    color: #f8fafc;
+    color: #e6e6e6;
     padding: 0 2;
 }
 
 #ai_selector_search {
     height: 3;
     margin: 0 1 1 1;
-    border: solid #22c55e;
-    background: #020d08;
-    color: #f8fafc;
+    border: round #3a3a3a;
+    background: #0d0d0d;
+    color: #e6e6e6;
     padding: 0 1;
 }
 
 #ai_selector_search:focus {
-    border: solid #86efac;
+    border: round #d97757;
 }
 
 #ai_selector_scroll {
     height: 1fr;
     margin: 0 1;
-    background: #031b10;
+    background: #0d0d0d;
     scrollbar-size: 1 1;
-    scrollbar-background: #031b10;
-    scrollbar-color: #22c55e;
+    scrollbar-background: #0d0d0d;
+    scrollbar-color: #d97757;
 }
 
 #ai_selector_list {
     height: auto;
-    background: #031b10;
-    color: #f8fafc;
+    background: #0d0d0d;
+    color: #e6e6e6;
 }
 
 #ai_selector_help {
     height: 3;
-    color: #9ca3af;
+    color: #7a7a7a;
     padding: 1 0 0 0;
 }
 """

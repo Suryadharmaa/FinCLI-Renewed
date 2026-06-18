@@ -37,104 +37,128 @@ class FinnhubProvider:
         self._client = client
 
     async def quote(self, symbol: str) -> Quote:
-        resolved = resolve_finnhub_symbol(symbol)
-        if resolved.asset_class in {"forex", "crypto"}:
-            candles = await self.history(symbol, period="5d", interval="1d")
-            if not candles:
+        try:
+            resolved = resolve_finnhub_symbol(symbol)
+            if resolved.asset_class in {"forex", "crypto"}:
+                candles = await self.history(symbol, period="5d", interval="1d")
+                if not candles:
+                    raise ProviderError(f"Finnhub tidak mengembalikan harga valid untuk {symbol}.")
+                latest = candles[-1]
+                return Quote(
+                    symbol=resolved.symbol,
+                    price=latest.close,
+                    currency="USD",
+                    provider=self.name,
+                    timestamp=latest.timestamp,
+                    status="delayed",
+                )
+            data = await self._get("/quote", {"symbol": symbol.upper()})
+            if not isinstance(data, dict):
+                raise ProviderError(f"Response Finnhub quote tidak valid untuk {symbol}.")
+            price = _safe_float(data.get("c"))
+            if price is None or price == 0:
                 raise ProviderError(f"Finnhub tidak mengembalikan harga valid untuk {symbol}.")
-            latest = candles[-1]
             return Quote(
-                symbol=resolved.symbol,
-                price=latest.close,
+                symbol=symbol.upper(),
+                price=price,
                 currency="USD",
                 provider=self.name,
-                timestamp=latest.timestamp,
-                status="delayed",
+                timestamp=datetime.fromtimestamp(int(data.get("t") or datetime.now().timestamp())),
+                status="realtime",
             )
-        data = await self._get("/quote", {"symbol": symbol.upper()})
-        price = _safe_float(data.get("c"))
-        if price is None or price == 0:
-            raise ProviderError(f"Finnhub tidak mengembalikan harga valid untuk {symbol}.")
-        return Quote(
-            symbol=symbol.upper(),
-            price=price,
-            currency="USD",
-            provider=self.name,
-            timestamp=datetime.fromtimestamp(int(data.get("t") or datetime.now().timestamp())),
-            status="realtime",
-        )
+        except ProviderError:
+            raise
+        except Exception as exc:
+            raise ProviderError(f"Gagal mengambil quote dari Finnhub untuk {symbol}: {exc}") from exc
 
     async def history(self, symbol: str, period: str = "6mo", interval: str = "1d") -> list[Candle]:
-        resolved = resolve_finnhub_symbol(symbol)
-        now = datetime.now()
-        start = now - _period_to_delta(period)
-        path = {
-            "forex": "/forex/candle",
-            "crypto": "/crypto/candle",
-        }.get(resolved.asset_class, "/stock/candle")
-        data = await self._get(
-            path,
-            {
-                "symbol": resolved.symbol,
-                "resolution": _interval_to_resolution(interval),
-                "from": int(start.timestamp()),
-                "to": int(now.timestamp()),
-            },
-        )
-        if data.get("s") != "ok":
-            raise ProviderError(f"Finnhub candle data kosong untuk {symbol} ({resolved.symbol}).")
-        timestamps = data.get("t") or []
-        candles = [
-            Candle(
-                timestamp=datetime.fromtimestamp(int(ts)),
-                open=float(data["o"][index]),
-                high=float(data["h"][index]),
-                low=float(data["l"][index]),
-                close=float(data["c"][index]),
-                volume=float(data["v"][index]),
+        try:
+            resolved = resolve_finnhub_symbol(symbol)
+            now = datetime.now()
+            start = now - _period_to_delta(period)
+            path = {
+                "forex": "/forex/candle",
+                "crypto": "/crypto/candle",
+            }.get(resolved.asset_class, "/stock/candle")
+            data = await self._get(
+                path,
+                {
+                    "symbol": resolved.symbol,
+                    "resolution": _interval_to_resolution(interval),
+                    "from": int(start.timestamp()),
+                    "to": int(now.timestamp()),
+                },
             )
-            for index, ts in enumerate(timestamps)
-        ]
-        if not candles:
-            raise ProviderError(f"Finnhub candle data kosong untuk {symbol} ({resolved.symbol}).")
-        return candles
+            if not isinstance(data, dict) or data.get("s") != "ok":
+                raise ProviderError(f"Finnhub candle data kosong untuk {symbol} ({resolved.symbol}).")
+            timestamps = data.get("t") or []
+            candles = [
+                Candle(
+                    timestamp=datetime.fromtimestamp(int(ts)),
+                    open=float(data["o"][index]),
+                    high=float(data["h"][index]),
+                    low=float(data["l"][index]),
+                    close=float(data["c"][index]),
+                    volume=float(data["v"][index]),
+                )
+                for index, ts in enumerate(timestamps)
+            ]
+            if not candles:
+                raise ProviderError(f"Finnhub candle data kosong untuk {symbol} ({resolved.symbol}).")
+            return candles
+        except ProviderError:
+            raise
+        except Exception as exc:
+            raise ProviderError(f"Gagal mengambil history dari Finnhub untuk {symbol}: {exc}") from exc
 
     async def news(self, symbol: str, limit: int = 5) -> list[NewsItem]:
-        today = datetime.now().date()
-        start = today - timedelta(days=14)
-        data = await self._get(
-            "/company-news",
-            {"symbol": symbol.upper(), "from": start.isoformat(), "to": today.isoformat()},
-        )
-        if not isinstance(data, list):
-            raise ProviderError("Response Finnhub news tidak valid.")
-        items: list[NewsItem] = []
-        for item in data[:limit]:
-            if not isinstance(item, dict):
-                continue
-            timestamp = item.get("datetime")
-            published_at = datetime.fromtimestamp(timestamp) if isinstance(timestamp, int) else None
-            items.append(
-                NewsItem(
-                    title=str(item.get("headline") or item.get("title") or "Untitled"),
-                    source=str(item.get("source") or self.name),
-                    url=item.get("url"),
-                    published_at=published_at,
-                    summary=str(item.get("summary") or ""),
-                )
+        try:
+            today = datetime.now().date()
+            start = today - timedelta(days=14)
+            data = await self._get(
+                "/company-news",
+                {"symbol": symbol.upper(), "from": start.isoformat(), "to": today.isoformat()},
             )
-        return items
+            if not isinstance(data, list):
+                raise ProviderError("Response Finnhub news tidak valid.")
+            items: list[NewsItem] = []
+            for item in data[:limit]:
+                if not isinstance(item, dict):
+                    continue
+                timestamp = item.get("datetime")
+                published_at = datetime.fromtimestamp(timestamp) if isinstance(timestamp, int) else None
+                items.append(
+                    NewsItem(
+                        title=str(item.get("headline") or item.get("title") or "Untitled"),
+                        source=str(item.get("source") or self.name),
+                        url=item.get("url"),
+                        published_at=published_at,
+                        summary=str(item.get("summary") or ""),
+                    )
+                )
+            return items
+        except ProviderError:
+            raise
+        except Exception as exc:
+            raise ProviderError(f"Gagal mengambil news dari Finnhub untuk {symbol}: {exc}") from exc
 
     async def fundamentals(self, symbol: str) -> FundamentalSnapshot:
-        data = await self._get("/stock/profile2", {"symbol": symbol.upper()})
-        return FundamentalSnapshot(
-            symbol=str(data.get("ticker") or symbol).upper(),
-            provider=self.name,
-            currency=str(data.get("currency") or "USD"),
-            market_cap=_safe_float(data.get("marketCapitalization")),
-            sector=data.get("finnhubIndustry"),
-            industry=data.get("finnhubIndustry"),
-        )
+        try:
+            data = await self._get("/stock/profile2", {"symbol": symbol.upper()})
+            if not isinstance(data, dict):
+                raise ProviderError(f"Response Finnhub fundamentals tidak valid untuk {symbol}.")
+            return FundamentalSnapshot(
+                symbol=str(data.get("ticker") or symbol).upper(),
+                provider=self.name,
+                currency=str(data.get("currency") or "USD"),
+                market_cap=_safe_float(data.get("marketCapitalization")),
+                sector=data.get("finnhubIndustry"),
+                industry=data.get("finnhubIndustry"),
+            )
+        except ProviderError:
+            raise
+        except Exception as exc:
+            raise ProviderError(f"Gagal mengambil fundamentals dari Finnhub untuk {symbol}: {exc}") from exc
 
     async def insider_transactions(self, symbol: str, limit: int = 20) -> list[dict[str, object]]:
         data = await self._get("/stock/insider-transactions", {"symbol": symbol.upper()})

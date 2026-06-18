@@ -125,6 +125,15 @@ def test_registry_commands_have_local_smoke_coverage(tmp_path: Path, monkeypatch
             router.ai_provider = SmokeAIProvider()
         if name in {"/scan", "/scan export"}:
             router.route("/watchlist add AAPL")
+        if name == "/trading cancel":
+            # Cancel requires a queued order; insert one directly
+            router.db.execute(
+                "INSERT INTO paper_orders (side, symbol, quantity, order_type, price, notional, status, strategy) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                ("buy", "SMOKE", 1, "limit", 100.0, 100.0, "queued", "manual"),
+            )
+            rows = router.db.query("SELECT MAX(id) as id FROM paper_orders")
+            order_id = int(rows[0]["id"]) if rows and rows[0]["id"] else 1
+            raw = f"/trading cancel {order_id}"
         result = router.route(raw)
         if name == "/ai_model key":
             router.ai_provider = SmokeAIProvider()
@@ -154,8 +163,15 @@ def _smoke_commands(router: CommandRouter, export_dir: Path) -> dict[str, str]:
         "/profile set": '/profile set "Smoke User" 500 USD 1:100 2',
         "/doctor": "/doctor full",
         "/setup": "/setup",
+        "/tutorial": "/tutorial",
+        "/tutorial next": "/tutorial next",
+        "/tutorial reset": "/tutorial reset",
         "/secrets status": "/secrets status",
         "/secrets clear": "/secrets clear",
+        "/security status": "/security status",
+        "/security audit": "/security audit",
+        "/security scan": "/security scan",
+        "/security lockdown": "/security lockdown",
         "/privacy status": "/privacy status",
         "/privacy purge": "/privacy purge",
         "/agent": "/agent list",
@@ -170,8 +186,19 @@ def _smoke_commands(router: CommandRouter, export_dir: Path) -> dict[str, str]:
         "/technical": "/technical AAPL 1d",
         "/structure": "/structure AAPL 1d",
         "/mtf": "/mtf AAPL 1d,1h",
-        "/backtest": "/backtest AAPL sma_cross 1d",
+        "/backtest": "/backtest AAPL sma_cross 1d --asset equity --equity 10000",
         "/trading": "/trading",
+        "/trading kill": "/trading kill",
+        "/trading resume": "/trading resume",
+        "/trading risk": "/trading risk",
+        "/trading audit": "/trading audit",
+        "/trading cancel": "/trading cancel 999",  # will error, handled below
+        "/trading positions": "/trading positions",
+        "/trading broker use": "/trading broker use Alpaca",
+        "/trading broker status": "/trading broker status",
+        "/trading stream": "/trading stream",
+        "/trading algo list": "/trading algo list",
+        "/trading algo run": "/trading algo run sma_cross AAPL 1d",
         "/yahoo": "/yahoo AAPL statistics",
         "/funda": "/funda AAPL",
         "/web": "/web sources market risk",
@@ -185,6 +212,10 @@ def _smoke_commands(router: CommandRouter, export_dir: Path) -> dict[str, str]:
         "/portfolio remove": "/portfolio remove AAPL",
         "/portfolio performance": "/portfolio performance",
         "/portfolio risk": "/portfolio risk",
+        "/portfolio chart": "/portfolio chart",
+        "/portfolio snapshot": "/portfolio snapshot",
+        "/portfolio whatif": "/portfolio whatif add AAPL 10 200",
+        "/portfolio benchmark": "/portfolio benchmark SPY",
         "/tx": "/tx list",
         "/tx add": "/tx add buy AAPL 10 100",
         "/journal": "/journal",
@@ -194,6 +225,8 @@ def _smoke_commands(router: CommandRouter, export_dir: Path) -> dict[str, str]:
         "/alert": "/alert",
         "/alert add": "/alert add AAPL above 120 smoke",
         "/alert check": "/alert check",
+        "/alert history": "/alert history",
+        "/alert daemon": "/alert daemon status",
         "/history": "/history",
         "/history sessions": "/history sessions",
         "/history show": f"/history show {router.session_id}",
@@ -208,6 +241,7 @@ def _smoke_commands(router: CommandRouter, export_dir: Path) -> dict[str, str]:
         "/provider status": "/provider status",
         "/provider metrics": "/provider metrics",
         "/provider list": "/provider list",
+        "/provider capabilities": "/provider capabilities",
         "/provider entitlement": "/provider entitlement",
         "/provider test": "/provider test AAPL",
         "/provider key status": "/provider key status",
@@ -215,6 +249,8 @@ def _smoke_commands(router: CommandRouter, export_dir: Path) -> dict[str, str]:
         "/cache clear": "/cache clear",
         "/export journal": f"/export journal csv {export_dir / 'journal.csv'}",
         "/export portfolio": f"/export portfolio json {export_dir / 'portfolio.json'}",
+        "/export alerts": f"/export alerts json {export_dir / 'alerts.json'}",
+        "/export all": f"/export all json {export_dir / 'all'}",
         "/clear": "/clear",
         "/exit": "/exit",
     }

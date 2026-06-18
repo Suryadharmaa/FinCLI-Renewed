@@ -26,103 +26,123 @@ class AlphaVantageProvider:
         self._client = client
 
     async def quote(self, symbol: str) -> Quote:
-        resolved = resolve_provider_symbol(self.name, symbol)
-        if resolved.asset_class == "forex":
-            data = await self._get(
-                {
-                    "function": "CURRENCY_EXCHANGE_RATE",
-                    "from_currency": resolved.symbol[:3],
-                    "to_currency": resolved.symbol[3:],
-                }
-            )
-            rate = data.get("Realtime Currency Exchange Rate", {})
-            price = _safe_float(rate.get("5. Exchange Rate"))
+        try:
+            resolved = resolve_provider_symbol(self.name, symbol)
+            if resolved.asset_class == "forex":
+                data = await self._get(
+                    {
+                        "function": "CURRENCY_EXCHANGE_RATE",
+                        "from_currency": resolved.symbol[:3],
+                        "to_currency": resolved.symbol[3:],
+                    }
+                )
+                rate = data.get("Realtime Currency Exchange Rate", {})
+                price = _safe_float(rate.get("5. Exchange Rate"))
+                if price is None:
+                    raise ProviderError(f"Alpha Vantage tidak mengembalikan FX quote valid untuk {symbol}.")
+                return Quote(
+                    symbol=resolved.symbol,
+                    price=price,
+                    currency=resolved.symbol[3:],
+                    provider=self.name,
+                    timestamp=_parse_datetime(rate.get("6. Last Refreshed")) or datetime.now(),
+                    status="plan-dependent",
+                )
+
+            data = await self._get({"function": "GLOBAL_QUOTE", "symbol": resolved.symbol})
+            quote = data.get("Global Quote", {})
+            price = _safe_float(quote.get("05. price"))
             if price is None:
-                raise ProviderError(f"Alpha Vantage tidak mengembalikan FX quote valid untuk {symbol}.")
+                raise ProviderError(f"Alpha Vantage tidak mengembalikan quote valid untuk {symbol}.")
             return Quote(
-                symbol=resolved.symbol,
+                symbol=str(quote.get("01. symbol") or resolved.symbol).upper(),
                 price=price,
-                currency=resolved.symbol[3:],
+                currency="USD",
                 provider=self.name,
-                timestamp=_parse_datetime(rate.get("6. Last Refreshed")) or datetime.now(),
+                timestamp=_parse_datetime(quote.get("07. latest trading day")) or datetime.now(),
                 status="plan-dependent",
             )
-
-        data = await self._get({"function": "GLOBAL_QUOTE", "symbol": resolved.symbol})
-        quote = data.get("Global Quote", {})
-        price = _safe_float(quote.get("05. price"))
-        if price is None:
-            raise ProviderError(f"Alpha Vantage tidak mengembalikan quote valid untuk {symbol}.")
-        return Quote(
-            symbol=str(quote.get("01. symbol") or resolved.symbol).upper(),
-            price=price,
-            currency="USD",
-            provider=self.name,
-            timestamp=_parse_datetime(quote.get("07. latest trading day")) or datetime.now(),
-            status="plan-dependent",
-        )
+        except ProviderError:
+            raise
+        except Exception as exc:
+            raise ProviderError(f"Gagal mengambil quote dari Alpha Vantage untuk {symbol}: {exc}") from exc
 
     async def history(self, symbol: str, period: str = "6mo", interval: str = "1d") -> list[Candle]:
-        resolved = resolve_provider_symbol(self.name, symbol)
-        if resolved.asset_class == "forex":
-            data = await self._get(
-                {
-                    "function": "FX_DAILY",
-                    "from_symbol": resolved.symbol[:3],
-                    "to_symbol": resolved.symbol[3:],
-                    "outputsize": "compact",
-                }
-            )
-            series = data.get("Time Series FX (Daily)", {})
-        else:
-            data = await self._get(
-                {
-                    "function": "TIME_SERIES_DAILY_ADJUSTED",
-                    "symbol": resolved.symbol,
-                    "outputsize": "compact",
-                }
-            )
-            series = data.get("Time Series (Daily)", {})
+        try:
+            resolved = resolve_provider_symbol(self.name, symbol)
+            if resolved.asset_class == "forex":
+                data = await self._get(
+                    {
+                        "function": "FX_DAILY",
+                        "from_symbol": resolved.symbol[:3],
+                        "to_symbol": resolved.symbol[3:],
+                        "outputsize": "compact",
+                    }
+                )
+                series = data.get("Time Series FX (Daily)", {})
+            else:
+                data = await self._get(
+                    {
+                        "function": "TIME_SERIES_DAILY_ADJUSTED",
+                        "symbol": resolved.symbol,
+                        "outputsize": "compact",
+                    }
+                )
+                series = data.get("Time Series (Daily)", {})
 
-        if not isinstance(series, dict) or not series:
-            raise ProviderError(f"Alpha Vantage OHLCV kosong untuk {symbol}.")
-        candles = [_parse_daily_candle(day, payload) for day, payload in series.items() if isinstance(payload, dict)]
-        candles.sort(key=lambda candle: candle.timestamp)
-        return candles
+            if not isinstance(series, dict) or not series:
+                raise ProviderError(f"Alpha Vantage OHLCV kosong untuk {symbol}.")
+            candles = [_parse_daily_candle(day, payload) for day, payload in series.items() if isinstance(payload, dict)]
+            candles.sort(key=lambda candle: candle.timestamp)
+            return candles
+        except ProviderError:
+            raise
+        except Exception as exc:
+            raise ProviderError(f"Gagal mengambil history dari Alpha Vantage untuk {symbol}: {exc}") from exc
 
     async def news(self, symbol: str, limit: int = 5) -> list[NewsItem]:
-        resolved = resolve_provider_symbol(self.name, symbol)
-        data = await self._get({"function": "NEWS_SENTIMENT", "tickers": resolved.symbol, "limit": limit})
-        feed = data.get("feed", [])
-        if not isinstance(feed, list):
-            return []
-        return [
-            NewsItem(
-                title=str(item.get("title") or "Untitled"),
-                source=str(item.get("source") or self.name),
-                url=item.get("url"),
-                published_at=_parse_datetime(item.get("time_published")),
-                summary=str(item.get("summary") or ""),
-            )
-            for item in feed[:limit]
-            if isinstance(item, dict)
-        ]
+        try:
+            resolved = resolve_provider_symbol(self.name, symbol)
+            data = await self._get({"function": "NEWS_SENTIMENT", "tickers": resolved.symbol, "limit": limit})
+            feed = data.get("feed", [])
+            if not isinstance(feed, list):
+                return []
+            return [
+                NewsItem(
+                    title=str(item.get("title") or "Untitled"),
+                    source=str(item.get("source") or self.name),
+                    url=item.get("url"),
+                    published_at=_parse_datetime(item.get("time_published")),
+                    summary=str(item.get("summary") or ""),
+                )
+                for item in feed[:limit]
+                if isinstance(item, dict)
+            ]
+        except ProviderError:
+            raise
+        except Exception as exc:
+            raise ProviderError(f"Gagal mengambil news dari Alpha Vantage untuk {symbol}: {exc}") from exc
 
     async def fundamentals(self, symbol: str) -> FundamentalSnapshot:
-        resolved = resolve_provider_symbol(self.name, symbol)
-        data = await self._get({"function": "OVERVIEW", "symbol": resolved.symbol})
-        return FundamentalSnapshot(
-            symbol=str(data.get("Symbol") or resolved.symbol).upper(),
-            provider=self.name,
-            currency=str(data.get("Currency") or "USD"),
-            market_cap=_safe_float(data.get("MarketCapitalization")),
-            pe_ratio=_safe_float(data.get("PERatio")),
-            eps=_safe_float(data.get("EPS")),
-            revenue=_safe_float(data.get("RevenueTTM")),
-            beta=_safe_float(data.get("Beta")),
-            sector=data.get("Sector"),
-            industry=data.get("Industry"),
-        )
+        try:
+            resolved = resolve_provider_symbol(self.name, symbol)
+            data = await self._get({"function": "OVERVIEW", "symbol": resolved.symbol})
+            return FundamentalSnapshot(
+                symbol=str(data.get("Symbol") or resolved.symbol).upper(),
+                provider=self.name,
+                currency=str(data.get("Currency") or "USD"),
+                market_cap=_safe_float(data.get("MarketCapitalization")),
+                pe_ratio=_safe_float(data.get("PERatio")),
+                eps=_safe_float(data.get("EPS")),
+                revenue=_safe_float(data.get("RevenueTTM")),
+                beta=_safe_float(data.get("Beta")),
+                sector=data.get("Sector"),
+                industry=data.get("Industry"),
+            )
+        except ProviderError:
+            raise
+        except Exception as exc:
+            raise ProviderError(f"Gagal mengambil fundamentals dari Alpha Vantage untuk {symbol}: {exc}") from exc
 
     async def status(self) -> ProviderStatus:
         status = "configured" if self.api_key else "unavailable"

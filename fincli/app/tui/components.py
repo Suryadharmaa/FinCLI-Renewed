@@ -2,13 +2,83 @@
 
 from __future__ import annotations
 
+import time
+
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
+from textual.timer import Timer
 from textual.widgets import Static
 
 from fincli.app.cli.commands import CommandSpec
+
+
+# Cycling glyphs for the working animation (Claude-CLI style).
+GLYPHS = ("✻", "✽", "✶", "✴")
+
+# Map a command root to the verb shown while it runs.
+_VERBS = {
+    "/research": "Researching",
+    "/news": "Fetching news",
+    "/web": "Searching",
+    "/macro": "Loading macro",
+    "/calendar": "Loading calendar",
+    "/analyze": "Analyzing",
+    "/technical": "Analyzing",
+    "/mtf": "Analyzing",
+    "/scan": "Scanning",
+    "/backtest": "Backtesting",
+    "/quote": "Fetching quote",
+    "/market": "Fetching market",
+    "/ai": "Thinking",
+    "/provider": "Checking providers",
+}
+
+
+def working_verb(command: str) -> str:
+    """Return the animation verb for a raw command line."""
+    root = command.strip().split(maxsplit=1)[0].lower() if command.strip() else ""
+    return _VERBS.get(root, "Working")
+
+
+def spinner_frame(verb: str, frame_index: int, elapsed_seconds: int) -> str:
+    """Render one spinner frame as Rich markup. Pure and unit-testable."""
+    glyph = GLYPHS[frame_index % len(GLYPHS)]
+    return f"[#d97757]{glyph}[/] {verb}… ({elapsed_seconds}s · esc to interrupt)"
+
+
+class WorkingIndicator(Static):
+    """Animated 'working' line shown while a router command runs."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._verb = "Working"
+        self._frame = 0
+        self._start: float = 0.0
+        self._timer: Timer | None = None
+
+    def start(self, verb: str) -> None:
+        self._verb = verb
+        self._frame = 0
+        self._start = time.monotonic()
+        self.display = True
+        self.update(spinner_frame(self._verb, self._frame, 0))
+        if self._timer is None:
+            self._timer = self.set_interval(0.1, self._tick)
+        else:
+            self._timer.resume()
+
+    def _tick(self) -> None:
+        self._frame += 1
+        elapsed = int(time.monotonic() - self._start)
+        self.update(spinner_frame(self._verb, self._frame, elapsed))
+
+    def stop(self) -> None:
+        if self._timer is not None:
+            self._timer.pause()
+        self.display = False
+        self.update("")
 
 
 class CommandPalette(Static):
@@ -23,15 +93,15 @@ class CommandPalette(Static):
             command_text = command.name
             description = command.description
             if index == 0:
-                command_text = f"[black on cyan]> {command.name}[/]"
-                description = f"[black on cyan]{command.description}[/]"
+                command_text = f"[black on #d97757]> {command.name}[/]"
+                description = f"[black on #d97757]{command.description}[/]"
             table.add_row(command_text, description)
 
         if len(commands) > 6:
             table.add_row("[bright_black]v more[/]", "[bright_black]Ketik command lebih spesifik[/]")
 
-        title = f"[cyan]>[/] {query or '/'}"
-        self.update(Panel(table, title=title, border_style="bright_black", padding=(0, 1)))
+        title = f"[#d97757]>[/] {query or '/'}"
+        self.update(Panel(table, title=title, border_style="#3a3a3a", padding=(0, 1)))
 
     def clear_palette(self) -> None:
         self.update("")
@@ -39,9 +109,9 @@ class CommandPalette(Static):
 
 def format_user_message(message: str) -> Panel:
     text = Text()
-    text.append("> ", style="bold cyan")
+    text.append("> ", style="bold #d97757")
     text.append(message, style="bold white")
-    return Panel(text, border_style="#2f332f", style="on #2b2f2b", padding=(0, 1))
+    return Panel(text, border_style="#3a3a3a", padding=(0, 1))
 
 
 def format_thinking_message(message: str) -> Text:

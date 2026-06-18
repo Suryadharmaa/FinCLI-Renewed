@@ -73,13 +73,13 @@ def test_research_quick_uses_v2_compact_sections(tmp_path: Path) -> None:
     result = router.route("/research AAPL")
 
     output = render_text(result.renderable)
-    assert "Research Center: AAPL | quick" in output
+    assert "Research Center: AAPL | snapshot" in output
     assert "Snapshot" in output
     assert "Signal" in output
     assert "Risk" in output
     assert "Missing Data" in output
     assert "Source Quality" in output
-    assert len(output.splitlines()) < 38
+    assert len(output.splitlines()) < 50
 
 
 def test_research_deep_prompt_mentions_v2_contract(tmp_path: Path) -> None:
@@ -90,7 +90,7 @@ def test_research_deep_prompt_mentions_v2_contract(tmp_path: Path) -> None:
     output = render_text(result.renderable)
     assert "AI Summary" in output
     assert ai.prompts
-    assert "Research Engine v2" in ai.prompts[-1]
+    assert "Research Engine v3" in ai.prompts[-1]
     assert "snapshot, signal, risk, missing data, source quality" in ai.prompts[-1]
 
 
