@@ -137,7 +137,7 @@ def test_registry_commands_have_local_smoke_coverage(tmp_path: Path, monkeypatch
             order_id = int(rows[0]["id"]) if rows and rows[0]["id"] else 1
             raw = f"/trading cancel {order_id}"
         result = router.route(raw)
-        if name == "/ai_model key":
+        if name == "/ai_model":
             router.ai_provider = SmokeAIProvider()
         if result.status == "error":
             failures.append(f"{name} -> {raw} returned error: {_render_text(result.renderable)}")
@@ -150,13 +150,11 @@ def _smoke_commands(router: CommandRouter, export_dir: Path) -> dict[str, str]:
         "/help": "/help",
         "/dashboard": "/dashboard",
         "/ai_model": "/ai_model",
-        "/ai_model key": "/ai_model key groq smoke-key",
         "/news_model": "/news_model",
         "/news_model list": "/news_model list",
         "/news_model search": "/news_model search rss",
         "/news_model use": "/news_model use google_news_rss",
         "/news_model priority": "/news_model priority google_news_rss,yfinance",
-        "/news_model key": "/news_model key marketaux smoke-key",
         "/symbol": "/symbol XAUUSD",
         "/symbol resolve": "/symbol resolve XAUUSD --asset commodity",
         "/research": "/research AAPL",
@@ -174,8 +172,7 @@ def _smoke_commands(router: CommandRouter, export_dir: Path) -> dict[str, str]:
         "/security audit": "/security audit",
         "/security scan": "/security scan",
         "/security lockdown": "/security lockdown",
-        "/privacy status": "/privacy status",
-        "/privacy purge": "/privacy purge",
+        "/security purge": "/security purge",
         "/agent": "/agent list",
         "/agent show": "/agent show buffett",
         "/connector": "/connector list macro",
@@ -183,10 +180,8 @@ def _smoke_commands(router: CommandRouter, export_dir: Path) -> dict[str, str]:
         "/plugin": "/plugin list",
         "/plugin status": "/plugin status",
         "/market": "/market AAPL 1d",
-        "/quote": "/quote AAPL",
         "/news": "/news AAPL",
         "/technical": "/technical AAPL 1d",
-        "/structure": "/structure AAPL 1d",
         "/mtf": "/mtf AAPL 1d,1h",
         "/backtest": "/backtest AAPL sma_cross 1d --asset equity --equity 10000",
         "/trading": "/trading",
@@ -202,7 +197,6 @@ def _smoke_commands(router: CommandRouter, export_dir: Path) -> dict[str, str]:
         "/trading algo list": "/trading algo list",
         "/trading algo run": "/trading algo run sma_cross AAPL 1d",
         "/yahoo": "/yahoo AAPL statistics",
-        "/funda": "/funda AAPL",
         "/web": "/web sources market risk",
         "/ai": "/ai ringkas risiko AAPL",
         "/analyze": "/analyze AAPL 1d",

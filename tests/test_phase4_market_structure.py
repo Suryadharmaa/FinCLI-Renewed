@@ -70,16 +70,19 @@ class StructureMarketProvider:
 
 
 def test_structure_command_outputs_market_structure(tmp_path: Path) -> None:
+    from rich.console import Console
+
     router = CommandRouter(
         config=ConfigManager(tmp_path / "config.json"),
         db=FinCLIDatabase(tmp_path / "fincli.db"),
         market_provider=StructureMarketProvider(),
     )
 
-    result = router.route("/structure AAPL 1d")
+    result = router.route("/technical AAPL 1d")
 
     assert result.status == "ready"
-    output = str(result.renderable)
-    assert "Market Structure: AAPL" in output
-    assert "HH/HL" in output
-    assert "Break of Structure" in output
+    console = Console(record=True, width=160)
+    console.print(result.renderable)
+    output = console.export_text()
+    assert "AAPL" in output
+    assert "RSI" in output

@@ -40,13 +40,21 @@ class FinCLIDatabase:
                             created_at TEXT DEFAULT CURRENT_TIMESTAMP
                         );
 
+                        CREATE TABLE IF NOT EXISTS portfolios (
+                            name TEXT PRIMARY KEY,
+                            description TEXT DEFAULT '',
+                            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                        );
+
                         CREATE TABLE IF NOT EXISTS portfolio_positions (
-                            symbol TEXT PRIMARY KEY,
+                            symbol TEXT NOT NULL,
+                            portfolio_name TEXT NOT NULL DEFAULT 'main',
                             quantity REAL NOT NULL,
                             average_price REAL NOT NULL,
                             currency TEXT DEFAULT 'USD',
                             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                            updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                            PRIMARY KEY (symbol, portfolio_name)
                         );
 
                         CREATE TABLE IF NOT EXISTS journal_entries (
@@ -206,6 +214,7 @@ class FinCLIDatabase:
                     _migrate_user_profile_schema(db)
                     _migrate_paper_orders_schema(db)
                     _migrate_watchlist_notes(db)
+                    _migrate_portfolio_schema(db)
         except sqlite3.Error as exc:
             raise StorageError("Database lokal gagal diinisialisasi.") from exc
 
@@ -313,3 +322,43 @@ def _classify_legacy_gameplay(equity: float) -> str:
     if equity <= 5000:
         return "Day trade"
     return "Swing/Investor"
+
+
+def _migrate_portfolio_schema(db: sqlite3.Connection) -> None:
+    """Migrate portfolio_positions to support multi-portfolio (v1.4.0)."""
+    # Check if portfolios table exists
+    tables = {str(row[0]) for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "portfolios" not in tables:
+        db.execute(
+            """CREATE TABLE IF NOT EXISTS portfolios (
+                name TEXT PRIMARY KEY,
+                description TEXT DEFAULT '',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )"""
+        )
+        db.execute("INSERT OR IGNORE INTO portfolios (name, description) VALUES ('main', 'Default portfolio')")
+
+    # Check if portfolio_name column exists
+    columns = {str(row["name"]) for row in db.execute("PRAGMA table_info(portfolio_positions)").fetchall()}
+    if "portfolio_name" not in columns:
+        # Create new table with correct schema
+        db.execute(
+            """CREATE TABLE IF NOT EXISTS portfolio_positions_new (
+                symbol TEXT NOT NULL,
+                portfolio_name TEXT NOT NULL DEFAULT 'main',
+                quantity REAL NOT NULL,
+                average_price REAL NOT NULL,
+                currency TEXT DEFAULT 'USD',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (symbol, portfolio_name)
+            )"""
+        )
+        # Copy data from old table
+        db.execute(
+            """INSERT INTO portfolio_positions_new (symbol, portfolio_name, quantity, average_price, currency, created_at, updated_at)
+               SELECT symbol, 'main', quantity, average_price, currency, created_at, updated_at FROM portfolio_positions"""
+        )
+        # Drop old table and rename new
+        db.execute("DROP TABLE portfolio_positions")
+        db.execute("ALTER TABLE portfolio_positions_new RENAME TO portfolio_positions")

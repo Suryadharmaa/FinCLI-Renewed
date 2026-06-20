@@ -71,13 +71,13 @@ class TestCrashContext:
             command="/test",
             python_version="3.12.0",
             platform="Windows-11",
-            version="1.0.5",
+            version="1.1.0",
         )
         text = ctx.format()
         assert "ValueError" in text
         assert "internal" in text
         assert "/test" in text
-        assert "1.0.5" in text
+        assert "1.1.0" in text
 
 
 # --- Plugin validation tests ---
@@ -211,4 +211,4 @@ class TestLifecycleManager:
 class TestVersion:
     def test_version_is_1_0_5(self):
         from fincli import __version__
-        assert __version__ == "1.0.5"
+        assert __version__ == "1.5.0"

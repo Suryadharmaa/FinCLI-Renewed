@@ -278,6 +278,19 @@ class MarketDataService:
     def provider_metrics_snapshot(self) -> dict[str, "ProviderRuntimeMetrics"]:
         return {provider: metric.copy() for provider, metric in self.provider_metrics.items()}
 
+    def check_provider_health(self, latency_threshold_ms: float = 1500.0, error_rate_threshold: float = 20.0) -> list[dict[str, Any]]:
+        """Check health of all providers and return warnings.
+
+        Returns:
+            List of health status dicts, one per provider with warnings.
+        """
+        results: list[dict[str, Any]] = []
+        for provider_name, metric in self.provider_metrics.items():
+            health = metric.health_status(latency_threshold_ms, error_rate_threshold)
+            if health["warnings"]:
+                results.append(health)
+        return results
+
     @property
     def last_result(self) -> ProviderResult | None:
         return self.provider_results[-1] if self.provider_results else None
@@ -448,3 +461,55 @@ class ProviderRuntimeMetrics:
         duplicate.circuit_open = self.circuit_open
         duplicate.circuit_opened_at = self.circuit_opened_at
         return duplicate
+
+    def health_status(self, latency_threshold_ms: float = 1500.0, error_rate_threshold: float = 20.0) -> dict[str, Any]:
+        """Check provider health and return status dict.
+
+        Args:
+            latency_threshold_ms: P95 latency threshold in ms (default 1.5s)
+            error_rate_threshold: Error rate threshold in % (default 20%)
+
+        Returns:
+            Dict with 'status', 'warnings', 'metrics' keys.
+        """
+        warnings: list[str] = []
+        status = "ok"
+
+        if self.calls == 0:
+            return {"status": "not_called", "warnings": [], "metrics": self._summary_dict()}
+
+        # Check error rate
+        error_rate = (self.errors / self.calls * 100) if self.calls else 0
+        if error_rate > error_rate_threshold:
+            warnings.append(f"{self.provider}: error rate {error_rate:.1f}% (threshold: {error_rate_threshold:.0f}%)")
+            status = "degraded"
+
+        # Check latency
+        avg_latency = self.avg_latency_ms
+        if avg_latency > latency_threshold_ms:
+            warnings.append(f"{self.provider}: avg latency {avg_latency:.0f}ms (threshold: {latency_threshold_ms:.0f}ms) — consider /provider reset {self.provider}")
+            status = "degraded"
+
+        # Check circuit breaker
+        if self.circuit_open:
+            warnings.append(f"{self.provider}: circuit breaker OPEN — provider is temporarily disabled")
+            status = "critical"
+
+        # Check consecutive failures
+        if self.consecutive_failures >= 3:
+            warnings.append(f"{self.provider}: {self.consecutive_failures} consecutive failures")
+            status = "degraded"
+
+        return {"status": status, "warnings": warnings, "metrics": self._summary_dict()}
+
+    def _summary_dict(self) -> dict[str, Any]:
+        return {
+            "provider": self.provider,
+            "calls": self.calls,
+            "success_rate": self.success_rate,
+            "avg_latency_ms": self.avg_latency_ms,
+            "errors": self.errors,
+            "fallbacks": self.fallbacks,
+            "circuit_open": self.circuit_open,
+            "consecutive_failures": self.consecutive_failures,
+        }

@@ -27,7 +27,28 @@ class WebResearchService:
 
     def __init__(self, client: httpx.AsyncClient | None = None, timeout_seconds: float = 6.0) -> None:
         self._client = client
+        self._owns_client = client is None
         self.timeout_seconds = timeout_seconds
+
+    def _get_client(self) -> httpx.AsyncClient:
+        """Lazily create and reuse HTTP client."""
+        if self._client is None:
+            self._client = httpx.AsyncClient(
+                timeout=self.timeout_seconds,
+                follow_redirects=True,
+                headers={
+                    "User-Agent": "FinCLI/0.1 web research (+https://www.npmjs.com/package/@drico2008/fincli)",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8,*/*;q=0.7",
+                },
+            )
+            self._owns_client = True
+        return self._client
+
+    async def close(self) -> None:
+        """Close the HTTP client if owned."""
+        if self._owns_client and self._client is not None:
+            await self._client.aclose()
+            self._client = None
 
     async def research(self, query: str, limit: int = 3) -> list[WebSearchResult]:
         normalized = query.strip()
@@ -111,14 +132,9 @@ class WebResearchService:
         return text[:max_chars]
 
     async def _get_text(self, url: str) -> str:
-        headers = {
-            "User-Agent": "FinCLI/0.1 web research (+https://www.npmjs.com/package/@drico2008/fincli)",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8,*/*;q=0.7",
-        }
-        close_client = self._client is None
-        client = self._client or httpx.AsyncClient(timeout=self.timeout_seconds, follow_redirects=True, headers=headers)
+        client = self._get_client()
         try:
-            response = await client.get(url, headers=headers)
+            response = await client.get(url)
             response.raise_for_status()
             return response.text
         except httpx.TimeoutException as exc:
@@ -127,9 +143,6 @@ class WebResearchService:
             raise ProviderError(f"Web research gagal: HTTP {exc.response.status_code}.", f"URL: {url}") from exc
         except httpx.RequestError as exc:
             raise ProviderError(f"Web research gagal terhubung: {exc}.", f"URL: {url}") from exc
-        finally:
-            if close_client:
-                await client.aclose()
 
 
 def should_use_web_research(prompt: str) -> bool:

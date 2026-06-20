@@ -42,7 +42,7 @@ def test_tutorial_lesson_2(tmp_path: Path) -> None:
     router = CommandRouter(config=ConfigManager(tmp_path / "config.json"), db=FinCLIDatabase(tmp_path / "fincli.db"))
     output = render_text(router.route("/tutorial 2").renderable)
     assert "Market Data" in output
-    assert "/quote" in output
+    assert "/market" in output
     assert "/research" in output
 
 

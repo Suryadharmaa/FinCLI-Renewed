@@ -103,7 +103,14 @@ class SecurityAuditLog:
 
     def clear_old_events(self, days: int = 90) -> int:
         """Clear audit events older than N days."""
-        cutoff = datetime.now(timezone.utc).isoformat()
-        # SQLite doesn't have great date math, so we'll just keep all for now
-        # In production, this would delete WHERE created_at < cutoff
-        return 0
+        rows = self.db.query(
+            "SELECT COUNT(*) as count FROM security_audit WHERE created_at < datetime('now', ?)",
+            (f"-{days} days",),
+        )
+        count = int(rows[0]["count"]) if rows else 0
+        if count > 0:
+            self.db.execute(
+                "DELETE FROM security_audit WHERE created_at < datetime('now', ?)",
+                (f"-{days} days",),
+            )
+        return count

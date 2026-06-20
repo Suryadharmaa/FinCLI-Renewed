@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Generic, TypeVar
 
 from fincli.app.utils.errors import RateLimitError
@@ -67,6 +68,10 @@ class ProviderResponse(Generic[T]):
     missing_fields: tuple[str, ...] = ()
     message: str = ""
     raw_result: ProviderResult | None = field(default=None, repr=False)
+    # Soft error detection (v1.2.0)
+    staleness_score: float = 0.0  # 0=fresh, 1=stale
+    anomaly_flags: tuple[str, ...] = ()  # e.g. ("price_spike", "stale_data")
+    data_freshness: datetime | None = None  # timestamp of data source
 
 
 def score_quality(operation: str, payload: Any, missing_fields: tuple[str, ...]) -> int:
@@ -161,3 +166,161 @@ def result_style(status: str) -> str:
     }:
         return "red"
     return "yellow"
+
+
+# ---------------------------------------------------------------------------
+# Soft Error Detection (v1.2.0)
+# ---------------------------------------------------------------------------
+
+PRICE_ANOMALY_THRESHOLD = 0.50  # 50% change = anomaly
+STALE_DATA_THRESHOLD_SECONDS = 300  # 5 minutes
+
+
+def detect_staleness(data_freshness: datetime | None, max_age_seconds: int = STALE_DATA_THRESHOLD_SECONDS) -> float:
+    """Detect data staleness. Returns 0.0 (fresh) to 1.0 (stale)."""
+    if data_freshness is None:
+        return 0.5  # Unknown freshness
+
+    now = datetime.now(data_freshness.tzinfo) if data_freshness.tzinfo else datetime.now()
+    age_seconds = (now - data_freshness).total_seconds()
+
+    if age_seconds <= 0:
+        return 0.0  # Future timestamp (clock skew)
+    if age_seconds <= max_age_seconds:
+        return 0.0  # Fresh
+    if age_seconds <= max_age_seconds * 2:
+        return 0.5  # Slightly stale
+    return 1.0  # Very stale
+
+
+def detect_price_anomaly(current_price: float | None, previous_price: float | None) -> tuple[bool, str]:
+    """Detect price anomalies (sudden spikes/drops).
+
+    Returns (is_anomaly, flag_description).
+    """
+    if current_price is None or previous_price is None:
+        return False, ""
+    if previous_price == 0:
+        return False, ""
+
+    change_pct = abs(current_price - previous_price) / abs(previous_price)
+    if change_pct > PRICE_ANOMALY_THRESHOLD:
+        return True, f"price_spike_{change_pct:.0%}"
+    return False, ""
+
+
+def detect_quote_anomaly(quote: Any) -> tuple[str, ...]:
+    """Detect anomalies in quote data.
+
+    Returns tuple of anomaly flags.
+    """
+    flags = []
+
+    price = getattr(quote, "price", None)
+    if price is not None:
+        if price <= 0:
+            flags.append("negative_price")
+        if price > 1_000_000:
+            flags.append("extreme_price")
+
+    currency = getattr(quote, "currency", "")
+    if not currency:
+        flags.append("missing_currency")
+
+    return tuple(flags)
+
+
+def detect_history_anomaly(candles: list[Any]) -> tuple[str, ...]:
+    """Detect anomalies in historical candle data.
+
+    Returns tuple of anomaly flags.
+    """
+    if not candles or len(candles) < 2:
+        return ()
+
+    flags = []
+
+    for i in range(1, len(candles)):
+        prev_close = getattr(candles[i - 1], "close", None)
+        curr_open = getattr(candles[i], "open", None)
+        curr_high = getattr(candles[i], "high", None)
+        curr_low = getattr(candles[i], "low", None)
+
+        if prev_close and curr_open and prev_close > 0:
+            gap_pct = abs(curr_open - prev_close) / prev_close
+            if gap_pct > 0.20:  # 20% gap
+                flags.append(f"gap_at_index_{i}")
+
+        if curr_high and curr_low and curr_low > 0:
+            if curr_high < curr_low:
+                flags.append(f"inverted_hl_at_index_{i}")
+
+    return tuple(flags)
+
+
+def detect_fundamental_anomaly(snapshot: Any) -> tuple[str, ...]:
+    """Detect anomalies in fundamental data.
+
+    Returns tuple of anomaly flags.
+    """
+    flags = []
+
+    pe = getattr(snapshot, "pe_ratio", None)
+    if pe is not None and (pe < -100 or pe > 1000):
+        flags.append("extreme_pe")
+
+    market_cap = getattr(snapshot, "market_cap", None)
+    if market_cap is not None and market_cap < 0:
+        flags.append("negative_market_cap")
+
+    return tuple(flags)
+
+
+def build_enhanced_response(
+    response: ProviderResponse,
+    data_freshness: datetime | None = None,
+    previous_price: float | None = None,
+) -> ProviderResponse:
+    """Enhance a ProviderResponse with soft error detection.
+
+    Adds staleness_score and anomaly_flags.
+    """
+    from datetime import datetime as dt
+
+    # Detect staleness
+    staleness = detect_staleness(data_freshness)
+
+    # Detect anomalies based on operation
+    anomaly_flags: list[str] = []
+
+    if response.operation == "quote" and response.data is not None:
+        anomaly_flags.extend(detect_quote_anomaly(response.data))
+        if previous_price:
+            is_anomaly, flag = detect_price_anomaly(
+                getattr(response.data, "price", None),
+                previous_price,
+            )
+            if is_anomaly:
+                anomaly_flags.append(flag)
+    elif response.operation == "history" and response.data is not None:
+        if isinstance(response.data, list):
+            anomaly_flags.extend(detect_history_anomaly(response.data))
+    elif response.operation == "fundamentals" and response.data is not None:
+        anomaly_flags.extend(detect_fundamental_anomaly(response.data))
+
+    # Create enhanced response
+    return ProviderResponse(
+        data=response.data,
+        provider=response.provider,
+        operation=response.operation,
+        status=response.status,
+        quality_score=response.quality_score,
+        latency_ms=response.latency_ms,
+        realtime_label=response.realtime_label,
+        missing_fields=response.missing_fields,
+        message=response.message,
+        raw_result=response.raw_result,
+        staleness_score=staleness,
+        anomaly_flags=tuple(anomaly_flags),
+        data_freshness=data_freshness,
+    )

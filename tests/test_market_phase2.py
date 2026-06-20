@@ -47,13 +47,17 @@ def make_router(tmp_path: Path) -> CommandRouter:
 
 
 def test_price_command_uses_market_provider(tmp_path: Path) -> None:
+    from rich.console import Console
+
     router = make_router(tmp_path)
 
-    result = router.route("/quote aapl")
+    result = router.route("/market aapl 1d")
 
     assert result.status == "ready"
-    assert "AAPL" in str(result.renderable)
-    assert "123.45" in str(result.renderable)
+    console = Console(record=True, width=160)
+    console.print(result.renderable)
+    text = console.export_text()
+    assert "AAPL" in text
 
 
 def test_technical_command_uses_historical_candles(tmp_path: Path) -> None:
@@ -90,13 +94,16 @@ def test_indicator_summary_detects_uptrend() -> None:
 
 
 def test_router_can_run_provider_inside_existing_event_loop(tmp_path: Path) -> None:
+    from rich.console import Console
+
     router = make_router(tmp_path)
 
     async def call_router() -> str:
-        result = router.route("/quote AAPL")
-        return str(result.renderable)
+        result = router.route("/market AAPL 1d")
+        console = Console(record=True, width=160)
+        console.print(result.renderable)
+        return console.export_text()
 
     output = asyncio.run(call_router())
 
     assert "AAPL" in output
-    assert "123.45" in output

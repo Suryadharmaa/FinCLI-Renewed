@@ -33,52 +33,48 @@ class ProviderMetricsStore:
         self.db = db
 
     def record(self, provider: str, operation: str = "", success: bool = True, latency_ms: float = 0.0, fallback: bool = False) -> None:
-        current = self.snapshot().get(provider, ProviderRuntimeMetrics(provider))
-        current.record(success=success, latency_ms=latency_ms, fallback=fallback)
+        success_inc = 1 if success else 0
+        error_inc = 0 if success else 1
+        fallback_inc = 1 if fallback else 0
+        latency = max(latency_ms, 0.0)
+        last_status = "success" if success else "error"
+
         self.db.execute(
             """
             INSERT INTO provider_metrics(provider, calls, successes, errors, fallbacks, total_latency_ms, last_status, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            VALUES (?, 1, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(provider) DO UPDATE SET
-                calls=excluded.calls,
-                successes=excluded.successes,
-                errors=excluded.errors,
-                fallbacks=excluded.fallbacks,
-                total_latency_ms=excluded.total_latency_ms,
-                last_status=excluded.last_status,
-                updated_at=CURRENT_TIMESTAMP
+                calls = calls + 1,
+                successes = successes + ?,
+                errors = errors + ?,
+                fallbacks = fallbacks + ?,
+                total_latency_ms = total_latency_ms + ?,
+                last_status = ?,
+                updated_at = CURRENT_TIMESTAMP
             """,
-            (
-                current.provider,
-                current.calls,
-                current.successes,
-                current.errors,
-                current.fallbacks,
-                current.total_latency_ms,
-                current.last_status,
-            ),
+            (provider, success_inc, error_inc, fallback_inc, latency, last_status,
+             success_inc, error_inc, fallback_inc, latency, last_status),
         )
         if operation:
             self._record_operation(provider, operation, success, latency_ms)
 
     def _record_operation(self, provider: str, operation: str, success: bool, latency_ms: float) -> None:
-        existing = self.operation_snapshot(provider, operation)
-        calls = (existing.calls + 1) if existing else 1
-        successes = (existing.successes + (1 if success else 0)) if existing else (1 if success else 0)
-        errors = (existing.errors + (0 if success else 1)) if existing else (0 if success else 1)
-        total = (existing.total_latency_ms + max(latency_ms, 0.0)) if existing else max(latency_ms, 0.0)
+        success_inc = 1 if success else 0
+        error_inc = 0 if success else 1
+        latency = max(latency_ms, 0.0)
         self.db.execute(
             """
             INSERT INTO provider_operation_metrics(provider, operation, calls, successes, errors, total_latency_ms, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            VALUES (?, ?, 1, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(provider, operation) DO UPDATE SET
-                calls=excluded.calls,
-                successes=excluded.successes,
-                errors=excluded.errors,
-                total_latency_ms=excluded.total_latency_ms,
-                updated_at=CURRENT_TIMESTAMP
+                calls = calls + 1,
+                successes = successes + ?,
+                errors = errors + ?,
+                total_latency_ms = total_latency_ms + ?,
+                updated_at = CURRENT_TIMESTAMP
             """,
-            (provider, operation, calls, successes, errors, total),
+            (provider, operation, success_inc, error_inc, latency,
+             success_inc, error_inc, latency),
         )
 
     def snapshot(self) -> dict[str, ProviderRuntimeMetrics]:

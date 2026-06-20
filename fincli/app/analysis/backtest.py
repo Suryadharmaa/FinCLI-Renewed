@@ -3,6 +3,13 @@
 Features: fees/slippage modeling, walk-forward split, position sizing,
 risk-adjusted ratios (Sharpe/Sortino/Calmar), trade statistics,
 Monte Carlo robustness testing, and exportable reports.
+
+Note on Monte Carlo:
+    Monte Carlo simulation uses `random.shuffle()` without a fixed seed.
+    Results vary between runs — this is intentional for robustness testing.
+    Each run gives a different permutation of trade order, showing the range
+    of possible outcomes. For reproducible results, set `random.seed()` before
+    calling `run_backtest()` with `include_monte_carlo=True`.
 """
 
 from __future__ import annotations
@@ -107,7 +114,12 @@ class BacktestTrade:
 
 @dataclass(frozen=True, slots=True)
 class MonteCarloResult:
-    """Monte Carlo simulation output."""
+    """Monte Carlo simulation output.
+
+    Note: Results are non-deterministic. Each run shuffles trade order
+    randomly, producing different equity curves. Use percentile ranges
+    (5th/50th/95th) to understand outcome distribution, not exact values.
+    """
 
     simulations: int
     percentile_5: float

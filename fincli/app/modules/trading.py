@@ -391,3 +391,191 @@ class PaperTradingEngine:
         self.risk_guard.set_kill_switch(active, reason)
         action = "kill_switch_activated" if active else "kill_switch_deactivated"
         self.audit.record(action, reason)
+
+
+# ---------------------------------------------------------------------------
+# Live Trading Engine (v1.1.0)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class LiveOrderConfirmation:
+    """Order confirmation details for user review before live execution."""
+    symbol: str
+    side: str
+    quantity: float
+    order_type: str
+    price: float | None
+    stop_price: float | None
+    estimated_cost: float
+    risk_check_passed: bool
+    risk_check_reason: str
+    broker: str
+    mode: str  # "paper" or "live"
+
+
+class LiveTradingEngine:
+    """Live trading engine with broker integration, risk guard, and audit log.
+
+    Wraps broker connections with the same safety layer as paper trading.
+    """
+
+    def __init__(self, db: FinCLIDatabase) -> None:
+        self.db = db
+        self.risk_guard = RiskGuard(db)
+        self.audit = OrderAuditLog(db)
+        self._broker = None
+        self._broker_name: str | None = None
+        self._mode: str = "paper"
+
+    @property
+    def broker(self):
+        return self._broker
+
+    @property
+    def broker_name(self) -> str | None:
+        return self._broker_name
+
+    @property
+    def mode(self) -> str:
+        return self._mode
+
+    def set_broker(self, broker, mode: str = "paper") -> None:
+        """Set the active broker instance."""
+        self._broker = broker
+        self._broker_name = broker.name if broker else None
+        self._mode = mode
+
+    def is_connected(self) -> bool:
+        """Check if broker is connected."""
+        return self._broker is not None
+
+    def build_confirmation(
+        self,
+        symbol: str,
+        side: str,
+        quantity: float,
+        order_type: str = "market",
+        price: float | None = None,
+        stop_price: float | None = None,
+        current_price: float = 0.0,
+    ) -> LiveOrderConfirmation:
+        """Build order confirmation for user review."""
+        # Run risk check
+        risk = self.risk_guard.check(side, symbol, quantity, order_type, price)
+
+        # Estimate cost
+        estimated_price = price or current_price
+        estimated_cost = quantity * estimated_price
+
+        return LiveOrderConfirmation(
+            symbol=symbol.upper(),
+            side=side,
+            quantity=quantity,
+            order_type=order_type,
+            price=price,
+            stop_price=stop_price,
+            estimated_cost=estimated_cost,
+            risk_check_passed=risk.passed,
+            risk_check_reason=risk.reason,
+            broker=self._broker_name or "none",
+            mode=self._mode,
+        )
+
+    async def place_order(
+        self,
+        symbol: str,
+        side: str,
+        quantity: float,
+        order_type: str = "market",
+        price: float | None = None,
+        stop_price: float | None = None,
+        time_in_force: str = "day",
+    ) -> dict:
+        """Place a live order through broker with risk checks."""
+        if not self._broker:
+            from fincli.app.utils.errors import CommandError
+            raise CommandError("Broker belum terhubung. Gunakan /trading live connect <broker>.")
+
+        # Normalize
+        normalized_side = side.strip().lower()
+        normalized_type = order_type.strip().lower()
+        normalized_symbol = symbol.strip().upper()
+
+        # Risk guard check (same as paper trading)
+        risk = self.risk_guard.check(normalized_side, normalized_symbol, quantity, normalized_type, price)
+        if not risk.passed:
+            self.audit.record(
+                "live_risk_blocked",
+                f"{normalized_side} {normalized_symbol} {quantity} {normalized_type}: {risk.reason}",
+            )
+            from fincli.app.utils.errors import CommandError
+            raise CommandError(f"Risk guard blocked: {risk.reason}")
+
+        # Place order via broker
+        try:
+            broker_order = await self._broker.place_order(
+                symbol=normalized_symbol,
+                side=normalized_side,
+                quantity=quantity,
+                order_type=normalized_type,
+                price=price,
+                stop_price=stop_price,
+                time_in_force=time_in_force,
+            )
+
+            # Record in audit log
+            self.audit.record(
+                "live_order_placed",
+                f"{normalized_side} {normalized_symbol} {quantity} {normalized_type} "
+                f"broker={self._broker_name} mode={self._mode} "
+                f"broker_order_id={broker_order.broker_order_id} status={broker_order.status}",
+            )
+
+            return {
+                "broker_order_id": broker_order.broker_order_id,
+                "symbol": broker_order.symbol,
+                "side": broker_order.side,
+                "quantity": broker_order.quantity,
+                "order_type": broker_order.order_type,
+                "price": broker_order.price,
+                "status": broker_order.status,
+                "broker": self._broker_name,
+                "mode": self._mode,
+            }
+        except Exception as exc:
+            self.audit.record(
+                "live_order_failed",
+                f"{normalized_side} {normalized_symbol} {quantity} {normalized_type}: {exc}",
+            )
+            raise
+
+    async def get_positions(self) -> list:
+        """Get positions from broker."""
+        if not self._broker:
+            from fincli.app.utils.errors import CommandError
+            raise CommandError("Broker belum terhubung.")
+        return await self._broker.get_positions()
+
+    async def get_account(self):
+        """Get account info from broker."""
+        if not self._broker:
+            from fincli.app.utils.errors import CommandError
+            raise CommandError("Broker belum terhubung.")
+        return await self._broker.get_account()
+
+    async def list_orders(self, status: str | None = None, limit: int = 50) -> list:
+        """List orders from broker."""
+        if not self._broker:
+            from fincli.app.utils.errors import CommandError
+            raise CommandError("Broker belum terhubung.")
+        return await self._broker.list_orders(status=status, limit=limit)
+
+    async def cancel_order(self, broker_order_id: str):
+        """Cancel order at broker."""
+        if not self._broker:
+            from fincli.app.utils.errors import CommandError
+            raise CommandError("Broker belum terhubung.")
+        result = await self._broker.cancel_order(broker_order_id)
+        self.audit.record("live_order_cancelled", f"broker_order_id={broker_order_id}")
+        return result

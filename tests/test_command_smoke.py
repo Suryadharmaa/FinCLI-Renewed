@@ -151,7 +151,6 @@ def _smoke_commands(router: CommandRouter, export_dir: Path) -> dict[str, str]:
         "/exit": "/exit",
         # AI
         "/ai_model": "/ai_model",
-        "/ai_model key": "/ai_model key groq smoke-key",
         "/ai": "/ai what is risk",
         "/agent": "/agent list",
         "/agent show": "/agent show buffett",
@@ -161,7 +160,6 @@ def _smoke_commands(router: CommandRouter, export_dir: Path) -> dict[str, str]:
         "/news_model search": "/news_model search rss",
         "/news_model use": "/news_model use google_news_rss",
         "/news_model priority": "/news_model priority google_news_rss,yfinance",
-        "/news_model key": "/news_model key marketaux smoke-key",
         "/provider status": "/provider status",
         "/provider metrics": "/provider metrics",
         "/provider list": "/provider list",
@@ -182,7 +180,7 @@ def _smoke_commands(router: CommandRouter, export_dir: Path) -> dict[str, str]:
         # Profile
         "/profile": "/profile",
         "/profile set": '/profile set "Smoke User" 500 USD 1:100 2',
-        # Doctor / Setup / Secrets / Privacy
+        # Doctor / Setup / Secrets / Security
         "/doctor": "/doctor full",
         "/setup": "/setup",
         "/tutorial": "/tutorial",
@@ -194,20 +192,19 @@ def _smoke_commands(router: CommandRouter, export_dir: Path) -> dict[str, str]:
         "/security audit": "/security audit",
         "/security scan": "/security scan",
         "/security lockdown": "/security lockdown",
-        "/privacy status": "/privacy status",
-        "/privacy purge": "/privacy purge",
+        "/security purge": "/security purge",
+        "/security encrypt-key": "/security encrypt-key alpaca",
+        "/security decrypt-key": "/security decrypt-key alpaca",
+        "/security session": "/security session",
         # Cache
         "/cache stats": "/cache stats",
         "/cache clear": "/cache clear",
         # Market data
         "/market": "/market AAPL 1d",
-        "/quote": "/quote AAPL",
         "/news": "/news AAPL",
         "/technical": "/technical AAPL 1d",
-        "/structure": "/structure AAPL 1d",
         "/mtf": "/mtf AAPL 1d,1h",
         "/backtest": "/backtest AAPL sma_cross 1d",
-        "/funda": "/funda AAPL",
         "/yahoo": "/yahoo AAPL statistics",
         "/web": "/web sources market risk",
         "/analyze": "/analyze AAPL 1d",
@@ -252,6 +249,14 @@ def _smoke_commands(router: CommandRouter, export_dir: Path) -> dict[str, str]:
         "/trading stream": "/trading stream",
         "/trading algo list": "/trading algo list",
         "/trading algo run": "/trading algo run sma_cross AAPL 1d",
+        "/trading live status": "/trading live status",
+        "/trading live connect": "/trading live connect alpaca paper",
+        "/trading live disconnect": "/trading live disconnect",
+        "/trading live positions": "/trading live positions",
+        "/trading live orders": "/trading live orders",
+        "/trading live account": "/trading live account",
+        "/trading live buy": "/trading live buy AAPL 10",
+        "/trading live sell": "/trading live sell AAPL 5",
         # History
         "/history": "/history",
         "/history resume": "/history resume",
@@ -270,6 +275,7 @@ def _smoke_commands(router: CommandRouter, export_dir: Path) -> dict[str, str]:
         "/export portfolio": f"/export portfolio json {export_dir / 'portfolio.json'}",
         "/export alerts": f"/export alerts json {export_dir / 'alerts.json'}",
         "/export all": f"/export all json {export_dir / 'all'}",
+        "/export broker": f"/export broker csv {export_dir / 'broker.csv'}",
     }
 
 
@@ -293,6 +299,30 @@ EXPECTED_ERRORS: set[str] = {
     "/theme create",
     "/theme import",
     "/theme export",
+    # Live trading commands require broker connection
+    "/trading live connect",
+    "/trading live disconnect",
+    "/trading live positions",
+    "/trading live orders",
+    "/trading live account",
+    "/trading live buy",
+    "/trading live sell",
+    # Security commands require API keys
+    "/security encrypt-key",
+    "/security decrypt-key",
+    # Export broker requires broker connection
+    "/export broker",
+    # Notification commands require arguments
+    "/notification add",
+    "/notification test",
+    "/notification remove",
+    # Chart requires symbol
+    "/chart",
+    # Portfolio commands require arguments
+    "/portfolio create",
+    "/portfolio switch",
+    "/portfolio delete",
+    "/portfolio compare",
 }
 
 
@@ -363,7 +393,7 @@ def test_no_unexpected_command_errors(tmp_path: Path, monkeypatch: pytest.Monkey
         result = router.route(raw)
 
         # Re-inject mock AI provider after commands that might swap it.
-        if name in {"/ai", "/analyze", "/journal review", "/ai_model key"}:
+        if name in {"/ai", "/analyze", "/journal review"}:
             router.ai_provider = SmokeAIProvider()
 
         if result.status == "error" and name not in EXPECTED_ERRORS:
@@ -402,7 +432,7 @@ def test_command_smoke(
     result = router.route(raw)
 
     # Re-inject mock AI provider if it might have been swapped.
-    if command_name in {"/ai", "/analyze", "/journal review", "/ai_model key"}:
+    if command_name in {"/ai", "/analyze", "/journal review"}:
         router.ai_provider = SmokeAIProvider()
 
     if command_name in EXPECTED_ERRORS:

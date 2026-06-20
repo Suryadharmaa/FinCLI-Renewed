@@ -25,6 +25,7 @@ from fincli.app.tui.market_provider_selector import MarketProviderSelectorScreen
 from fincli.app.tui.model_selector import AIModelSelectorScreen
 from fincli.app.tui.theme import APP_CSS, build_theme_css
 from fincli.app.tui.themes import get_theme
+from fincli.app.storage.session_state import SessionStateManager
 
 
 class FinCLIApp(App[None]):
@@ -49,6 +50,7 @@ class FinCLIApp(App[None]):
         self._worker_index = 0
         self._latest_worker_sequence = 0
         self._worker_meta: dict[str, dict[str, str | bool]] = {}
+        self._session_state = SessionStateManager(self.router.db)
 
     def compose(self) -> ComposeResult:
         with Vertical(id="workspace"):
@@ -75,8 +77,16 @@ class FinCLIApp(App[None]):
         output = self.query_one("#output", RichLog)
         write_output_entry(output, f"[bold]FinCLI[/] [#7a7a7a]v{__version__}[/]")
         write_output_entry(output, "[#7a7a7a]Welcome back. Type [/][#d97757]/[/][#7a7a7a] for commands.[/]")
+
+        # Initialize session state and check for recovery
+        self._session_state.init_session(self.router.session_id)
+        self._check_recovery(output)
+
         self._submit_route("/dashboard", display_raw="/dashboard")
         self.query_one("#command_input", Input).focus()
+
+        # Start auto-save timer (every 60 seconds)
+        self.set_interval(60, self._auto_save_state)
 
     def on_input_changed(self, event: Input.Changed) -> None:
         palette = self.query_one(CommandPalette)
@@ -140,6 +150,22 @@ class FinCLIApp(App[None]):
         self._invalidate_pending_workers()
         self.query_one(WorkingIndicator).stop()
         self.query_one("#status_bar", Static).update("interrupted | esc")
+
+    def _check_recovery(self, output: RichLog) -> None:
+        """Check for unclean shutdown and offer recovery."""
+        unclean_state = self._session_state.get_last_unclean_state()
+        if unclean_state:
+            summary = self._session_state.get_recovery_summary(unclean_state)
+            write_output_entry(output, "[yellow]⚠️ Unclean shutdown detected. Previous session:[/]")
+            for line in summary.split("\n"):
+                write_output_entry(output, f"  {line}")
+            write_output_entry(output, "[#7a7a7a]Use /session restore to recover previous state.[/]")
+
+    def _auto_save_state(self) -> None:
+        """Auto-save session state if dirty."""
+        if self._session_state.should_save():
+            self._session_state.save()
+            self.query_one("#status_bar", Static).update("state auto-saved | ready")
 
     def action_help(self) -> None:
         output = self.query_one("#output", RichLog)

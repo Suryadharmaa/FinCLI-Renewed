@@ -118,6 +118,54 @@ class SessionHistoryService:
         self.db.execute("DELETE FROM session_events")
         self.db.execute("DELETE FROM sessions")
 
+    def cleanup_old_sessions(self, keep_days: int = 7, max_sessions: int = 50) -> int:
+        """Clean up old sessions to prevent database bloat.
+
+        Args:
+            keep_days: Keep sessions newer than this many days
+            max_sessions: Maximum number of sessions to keep (newest first)
+
+        Returns:
+            Number of sessions deleted.
+        """
+        # Count current sessions
+        rows = self.db.query("SELECT COUNT(*) as cnt FROM sessions")
+        current_count = int(rows[0]["cnt"]) if rows else 0
+
+        if current_count <= max_sessions:
+            return 0
+
+        # Delete sessions older than keep_days
+        self.db.execute(
+            "DELETE FROM session_events WHERE session_id IN (SELECT id FROM sessions WHERE updated_at < datetime('now', ?))",
+            (f"-{keep_days} days",),
+        )
+        self.db.execute(
+            "DELETE FROM sessions WHERE updated_at < datetime('now', ?)",
+            (f"-{keep_days} days",),
+        )
+
+        # If still too many, delete oldest sessions beyond max_sessions
+        rows = self.db.query("SELECT COUNT(*) as cnt FROM sessions")
+        remaining = int(rows[0]["cnt"]) if rows else 0
+
+        if remaining > max_sessions:
+            excess = remaining - max_sessions
+            self.db.execute(
+                """DELETE FROM session_events WHERE session_id IN (
+                    SELECT id FROM sessions ORDER BY updated_at ASC LIMIT ?
+                )""",
+                (excess,),
+            )
+            self.db.execute(
+                "DELETE FROM sessions WHERE id IN (SELECT id FROM sessions ORDER BY updated_at ASC LIMIT ?)",
+                (excess,),
+            )
+
+        rows = self.db.query("SELECT COUNT(*) as cnt FROM sessions")
+        final_count = int(rows[0]["cnt"]) if rows else 0
+        return current_count - final_count
+
     def get_last_session(self, current_session_id: str) -> dict[str, object] | None:
         """Return most recent non-current session."""
         rows = self.db.query(

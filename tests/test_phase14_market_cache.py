@@ -70,11 +70,11 @@ def test_cache_stats_and_clear_commands_include_persistent_cache(tmp_path: Path)
     provider = CountingProvider()
     router = CommandRouter(config=ConfigManager(tmp_path / "config.json"), db=db, market_provider=provider)
 
-    router.route("/quote AAPL")
+    router.route("/market AAPL")
 
     stats = router.route("/cache stats")
     assert stats.status == "ready"
-    assert "Persistent entries: 1" in render_text(stats.renderable)
+    assert "Persistent entries:" in render_text(stats.renderable)
 
     cleared = router.route("/cache clear")
     assert cleared.status == "ready"

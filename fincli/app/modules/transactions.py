@@ -78,7 +78,7 @@ class TransactionService:
 
     def _position(self, symbol: str) -> dict[str, object] | None:
         rows = self.db.query(
-            "SELECT symbol, quantity, average_price, currency FROM portfolio_positions WHERE symbol = ?",
-            (symbol,),
+            "SELECT symbol, quantity, average_price, currency FROM portfolio_positions WHERE symbol = ? AND portfolio_name = ?",
+            (symbol, self.portfolio.portfolio_name),
         )
         return dict(rows[0]) if rows else None

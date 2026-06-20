@@ -7,12 +7,196 @@ surface useful without creating a security footgun.
 
 from __future__ import annotations
 
+import ast
 from dataclasses import dataclass
 import json
 from pathlib import Path
 from typing import Iterable
 
 from fincli.app.storage import config_paths
+
+
+# ---------------------------------------------------------------------------
+# Plugin Security: Import Whitelist (v1.2.0)
+# ---------------------------------------------------------------------------
+
+# Modules plugins ARE allowed to import
+ALLOWED_IMPORTS: set[str] = {
+    # Standard library (safe)
+    "json",
+    "math",
+    "datetime",
+    "typing",
+    "dataclasses",
+    "collections",
+    "itertools",
+    "functools",
+    "re",
+    "string",
+    "enum",
+    "abc",
+    "copy",
+    "decimal",
+    "fractions",
+    "statistics",
+    "textwrap",
+    "unicodedata",
+    "uuid",
+    # FinCLI public API only
+    "fincli.plugins.api",
+}
+
+# Modules plugins are NOT allowed to import (security risk)
+BLOCKED_IMPORTS: set[str] = {
+    # Filesystem access
+    "os",
+    "sys",
+    "pathlib",
+    "shutil",
+    "glob",
+    "tempfile",
+    "io",
+    # Network access
+    "socket",
+    "http",
+    "urllib",
+    "requests",
+    "httpx",
+    "aiohttp",
+    # Subprocess/code execution
+    "subprocess",
+    "shlex",
+    "code",
+    "codeop",
+    "compile",
+    "exec",
+    "eval",
+    # Import manipulation
+    "importlib",
+    "pkgutil",
+    "zipimport",
+    # System
+    "ctypes",
+    "signal",
+    "mmap",
+    "threading",
+    "multiprocessing",
+    "asyncio",
+    "concurrent",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class PluginCodeViolation:
+    """A security violation found in plugin code."""
+    line: int
+    violation_type: str
+    detail: str
+
+
+def validate_plugin_code(code: str) -> list[PluginCodeViolation]:
+    """Validate plugin code for security violations.
+
+    Checks:
+    1. Import whitelist (only ALLOWED_IMPORTS)
+    2. Blocked modules (BLOCKED_IMPORTS)
+    3. Dangerous builtins (exec, eval, compile, __import__)
+    4. Filesystem access (open, file operations)
+
+    Returns list of violations (empty = safe).
+    """
+    violations: list[PluginCodeViolation] = []
+
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as exc:
+        violations.append(PluginCodeViolation(
+            line=exc.lineno or 0,
+            violation_type="syntax_error",
+            detail=f"Syntax error: {exc.msg}",
+        ))
+        return violations
+
+    for node in ast.walk(tree):
+        # Check import statements
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                module = alias.name.split(".")[0]
+                full_module = alias.name
+                if module in BLOCKED_IMPORTS:
+                    violations.append(PluginCodeViolation(
+                        line=node.lineno,
+                        violation_type="blocked_import",
+                        detail=f"Import of '{alias.name}' is blocked (security risk).",
+                    ))
+                elif module not in ALLOWED_IMPORTS and not full_module.startswith("fincli."):
+                    violations.append(PluginCodeViolation(
+                        line=node.lineno,
+                        violation_type="unknown_import",
+                        detail=f"Import of '{alias.name}' is not in allowed list.",
+                    ))
+
+        elif isinstance(node, ast.ImportFrom):
+            if node.module:
+                module = node.module.split(".")[0]
+                full_module = node.module
+                if module in BLOCKED_IMPORTS:
+                    violations.append(PluginCodeViolation(
+                        line=node.lineno,
+                        violation_type="blocked_import",
+                        detail=f"Import from '{node.module}' is blocked (security risk).",
+                    ))
+                elif module not in ALLOWED_IMPORTS and not full_module.startswith("fincli."):
+                    violations.append(PluginCodeViolation(
+                        line=node.lineno,
+                        violation_type="unknown_import",
+                        detail=f"Import from '{node.module}' is not in allowed list.",
+                    ))
+
+        # Check for dangerous function calls
+        if isinstance(node, ast.Call):
+            func_name = _get_call_name(node)
+            if func_name in {"exec", "eval", "compile", "__import__", "globals", "locals"}:
+                violations.append(PluginCodeViolation(
+                    line=node.lineno,
+                    violation_type="dangerous_call",
+                    detail=f"Call to '{func_name}()' is blocked (security risk).",
+                ))
+            elif func_name == "open":
+                violations.append(PluginCodeViolation(
+                    line=node.lineno,
+                    violation_type="filesystem_access",
+                    detail="Direct file access via 'open()' is blocked. Use plugin API instead.",
+                ))
+
+        # Check for attribute access to dangerous modules
+        if isinstance(node, ast.Attribute):
+            if isinstance(node.value, ast.Name):
+                if node.value.id in {"os", "sys", "subprocess"}:
+                    violations.append(PluginCodeViolation(
+                        line=node.lineno,
+                        violation_type="blocked_attribute",
+                        detail=f"Access to '{node.value.id}.{node.attr}' is blocked.",
+                    ))
+
+    return violations
+
+
+def _get_call_name(node: ast.Call) -> str:
+    """Extract function name from a Call node."""
+    if isinstance(node.func, ast.Name):
+        return node.func.id
+    if isinstance(node.func, ast.Attribute):
+        return node.func.attr
+    return ""
+
+
+def is_plugin_code_safe(code: str) -> bool:
+    """Check if plugin code is safe to execute.
+
+    Returns True if no violations found.
+    """
+    return len(validate_plugin_code(code)) == 0
 
 
 @dataclass(frozen=True, slots=True)
