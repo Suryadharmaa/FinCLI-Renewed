@@ -581,13 +581,13 @@ class CommandRouter:
             if len(args) < 2:
                 raise CommandError("Format: /notification test <target>\nTarget format: discord:name or telegram:name")
             target = args[1]
-            success = manager.test_notification(target)
+            success, error = manager.test_notification(target)
             if success:
                 return CommandResult(
                     Panel(f"Test notification sent to {target} ✅", title="Notification Test", border_style="green")
                 )
             return CommandResult(
-                Panel(f"Failed to send test notification to {target} ❌", title="Notification Test", border_style="red")
+                Panel(f"Failed to send test notification to {target} ❌\n\nError: {error}", title="Notification Test", border_style="red")
             )
 
         if action == "remove":

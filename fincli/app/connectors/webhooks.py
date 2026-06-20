@@ -51,8 +51,8 @@ class NotificationMessage:
 # ---------------------------------------------------------------------------
 
 
-def send_discord_notification(webhook_url: str, message: NotificationMessage) -> bool:
-    """Send notification to Discord via webhook. Returns True on success."""
+def send_discord_notification(webhook_url: str, message: NotificationMessage) -> tuple[bool, str]:
+    """Send notification to Discord via webhook. Returns (success, error_message)."""
     severity_colors = {
         "info": 0x3498DB,      # Blue
         "warning": 0xF39C12,   # Orange
@@ -81,11 +81,18 @@ def send_discord_notification(webhook_url: str, message: NotificationMessage) ->
     payload = {"embeds": [embed]}
 
     try:
-        with httpx.Client(timeout=10) as client:
+        with httpx.Client(timeout=15) as client:
             resp = client.post(webhook_url, json=payload)
-            return resp.status_code in (200, 204)
-    except Exception:
-        return False
+            if resp.status_code in (200, 204):
+                return True, ""
+            error_detail = resp.text[:200] if resp.text else "no response body"
+            return False, f"HTTP {resp.status_code}: {error_detail}"
+    except httpx.TimeoutException:
+        return False, "Connection timeout (15s)"
+    except httpx.ConnectError as exc:
+        return False, f"Connection failed: {exc}"
+    except Exception as exc:
+        return False, f"{type(exc).__name__}: {exc}"
 
 
 # ---------------------------------------------------------------------------
@@ -93,8 +100,8 @@ def send_discord_notification(webhook_url: str, message: NotificationMessage) ->
 # ---------------------------------------------------------------------------
 
 
-def send_telegram_notification(bot_token: str, chat_id: str, message: NotificationMessage) -> bool:
-    """Send notification to Telegram via Bot API. Returns True on success."""
+def send_telegram_notification(bot_token: str, chat_id: str, message: NotificationMessage) -> tuple[bool, str]:
+    """Send notification to Telegram via Bot API. Returns (success, error_message)."""
     severity_emoji = {
         "info": "ℹ️",
         "warning": "⚠️",
@@ -124,12 +131,19 @@ def send_telegram_notification(bot_token: str, chat_id: str, message: Notificati
     }
 
     try:
-        with httpx.Client(timeout=10) as client:
+        with httpx.Client(timeout=15) as client:
             resp = client.post(url, json=payload)
             data = resp.json()
-            return data.get("ok", False)
-    except Exception:
-        return False
+            if data.get("ok"):
+                return True, ""
+            error_msg = data.get("description", "unknown error")
+            return False, f"Telegram API error: {error_msg}"
+    except httpx.TimeoutException:
+        return False, "Connection timeout (15s)"
+    except httpx.ConnectError as exc:
+        return False, f"Connection failed: {exc}"
+    except Exception as exc:
+        return False, f"{type(exc).__name__}: {exc}"
 
 
 # ---------------------------------------------------------------------------
@@ -157,34 +171,38 @@ class NotificationManager:
             return token, chat_id
         return None
 
-    def send(self, target: str, message: NotificationMessage) -> bool:
+    def send(self, target: str, message: NotificationMessage) -> tuple[bool, str]:
         """Send notification to a named webhook target.
 
         Target format: 'discord:name' or 'telegram:name'
+        Returns (success, error_message).
         """
         parts = target.split(":", 1)
         if len(parts) != 2:
-            return False
+            return False, f"Invalid target format '{target}'. Use 'discord:name' or 'telegram:name'."
 
         webhook_type, name = parts[0].lower(), parts[1]
 
         if webhook_type == "discord":
             url = self._get_webhook_url(name)
             if not url:
-                return False
+                return False, f"Discord webhook '{name}' not found. Configure with /notification add discord {name} <url>"
             return send_discord_notification(url, message)
 
         if webhook_type == "telegram":
             tg_config = self._get_telegram_config(name)
             if not tg_config:
-                return False
+                return False, f"Telegram config '{name}' not found. Configure with /notification add telegram {name} <token> <chat_id>"
             token, chat_id = tg_config
             return send_telegram_notification(token, chat_id, message)
 
-        return False
+        return False, f"Unknown webhook type '{webhook_type}'. Use 'discord' or 'telegram'."
 
-    def send_alert(self, symbol: str, condition: str, price: float, targets: list[str] | None = None) -> dict[str, bool]:
-        """Send alert notification to all configured targets."""
+    def send_alert(self, symbol: str, condition: str, price: float, targets: list[str] | None = None) -> dict[str, tuple[bool, str]]:
+        """Send alert notification to all configured targets.
+
+        Returns dict of target -> (success, error_message).
+        """
         message = NotificationMessage(
             title=f"Alert Triggered: {symbol}",
             body=f"Condition: {condition}\nCurrent Price: {price:.2f}",
@@ -193,7 +211,7 @@ class NotificationManager:
             price=price,
         )
 
-        results: dict[str, bool] = {}
+        results: dict[str, tuple[bool, str]] = {}
         for target in (targets or self.get_active_targets()):
             results[target] = self.send(target, message)
         return results
@@ -215,8 +233,11 @@ class NotificationManager:
 
         return targets
 
-    def test_notification(self, target: str) -> bool:
-        """Send a test notification to verify webhook configuration."""
+    def test_notification(self, target: str) -> tuple[bool, str]:
+        """Send a test notification to verify webhook configuration.
+
+        Returns (success, error_message).
+        """
         message = NotificationMessage(
             title="Test Notification",
             body="FinCLI webhook test successful! ✅",
