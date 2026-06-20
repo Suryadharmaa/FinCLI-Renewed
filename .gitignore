@@ -26,3 +26,4 @@ dist/
 Thumbs.db
 .secrets_key
 secrets.env
+CLAUDE.md
