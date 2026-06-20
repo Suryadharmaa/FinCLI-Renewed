@@ -132,10 +132,7 @@ class SessionHistoryService:
         rows = self.db.query("SELECT COUNT(*) as cnt FROM sessions")
         current_count = int(rows[0]["cnt"]) if rows else 0
 
-        if current_count <= max_sessions:
-            return 0
-
-        # Delete sessions older than keep_days
+        # Step 1: Always delete sessions older than keep_days (regardless of count)
         self.db.execute(
             "DELETE FROM session_events WHERE session_id IN (SELECT id FROM sessions WHERE updated_at < datetime('now', ?))",
             (f"-{keep_days} days",),
@@ -145,7 +142,7 @@ class SessionHistoryService:
             (f"-{keep_days} days",),
         )
 
-        # If still too many, delete oldest sessions beyond max_sessions
+        # Step 2: If still too many, delete oldest sessions beyond max_sessions
         rows = self.db.query("SELECT COUNT(*) as cnt FROM sessions")
         remaining = int(rows[0]["cnt"]) if rows else 0
 

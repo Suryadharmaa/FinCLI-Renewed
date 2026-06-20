@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from datetime import datetime
@@ -50,7 +51,7 @@ class MarketDataService:
         self.circuit_breaker_failure_threshold = max(1, int(circuit_breaker_failure_threshold))
         self.circuit_breaker_cooldown_seconds = max(0.0, float(circuit_breaker_cooldown_seconds))
         self.last_errors: list[str] = []
-        self.provider_results: list[ProviderResult] = []
+        self.provider_results: deque[ProviderResult] = deque(maxlen=50)
         self.provider_metrics: dict[str, ProviderRuntimeMetrics] = {
             getattr(provider, "name", "unknown"): ProviderRuntimeMetrics(getattr(provider, "name", "unknown"))
             for provider in providers
@@ -265,8 +266,6 @@ class MarketDataService:
             message=message,
         )
         self.provider_results.append(result)
-        if len(self.provider_results) > 50:
-            self.provider_results = self.provider_results[-50:]
         return result
 
     def _record_provider_metric(self, provider: str, operation: str = "", success: bool = True, latency_ms: float = 0.0, fallback: bool = False) -> None:
@@ -296,7 +295,7 @@ class MarketDataService:
         return self.provider_results[-1] if self.provider_results else None
 
     def recent_results(self, limit: int = 10) -> list[ProviderResult]:
-        return self.provider_results[-limit:]
+        return list(self.provider_results)[-limit:]
 
     def _cache_key(self, symbol: str, *parts: object) -> str:
         provider_chain = ",".join(provider.name for provider in self.providers)
@@ -466,7 +465,7 @@ class ProviderRuntimeMetrics:
         """Check provider health and return status dict.
 
         Args:
-            latency_threshold_ms: P95 latency threshold in ms (default 1.5s)
+            latency_threshold_ms: Average latency threshold in ms (default 1.5s)
             error_rate_threshold: Error rate threshold in % (default 20%)
 
         Returns:

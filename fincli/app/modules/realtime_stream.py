@@ -123,7 +123,7 @@ class KrakenWebSocketAdapter:
                 self._ws = await websockets.connect(KRAKEN_WS_PUBLIC)
                 self._connected = True
                 self._reconnect_attempts = 0
-                self._last_message_time = asyncio.get_event_loop().time()
+                self._last_message_time = asyncio.get_running_loop().time()
                 await self._emit(StreamEvent("connected", "", {"server": "kraken"}, source="kraken"))
                 # Re-subscribe to previous subscriptions
                 await self._resubscribe()
@@ -141,7 +141,9 @@ class KrakenWebSocketAdapter:
 
     async def _resubscribe(self) -> None:
         """Re-subscribe to all previous subscriptions after reconnect."""
-        for sub in self._subscriptions:
+        saved = list(self._subscriptions)
+        self._subscriptions.clear()
+        for sub in saved:
             channel = sub.get("channel", "")
             symbols = sub.get("symbols", [])
             if channel == "ticker":
@@ -187,19 +189,24 @@ class KrakenWebSocketAdapter:
             raise ProviderError("Not connected. Call connect() first.")
         while self._should_reconnect:
             try:
-                async for message in self._ws:
-                    self._last_message_time = asyncio.get_event_loop().time()
-                    try:
-                        data = json.loads(message)
-                    except json.JSONDecodeError:
-                        continue
-                    if isinstance(data, dict) and data.get("event") == "heartbeat":
-                        continue
-                    if isinstance(data, list) and len(data) >= 3:
-                        channel = data[-2] if isinstance(data[-2], str) else "unknown"
-                        pair = data[-1] if isinstance(data[-1], str) else ""
-                        event_type = _kraken_channel_to_event_type(channel)
-                        await self._emit(StreamEvent(event_type, pair, {"raw": data}, source="kraken"))
+                timeout = self._reconnect_config.heartbeat_timeout
+                try:
+                    message = await asyncio.wait_for(self._ws.recv(), timeout=timeout)
+                except asyncio.TimeoutError:
+                    raise ConnectionError(f"Heartbeat timeout after {timeout}s")
+
+                self._last_message_time = asyncio.get_running_loop().time()
+                try:
+                    data = json.loads(message)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(data, dict) and data.get("event") == "heartbeat":
+                    continue
+                if isinstance(data, list) and len(data) >= 3:
+                    channel = data[-2] if isinstance(data[-2], str) else "unknown"
+                    pair = data[-1] if isinstance(data[-1], str) else ""
+                    event_type = _kraken_channel_to_event_type(channel)
+                    await self._emit(StreamEvent(event_type, pair, {"raw": data}, source="kraken"))
             except Exception as exc:
                 if not self._should_reconnect:
                     break
@@ -281,7 +288,7 @@ class HyperLiquidWebSocketAdapter:
                 self._ws = await websockets.connect(HYPERLIQUID_WS)
                 self._connected = True
                 self._reconnect_attempts = 0
-                self._last_message_time = asyncio.get_event_loop().time()
+                self._last_message_time = asyncio.get_running_loop().time()
                 await self._emit(StreamEvent("connected", "", {"server": "hyperliquid"}, source="hyperliquid"))
                 await self._resubscribe()
                 return
@@ -298,7 +305,9 @@ class HyperLiquidWebSocketAdapter:
 
     async def _resubscribe(self) -> None:
         """Re-subscribe to all previous subscriptions after reconnect."""
-        for sub in self._subscriptions:
+        saved = list(self._subscriptions)
+        self._subscriptions.clear()
+        for sub in saved:
             channel = sub.get("channel", "")
             coins = sub.get("coins", [])
             if channel == "l2Book":
@@ -338,19 +347,24 @@ class HyperLiquidWebSocketAdapter:
             raise ProviderError("Not connected. Call connect() first.")
         while self._should_reconnect:
             try:
-                async for message in self._ws:
-                    self._last_message_time = asyncio.get_event_loop().time()
-                    try:
-                        data = json.loads(message)
-                    except json.JSONDecodeError:
-                        continue
-                    if isinstance(data, dict):
-                        channel = data.get("channel", "")
-                        event_type = _hyperliquid_channel_to_event_type(channel)
-                        coin = ""
-                        if isinstance(data.get("data"), dict):
-                            coin = data["data"].get("coin", "")
-                        await self._emit(StreamEvent(event_type, coin, data, source="hyperliquid"))
+                timeout = self._reconnect_config.heartbeat_timeout
+                try:
+                    message = await asyncio.wait_for(self._ws.recv(), timeout=timeout)
+                except asyncio.TimeoutError:
+                    raise ConnectionError(f"Heartbeat timeout after {timeout}s")
+
+                self._last_message_time = asyncio.get_running_loop().time()
+                try:
+                    data = json.loads(message)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(data, dict):
+                    channel = data.get("channel", "")
+                    event_type = _hyperliquid_channel_to_event_type(channel)
+                    coin = ""
+                    if isinstance(data.get("data"), dict):
+                        coin = data["data"].get("coin", "")
+                    await self._emit(StreamEvent(event_type, coin, data, source="hyperliquid"))
             except Exception as exc:
                 if not self._should_reconnect:
                     break

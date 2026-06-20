@@ -202,7 +202,7 @@ class ConfigManager:
         self.save()
 
 
-def _suggest(value: str, valid_set: set[str], cutoff: float = 0.6) -> str | None:
+def _suggest(value: str, valid_set: set[str], cutoff: float = 0.7) -> str | None:
     """Find closest match using difflib."""
     matches = difflib.get_close_matches(value.lower(), valid_set, n=1, cutoff=cutoff)
     return matches[0] if matches else None

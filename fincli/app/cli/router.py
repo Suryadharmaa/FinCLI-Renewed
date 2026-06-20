@@ -195,6 +195,7 @@ class CommandRouter:
             )
         result = self._route(raw)
         self._record_history(raw, result)
+        self._maybe_warn_provider_health(result)
         return result
 
     def _route(self, raw: str) -> CommandResult:
@@ -362,6 +363,18 @@ class CommandRouter:
             self.history.record_event(self.session_id, raw, result.status, preview)
         except Exception:
             return
+
+    def _maybe_warn_provider_health(self, result: CommandResult) -> None:
+        """Append provider health warnings if degraded (non-blocking)."""
+        try:
+            warnings = self.market_service.check_provider_health()
+            if warnings and result.status != "error":
+                warning_text = "\n".join(w["warnings"][0] for w in warnings if w.get("warnings"))
+                if warning_text:
+                    result.metadata = result.metadata or {}
+                    result.metadata["provider_warning"] = warning_text
+        except Exception:
+            pass  # health check should never break commands
 
     def _history(self, args: list[str]) -> CommandResult:
         action = args[0].lower() if args else "picker"
@@ -2942,7 +2955,7 @@ class CommandRouter:
         except (FinCLIError, AttributeError) as exc:
             base = f"Provider health: unavailable ({exc})"
 
-        results = getattr(self.market_service, "provider_results", [])[-6:]
+        results = list(getattr(self.market_service, "provider_results", []))[-6:]
         if not results:
             return f"{base}\nRecent provider results: none"
         lines = ["Recent provider results:"]
