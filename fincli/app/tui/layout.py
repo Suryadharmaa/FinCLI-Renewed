@@ -39,6 +39,7 @@ class FinCLIApp(App[None]):
         ("ctrl+l", "clear_output", "Clear"),
         ("escape", "interrupt", "Interrupt"),
         ("f1", "help", "Help"),
+        ("ctrl+shift+c", "copy_output", "Copy Last Output"),
     ]
 
     def __init__(self) -> None:
@@ -151,6 +152,26 @@ class FinCLIApp(App[None]):
         self.query_one(WorkingIndicator).stop()
         self.query_one("#status_bar", Static).update("interrupted | esc")
 
+    def action_copy_output(self) -> None:
+        """Copy last output entry to clipboard."""
+        try:
+            output = self.query_one("#output", RichLog)
+            # Get plain text from output
+            console = Console(record=True, width=200, file=io.StringIO(), force_terminal=False)
+            for item in output._lines:
+                console.print(item)
+            text = console.export_text(clear=False)
+            if text:
+                import pyperclip
+                pyperclip.copy(text)
+                self.query_one("#status_bar", Static).update("output copied to clipboard")
+            else:
+                self.query_one("#status_bar", Static).update("no output to copy")
+        except ImportError:
+            self.query_one("#status_bar", Static).update("install pyperclip: pip install pyperclip")
+        except Exception as exc:
+            self.query_one("#status_bar", Static).update(f"copy failed: {exc}")
+
     def _check_recovery(self, output: RichLog) -> None:
         """Check for unclean shutdown and offer recovery."""
         unclean_state = self._session_state.get_last_unclean_state()
@@ -256,8 +277,8 @@ class FinCLIApp(App[None]):
             thread=True,
         )
 
-    def _stream_in_worker(self, prompt: str, worker_name: str) -> str:
-        """Run streaming in worker thread. Returns accumulated text."""
+    def _stream_in_worker(self, prompt: str, worker_name: str) -> object:
+        """Run streaming in worker thread. Returns accumulated text or renderable."""
         try:
             from fincli.app.analysis.assistant_context import build_fincli_assistant_prompt
             market_context = self.router._freechat_market_context(prompt)
@@ -280,7 +301,8 @@ class FinCLIApp(App[None]):
         except (AttributeError, Exception):
             # Fallback: use router directly (for mock/test routers without streaming)
             result = self.router.route(f"/ai {prompt}")
-            return str(result.renderable) if result.renderable else ""
+            # Return renderable directly, not stringified
+            return result.renderable if result.renderable else ""
 
     def _on_stream_token(self, worker_name: str, token: str) -> None:
         """Called from worker thread for each streamed token."""
@@ -413,10 +435,19 @@ class FinCLIApp(App[None]):
             except Exception:
                 pass
             # Write final content to main output
-            text = str(meta.get("_stream_text", "")) or str(worker.result)
-            if text:
+            stream_text = meta.get("_stream_text", "")
+            result = worker.result
+            if stream_text:
+                # Streaming succeeded — write accumulated text
                 from rich.markdown import Markdown
-                write_output_entry(output, Markdown(text))
+                write_output_entry(output, Markdown(stream_text))
+            elif result and not isinstance(result, str):
+                # Fallback returned renderable object — write directly
+                write_output_entry(output, result)
+            elif result:
+                # Fallback returned string — wrap in Markdown
+                from rich.markdown import Markdown
+                write_output_entry(output, Markdown(str(result)))
             status.update("ready | ai chat (streamed)")
             return
 
