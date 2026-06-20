@@ -131,7 +131,7 @@ def test_ai_freechat_blocks_coding_without_provider_call(tmp_path: Path) -> None
     assert result.status == "ready"
     assert ai.calls == 0
     output = str(result.renderable)
-    assert "tidak menangani coding" in output
+    assert "don't handle coding" in output
     assert "FinCLI" in output
 
 

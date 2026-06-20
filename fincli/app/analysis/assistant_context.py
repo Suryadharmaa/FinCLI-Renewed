@@ -121,10 +121,10 @@ def is_coding_request(prompt: str) -> bool:
 def coding_refusal() -> str:
     """Return FinCLI-specific refusal text for coding prompts."""
     return (
-        "Aku FinCLI AI Assistance untuk market, portfolio, journal, provider, dan risk workflow. "
-        "Aku tidak menangani coding, debugging, refactor, atau pembuatan software di dalam FinCLI. "
-        "Kamu bisa tanya analisis market, fundamental, technical setup, watchlist, portfolio, journal, "
-        "atau cara memakai command FinCLI."
+        "I'm FinCLI AI Assistance for market, portfolio, journal, provider, and risk workflow. "
+        "I don't handle coding, debugging, refactoring, or software creation within FinCLI. "
+        "You can ask about market analysis, fundamental/technical setup, watchlist, portfolio, journal, "
+        "or how to use FinCLI commands."
     )
 
 
