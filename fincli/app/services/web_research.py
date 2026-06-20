@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from html import unescape
 from html.parser import HTMLParser
@@ -29,10 +30,27 @@ class WebResearchService:
         self._client = client
         self._owns_client = client is None
         self.timeout_seconds = timeout_seconds
+        self._loop_id: int | None = None  # Track which event loop owns the client
 
     def _get_client(self) -> httpx.AsyncClient:
-        """Lazily create and reuse HTTP client."""
-        if self._client is None:
+        """Lazily create and reuse HTTP client.
+
+        Recreates client if event loop changed (handles multiple _run_async calls).
+        """
+        try:
+            current_loop = asyncio.get_running_loop()
+            current_id = id(current_loop)
+        except RuntimeError:
+            current_id = None
+
+        # Recreate client if loop changed or client doesn't exist
+        if self._client is None or (current_id is not None and current_id != self._loop_id):
+            if self._client is not None and self._owns_client:
+                # Close old client (best effort, might fail if loop closed)
+                try:
+                    asyncio.get_event_loop().run_until_complete(self._client.aclose())
+                except Exception:
+                    pass
             self._client = httpx.AsyncClient(
                 timeout=self.timeout_seconds,
                 follow_redirects=True,
@@ -42,6 +60,7 @@ class WebResearchService:
                 },
             )
             self._owns_client = True
+            self._loop_id = current_id
         return self._client
 
     async def close(self) -> None:
@@ -49,6 +68,7 @@ class WebResearchService:
         if self._owns_client and self._client is not None:
             await self._client.aclose()
             self._client = None
+            self._loop_id = None
 
     async def research(self, query: str, limit: int = 3) -> list[WebSearchResult]:
         normalized = query.strip()
