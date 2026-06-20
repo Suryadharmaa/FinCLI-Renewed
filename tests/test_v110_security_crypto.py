@@ -19,7 +19,7 @@ from fincli.app.utils.crypto import (
 class TestBrokerKeyEncryption:
     def test_encrypt_decrypt_roundtrip(self):
         """Encrypt then decrypt should return original plaintext."""
-        plaintext = "sk-test-api-key-1234567890abcdef"
+        plaintext = "test-key-1234567890abcdef"
         password = "my-secure-master-password"
         encrypted = encrypt_broker_key(plaintext, password)
         decrypted = decrypt_broker_key(encrypted, password)
@@ -27,7 +27,7 @@ class TestBrokerKeyEncryption:
 
     def test_encrypt_different_passwords_different_output(self):
         """Same plaintext with different passwords should produce different ciphertext."""
-        plaintext = "sk-test-api-key-1234567890abcdef"
+        plaintext = "test-key-1234567890abcdef"
         encrypted1 = encrypt_broker_key(plaintext, "password1")
         encrypted2 = encrypt_broker_key(plaintext, "password2")
         assert encrypted1 != encrypted2
@@ -84,7 +84,7 @@ class TestBrokerKeyEncryption:
 
     def test_encrypt_special_characters(self):
         """Should handle special characters in key and password."""
-        plaintext = "sk-key_with-special!@#$%^&*()chars"
+        plaintext = "test-key_with-special!@#$%^&*()chars"
         password = "p@ssw0rd!#$%^&*()"
         encrypted = encrypt_broker_key(plaintext, password)
         decrypted = decrypt_broker_key(encrypted, password)

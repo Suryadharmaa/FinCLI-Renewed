@@ -15,4 +15,4 @@ def test_config_save_and_reload(tmp_path) -> None:
 def test_mask_secret() -> None:
     assert mask_secret(None) == "not set"
     assert mask_secret("abc") == "set"
-    assert mask_secret("sk-1234567890") == "sk-1...7890"
+    assert mask_secret("test-key-1234567890") == "test...7890"

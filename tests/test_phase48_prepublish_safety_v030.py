@@ -6,7 +6,7 @@ from scripts.prepublish_check import SafetyIssue, find_secret_issues, validate_p
 
 
 def test_prepublish_secret_scan_flags_env_and_token_patterns(tmp_path: Path) -> None:
-    (tmp_path / ".env").write_text("OPENAI_API_KEY=sk-test-secret\n", encoding="utf-8")
+    (tmp_path / ".env").write_text("OPENAI_API_KEY=test-secret-key-12345\n", encoding="utf-8")
     (tmp_path / "README.md").write_text("safe docs\n", encoding="utf-8")
 
     issues = find_secret_issues(tmp_path)
