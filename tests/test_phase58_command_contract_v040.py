@@ -25,7 +25,7 @@ def test_plain_text_input_returns_error_not_ready(tmp_path: Path) -> None:
     result = router.route("help")
 
     assert result.status == "error"
-    assert "Command harus diawali slash" in render_text(result.renderable)
+    assert "Command must start with slash" in render_text(result.renderable)
 
 
 def test_non_string_input_returns_user_facing_error(tmp_path: Path) -> None:
@@ -34,7 +34,7 @@ def test_non_string_input_returns_user_facing_error(tmp_path: Path) -> None:
     result = router.route(None)  # type: ignore[arg-type]
 
     assert result.status == "error"
-    assert "Command harus berupa teks" in render_text(result.renderable)
+    assert "Command must be text" in render_text(result.renderable)
 
 
 def test_history_recording_failure_does_not_break_command_result(tmp_path: Path) -> None:

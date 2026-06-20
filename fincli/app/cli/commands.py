@@ -165,6 +165,7 @@ COMMANDS: tuple[CommandSpec, ...] = (
     CommandSpec("/tutorial reset", "Reset progress tutorial.", "/tutorial reset", "General"),
     CommandSpec("/clear", "Bersihkan output terminal.", "/clear"),
     CommandSpec("/exit", "Keluar dari aplikasi.", "/exit"),
+    CommandSpec("/lang", "Change display language (en/id).", "/lang id", "General"),
 )
 
 

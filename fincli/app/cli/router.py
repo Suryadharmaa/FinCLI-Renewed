@@ -123,6 +123,7 @@ from fincli.app.storage.audit_log import SecurityAuditLog, EVENT_SECRET_SAVE, EV
 from fincli.app.utils.security import SecurityValidator, SecretRedactor, RateLimiter
 from fincli.app.utils.errors import CommandError, FinCLIError, SecurityError
 from fincli.app.utils.formatting import AIResponseView, MarkdownBlock, semantic_text
+from fincli.app.utils.i18n import set_language, get_language, t
 
 
 @dataclass(slots=True)
@@ -148,6 +149,8 @@ class CommandRouter:
         self.config = config or ConfigManager()
         self.db = db or FinCLIDatabase()
         self.registry = registry or CommandRegistry()
+        # Set language from config
+        set_language(self.config.settings.language)
         self.cache: TTLCache[object] = TTLCache(self.config.settings.cache_ttl_seconds)
         self.market_cache = MarketCache(self.db)
         self.provider_metrics_store = ProviderMetricsStore(self.db)
@@ -187,7 +190,7 @@ class CommandRouter:
     def route(self, raw: str) -> CommandResult:
         if not isinstance(raw, str):
             return CommandResult(
-                Panel("Command harus berupa teks. Contoh: /help", title="Error", border_style="red"),
+                Panel(t("error.must_be_text"), title=t("general.error"), border_style="red"),
                 status="error",
             )
         result = self._route(raw)
@@ -197,10 +200,10 @@ class CommandRouter:
     def _route(self, raw: str) -> CommandResult:
         raw = raw.strip()
         if not raw:
-            return CommandResult(Panel("Ketik /help untuk melihat command.", title="FinCLI"))
+            return CommandResult(Panel(t("help.hint"), title="FinCLI"))
         if not raw.startswith("/"):
             return CommandResult(
-                Panel("Command harus diawali slash. Contoh: /help", title="Invalid Input", border_style="red"),
+                Panel(t("error.must_start_slash"), title="Invalid Input", border_style="red"),
                 status="error",
             )
 
@@ -212,7 +215,7 @@ class CommandRouter:
 
             parts = _split_command(raw)
             if not parts:
-                raise CommandError("Command kosong.")
+                raise CommandError(t("error.command_empty"))
 
             root = parts[0].lower()
             args = parts[1:]
@@ -311,33 +314,32 @@ class CommandRouter:
                 return self._calendar(args)
             if root == "/export":
                 return self._export(args)
+            if root == "/lang":
+                return self._lang(args)
 
-            raise CommandError(f"Command tidak dikenal: {root}", "Gunakan /help untuk melihat daftar command.")
+            raise CommandError(t("error.command_not_found", cmd=root), t("help.hint"))
         except FinCLIError as exc:
             message = str(exc)
             if exc.help_text:
                 message = f"{message}\n\n{exc.help_text}"
-            return CommandResult(Panel(message, title="Error", border_style="red"), status="error")
+            return CommandResult(Panel(message, title=t("general.error"), border_style="red"), status="error")
         except ValueError as exc:
             return CommandResult(
-                Panel(f"Format command tidak valid: {exc}\nGunakan quote untuk teks panjang.", title="Error"),
+                Panel(t("error.format_invalid", error=exc), title=t("general.error")),
                 status="error",
             )
         except Exception as exc:  # noqa: BLE001
             return CommandResult(
                 Panel(
-                    (
-                        f"Unexpected command error: {type(exc).__name__}: {exc}\n\n"
-                        "Command tidak dieksekusi penuh. Gunakan /doctor untuk cek konfigurasi atau coba ulang command."
-                    ),
-                    title="Error",
+                    t("error.unexpected", type=type(exc).__name__, error=exc),
+                    title=t("general.error"),
                     border_style="red",
                 ),
                 status="error",
             )
 
     def _help_table(self) -> Table:
-        table = Table(title=f"FinCLI v{__version__} Commands", expand=True)
+        table = Table(title=t("help.title", version=__version__), expand=True)
         table.add_column("Command", style="cyan", no_wrap=True)
         table.add_column("Group", style="magenta")
         table.add_column("Fungsi", style="white")
@@ -504,6 +506,33 @@ class CommandRouter:
             table.add_row("Dirty", "Yes" if state.is_dirty else "No")
             return CommandResult(table)
         raise CommandError("Format: /session save|restore|status")
+
+    def _lang(self, args: list[str]) -> CommandResult:
+        """Change display language."""
+        if not args:
+            current = get_language()
+            table = Table(title="Language Settings", show_header=False, border_style="cyan")
+            table.add_column("Field", style="bold")
+            table.add_column("Value")
+            table.add_row("Current", current)
+            table.add_row("Supported", "en (English), id (Indonesia)")
+            table.add_row("Usage", "/lang en | /lang id")
+            return CommandResult(table)
+
+        lang = args[0].lower()
+        if lang not in ("en", "id"):
+            raise CommandError("Language not supported. Use 'en' (English) or 'id' (Indonesia).")
+
+        set_language(lang)
+        self.config.settings.language = lang
+        self.config.save()
+
+        if lang == "en":
+            msg = "Language changed to English."
+        else:
+            msg = "Bahasa diubah ke Indonesia."
+
+        return CommandResult(Panel(msg, title="Language", border_style="green"))
 
     def _notification(self, args: list[str]) -> CommandResult:
         """Manage webhook notifications (Discord/Telegram)."""
