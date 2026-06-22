@@ -197,8 +197,12 @@ class RiskGuard:
         return rows[0] if rows else None
 
     def _position_notional(self, symbol: str) -> float:
+        # Net notional: buy orders minus sell orders
         rows = self.db.query(
-            "SELECT SUM(notional) as total FROM paper_orders WHERE symbol = ? AND status IN ('filled', 'queued') AND side = 'buy'",
+            """SELECT
+                SUM(CASE WHEN side = 'buy' THEN notional ELSE 0 END) -
+                SUM(CASE WHEN side = 'sell' THEN notional ELSE 0 END) as total
+            FROM paper_orders WHERE symbol = ? AND status IN ('filled', 'queued')""",
             (symbol.upper(),),
         )
         if rows and rows[0]["total"] is not None:
@@ -294,6 +298,8 @@ class PaperTradingEngine:
             raise CommandError("Stop price harus lebih besar dari 0.")
 
         status = "filled" if normalized_type == "market" or price is not None else "queued"
+        # For market orders without price, use 0 notional (risk guard will skip position check)
+        # For limit/stop orders, calculate notional from price
         notional = float(quantity) * float(price or 0)
         self.db.execute(
             """

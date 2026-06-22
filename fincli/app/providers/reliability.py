@@ -119,7 +119,7 @@ def classify_provider_error(exc: BaseException) -> str:
     text = f"{exc} {getattr(exc, 'help_text', '') or ''}".lower()
     if "429" in text or "rate limit" in text or "too many request" in text:
         return STATUS_RATE_LIMITED
-    if "401" in text or "unauthorized" in text or "invalid key" in text or "api key" in text and "belum" in text:
+    if "401" in text or "unauthorized" in text or "invalid key" in text or ("api key" in text and ("belum" in text or "missing" in text or "required" in text)):
         return STATUS_AUTH_FAILED
     if "403" in text or "entitlement" in text or "plan" in text or "premium" in text or "forbidden" in text:
         return STATUS_ENTITLEMENT_MISSING

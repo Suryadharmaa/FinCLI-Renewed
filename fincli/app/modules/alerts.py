@@ -5,7 +5,10 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from fincli.app.storage.database import FinCLIDatabase
 from fincli.app.utils.errors import CommandError
@@ -137,8 +140,8 @@ class AlertDaemon:
         while self._running:
             try:
                 await self.check_once()
-            except Exception:  # noqa: BLE001 - daemon should not crash
-                pass
+            except Exception as exc:  # noqa: BLE001 - daemon should not crash
+                logger.warning("Alert check failed: %s", exc)
             await asyncio.sleep(self.check_interval)
 
 

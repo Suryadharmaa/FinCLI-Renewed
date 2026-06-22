@@ -78,13 +78,13 @@ def render_candlestick_chart(
     # Build the chart grid
     grid: list[list[str]] = [[" " for _ in range(chart_w)] for _ in range(height)]
 
+    # Map prices to row indices (0 = top = highest price)
+    def price_to_row(price: float) -> int:
+        return max(0, min(height - 1, int((price_max - price) / price_range * (height - 1))))
+
     for col, candle in enumerate(display_candles):
         if col >= width:
             break
-
-        # Map prices to row indices (0 = top = highest price)
-        def price_to_row(price: float) -> int:
-            return max(0, min(height - 1, int((price_max - price) / price_range * (height - 1))))
 
         row_open = price_to_row(candle.open)
         row_close = price_to_row(candle.close)

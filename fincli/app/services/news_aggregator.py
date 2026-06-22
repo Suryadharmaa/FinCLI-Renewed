@@ -15,7 +15,7 @@ from fincli.app.services.market_data import MarketDataService
 class NewsDesk:
     symbol: str
     provider_chain: tuple[str, ...]
-    items: list[NewsItem]
+    items: tuple[NewsItem, ...]
     note: str
     errors: tuple[str, ...] = ()
     lookback_days: int | None = None
@@ -69,10 +69,11 @@ class NewsAggregator:
         elif errors:
             note = f"{note} Fallback used after {len(errors)} provider error(s)."
             reliability_status = STATUS_PARTIAL_DATA
-        return NewsDesk(normalized, provider_chain, items, note, tuple(errors), lookback_days, reliability_status)
+        return NewsDesk(normalized, provider_chain, tuple(items), note, tuple(errors), lookback_days, reliability_status)
 
     async def _fetch_provider(self, provider: str, symbol: str, limit: int) -> list[NewsItem]:
-        if provider == "yfinance" or any(item.name == provider for item in self.market_service.providers):
+        provider_lower = provider.lower()
+        if provider_lower == "yfinance" or any(item.name.lower() == provider_lower for item in self.market_service.providers):
             return await self.market_service.news(symbol, limit=limit)
         return await self.news_connectors.fetch(provider, symbol, limit=limit)
 

@@ -15,8 +15,8 @@ class ChooserCase:
     name: str
     stance: str
     score: int
-    evidence: list[str]
-    objections: list[str]
+    evidence: tuple[str, ...]
+    objections: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,7 +103,7 @@ def _build_bull_case(
 
     if not evidence:
         evidence.append("Bull chooser found no strong upside evidence.")
-    return ChooserCase("Bull Chooser", "buy candidate", score, evidence[:5], objections[:4])
+    return ChooserCase("Bull Chooser", "buy candidate", score, tuple(evidence[:5]), tuple(objections[:4]))
 
 
 def _build_bear_case(
@@ -142,7 +142,7 @@ def _build_bear_case(
 
     if not evidence:
         evidence.append("Bear chooser found no strong downside evidence.")
-    return ChooserCase("Bear Chooser", "sell candidate", score, evidence[:5], objections[:4])
+    return ChooserCase("Bear Chooser", "sell candidate", score, tuple(evidence[:5]), tuple(objections[:4]))
 
 
 def _build_caution_case(
@@ -179,7 +179,7 @@ def _build_caution_case(
         objections.append("Caution chooser found limited risk flags.")
     if not evidence:
         evidence.append("No dominant caution flag, but confirmation is still required.")
-    return ChooserCase("Caution Chooser", "wait/avoid overconfidence", score, evidence[:5], objections[:4])
+    return ChooserCase("Caution Chooser", "wait/avoid overconfidence", score, tuple(evidence[:5]), tuple(objections[:4]))
 
 
 def _judge(

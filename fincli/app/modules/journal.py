@@ -52,8 +52,18 @@ class JournalService:
         updates = {k: v for k, v in fields.items() if k in allowed and v}
         if not updates:
             return False
-        set_clause = ", ".join(f"{k} = ?" for k in updates)
-        values = list(updates.values()) + [entry_id]
+        # Build SET clause from whitelist only (no f-string SQL injection risk)
+        set_parts = []
+        values = []
+        for k in updates:
+            if k not in allowed:
+                continue
+            set_parts.append(f"{k} = ?")
+            values.append(updates[k])
+        if not set_parts:
+            return False
+        values.append(entry_id)
+        set_clause = ", ".join(set_parts)
         self.db.execute(f"UPDATE journal_entries SET {set_clause} WHERE id = ?", values)
         return True
 

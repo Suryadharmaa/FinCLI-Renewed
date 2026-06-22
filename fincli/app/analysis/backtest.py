@@ -158,7 +158,7 @@ class BacktestResult:
     strategy: str
     interval: str
     candles: int
-    trades: list[BacktestTrade]
+    trades: tuple[BacktestTrade, ...]
     total_return_percent: float
     total_return_absolute: float
     win_rate: float
@@ -300,7 +300,7 @@ def _build_result(
         strategy=strategy,
         interval=interval,
         candles=len(candles),
-        trades=trades,
+        trades=tuple(trades),
         total_return_percent=total_return_pct,
         total_return_absolute=total_return_abs,
         win_rate=win_rate,

@@ -29,10 +29,11 @@ _VERBS = {
     "/mtf": "Analyzing",
     "/scan": "Scanning",
     "/backtest": "Backtesting",
-    "/quote": "Fetching quote",
     "/market": "Fetching market",
+    "/chart": "Charting",
     "/ai": "Thinking",
     "/provider": "Checking providers",
+    "/notification": "Sending notification",
 }
 
 
@@ -124,7 +125,7 @@ class CommandPalette(Static):
             table.add_row(command_text, description)
 
         if len(commands) > 6:
-            table.add_row("[bright_black]v more[/]", "[bright_black]Ketik command lebih spesifik[/]")
+            table.add_row("[bright_black]v more[/]", "[bright_black]Type a more specific command[/]")
 
         title = f"[#d97757]>[/] {query or '/'}"
         self.update(Panel(table, title=title, border_style="#3a3a3a", padding=(0, 1)))

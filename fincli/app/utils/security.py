@@ -51,18 +51,18 @@ class SecurityValidator:
         """Validate and normalize a market symbol."""
         normalized = symbol.strip().upper()
         if not normalized:
-            raise CommandError("Symbol tidak boleh kosong.")
+            raise CommandError("Symbol cannot be empty.")
         if len(normalized) > 20:
-            raise CommandError("Symbol terlalu panjang (max 20 karakter).")
+            raise CommandError("Symbol too long (max 20 characters).")
         if any(char in SYMBOL_BLOCKED for char in normalized):
             raise CommandError(
-                "Symbol mengandung karakter tidak valid.",
-                "Gunakan huruf, angka, titik, dash, underscore, atau caret.",
+                "Symbol contains invalid characters.",
+                "Use letters, numbers, dots, dashes, underscores, or caret.",
             )
         if not SYMBOL_PATTERN.match(normalized):
             raise CommandError(
-                f"Format symbol tidak valid: {symbol}",
-                "Contoh: AAPL, BTC-USD, EURUSD=X",
+                f"Invalid symbol format: {symbol}",
+                "Examples: AAPL, BTC-USD, EURUSD=X",
             )
         return normalized
 
@@ -108,11 +108,11 @@ class SecurityValidator:
         try:
             result = float(value)
         except (ValueError, TypeError) as exc:
-            raise CommandError(f"{name} harus berupa angka: {value}") from exc
+            raise CommandError(f"{name} must be a number: {value}") from exc
         if positive and result <= 0:
-            raise CommandError(f"{name} harus lebih besar dari 0.")
+            raise CommandError(f"{name} must be greater than 0.")
         if result != result:  # NaN check
-            raise CommandError(f"{name} tidak boleh NaN.")
+            raise CommandError(f"{name} cannot be NaN.")
         return result
 
     @staticmethod
@@ -120,21 +120,21 @@ class SecurityValidator:
         """Validate API key format."""
         stripped = key.strip()
         if not stripped:
-            raise CommandError("API key tidak boleh kosong.")
+            raise CommandError("API key cannot be empty.")
         if len(stripped) < 8:
-            raise CommandError("API key terlalu pendek (min 8 karakter).")
+            raise CommandError("API key too short (min 8 characters).")
         if len(stripped) > 256:
-            raise CommandError("API key terlalu panjang (max 256 karakter).")
+            raise CommandError("API key too long (max 256 characters).")
         # Block obvious non-key values
         if stripped.lower() in {"test", "xxx", "placeholder", "example", "none", "null", "undefined"}:
-            raise CommandError("API key tidak boleh placeholder.")
+            raise CommandError("API key cannot be a placeholder.")
         return stripped
 
     @staticmethod
     def sanitize_input(value: str, max_length: int = 1000) -> str:
         """Sanitize general user input."""
         if len(value) > max_length:
-            raise CommandError(f"Input terlalu panjang (max {max_length} karakter).")
+            raise CommandError(f"Input too long (max {max_length} characters).")
         # Strip control characters except newline/tab
         cleaned = "".join(
             char for char in value

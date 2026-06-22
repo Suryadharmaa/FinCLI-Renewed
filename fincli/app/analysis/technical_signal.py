@@ -14,8 +14,8 @@ class TechnicalSignal:
     label: str
     score: int
     confidence: str
-    reasons: list[str]
-    risk_notes: list[str]
+    reasons: tuple[str, ...]
+    risk_notes: tuple[str, ...]
     invalidation: str
 
 
@@ -146,8 +146,8 @@ def evaluate_technical_signal(
         label=label,
         score=net_score,
         confidence=confidence,
-        reasons=reasons[:6],
-        risk_notes=risk_notes[:5],
+        reasons=tuple(reasons[:6]),
+        risk_notes=tuple(risk_notes[:5]),
         invalidation=invalidation,
     )
 

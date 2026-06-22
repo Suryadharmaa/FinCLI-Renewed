@@ -46,10 +46,12 @@ class WebResearchService:
         # Recreate client if loop changed or client doesn't exist
         if self._client is None or (current_id is not None and current_id != self._loop_id):
             if self._client is not None and self._owns_client:
-                # Close old client (best effort, might fail if loop closed)
+                # Close old client (best effort)
                 try:
-                    asyncio.get_event_loop().run_until_complete(self._client.aclose())
-                except Exception:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(self._client.aclose())
+                except RuntimeError:
+                    # No running loop — client will be garbage collected
                     pass
             self._client = httpx.AsyncClient(
                 timeout=self.timeout_seconds,
