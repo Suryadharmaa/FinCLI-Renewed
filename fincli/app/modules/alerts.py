@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import inspect
 import logging
+from threading import Event, RLock, Thread, current_thread
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -77,14 +79,17 @@ class AlertDaemon:
         self.market_service = market_service
         self.check_interval = check_interval
         self._running = False
-        self._task: asyncio.Task[None] | None = None
+        self._thread: Thread | None = None
+        self._stop_event = Event()
+        self._lifecycle_lock = RLock()
         self._last_check: datetime | None = None
         self._triggered_count = 0
         self._callbacks: list[Any] = []
 
     @property
     def is_running(self) -> bool:
-        return self._running
+        thread = self._thread
+        return self._running and thread is not None and thread.is_alive()
 
     @property
     def last_check(self) -> datetime | None:
@@ -97,17 +102,27 @@ class AlertDaemon:
     def on_trigger(self, callback: Any) -> None:
         self._callbacks.append(callback)
 
-    async def start(self) -> None:
-        if self._running:
-            return
-        self._running = True
-        self._task = asyncio.create_task(self._loop())
+    def start(self) -> None:
+        """Start an independent daemon thread that owns its async check loop."""
+        with self._lifecycle_lock:
+            if self.is_running:
+                return
+            self._stop_event.clear()
+            self._running = True
+            self._thread = Thread(target=self._run, name="fincli-alert-daemon", daemon=True)
+            self._thread.start()
 
-    async def stop(self) -> None:
-        self._running = False
-        if self._task is not None:
-            self._task.cancel()
-            self._task = None
+    def stop(self) -> None:
+        """Request shutdown and wait briefly so no daemon leaks past app exit."""
+        with self._lifecycle_lock:
+            thread = self._thread
+            self._running = False
+            self._stop_event.set()
+        if thread is not None and thread is not current_thread():
+            thread.join(timeout=min(max(self.check_interval, 0.1), 2.0))
+        with self._lifecycle_lock:
+            if self._thread is thread and (thread is None or not thread.is_alive()):
+                self._thread = None
 
     async def check_once(self) -> list[AlertCheckResult]:
         """Run one check cycle against all active alerts."""
@@ -129,20 +144,28 @@ class AlertDaemon:
                 self._triggered_count += 1
                 for cb in self._callbacks:
                     try:
-                        cb(result)
-                    except Exception:  # noqa: BLE001
-                        pass
+                        callback_result = cb(result)
+                        if inspect.isawaitable(callback_result):
+                            await callback_result
+                    except Exception as exc:  # noqa: BLE001 - callbacks must not stop alert checks
+                        logger.warning("Alert callback failed: %s", exc)
             results.append(result)
         self._last_check = datetime.now(timezone.utc)
         return results
 
-    async def _loop(self) -> None:
-        while self._running:
-            try:
-                await self.check_once()
-            except Exception as exc:  # noqa: BLE001 - daemon should not crash
-                logger.warning("Alert check failed: %s", exc)
-            await asyncio.sleep(self.check_interval)
+    def _run(self) -> None:
+        try:
+            while not self._stop_event.is_set():
+                try:
+                    asyncio.run(self.check_once())
+                except Exception as exc:  # noqa: BLE001 - daemon should not crash
+                    logger.warning("Alert check failed: %s", exc)
+                self._stop_event.wait(self.check_interval)
+        finally:
+            with self._lifecycle_lock:
+                self._running = False
+                if self._thread is current_thread():
+                    self._thread = None
 
 
 # ---------------------------------------------------------------------------

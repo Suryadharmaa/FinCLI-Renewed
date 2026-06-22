@@ -387,15 +387,16 @@ def _parse_datetime(value: str) -> datetime | None:
     text = value.strip()
     if not text:
         return None
-    if text.isdigit():
-        try:
-            return datetime.fromtimestamp(int(text), tz=timezone.utc)
-        except (OSError, ValueError):
-            return None
+    # YYYYMMDD format must be checked BEFORE Unix timestamp (8-digit numbers like 20240101)
     if len(text) == 8 and text.isdigit():
         try:
             return datetime.strptime(text, "%Y%m%d").replace(tzinfo=timezone.utc)
         except ValueError:
+            return None
+    if text.isdigit():
+        try:
+            return datetime.fromtimestamp(int(text), tz=timezone.utc)
+        except (OSError, ValueError):
             return None
     try:
         return parsedate_to_datetime(text)

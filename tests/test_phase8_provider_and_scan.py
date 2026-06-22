@@ -94,7 +94,7 @@ def test_provider_status_uses_provider_health(tmp_path: Path) -> None:
 def test_scan_symbols_supports_combined_filters() -> None:
     router = CommandRouter()
 
-    results = router._run_async(scan_symbols(["AAPL", "MSFT"], CombinedScanProvider(), "rsi>60 trend=bullish"))
+    results, errors = router._run_async(scan_symbols(["AAPL", "MSFT"], CombinedScanProvider(), "rsi>60 trend=bullish"))
 
     assert [result.symbol for result in results] == ["AAPL"]
 
@@ -102,7 +102,7 @@ def test_scan_symbols_supports_combined_filters() -> None:
 def test_scan_symbols_requires_all_combined_filters_to_match() -> None:
     router = CommandRouter()
 
-    results = router._run_async(scan_symbols(["AAPL", "MSFT"], CombinedScanProvider(), "rsi<60 trend=bullish"))
+    results, errors = router._run_async(scan_symbols(["AAPL", "MSFT"], CombinedScanProvider(), "rsi<60 trend=bullish"))
 
     assert results == []
 

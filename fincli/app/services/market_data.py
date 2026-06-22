@@ -118,6 +118,7 @@ class MarketDataService:
 
     async def _with_fallback(self, method_name: str, *args: object) -> ProviderResponse[Any]:
         errors: list[str] = []
+        degraded_response: ProviderResponse[Any] | None = None
         for provider in self.providers:
             provider_name = getattr(provider, "name", "unknown")
             if self._is_circuit_open(provider_name):
@@ -142,7 +143,14 @@ class MarketDataService:
                 latency_ms = (perf_counter() - started) * 1000
                 status, missing = classify_payload(method_name, payload)
                 quality = score_quality(method_name, payload, missing)
-                self._record_provider_metric(provider_name, operation=method_name, success=status == STATUS_OK, latency_ms=latency_ms)
+                is_complete = status == STATUS_OK
+                self._record_provider_metric(
+                    provider_name,
+                    operation=method_name,
+                    success=is_complete,
+                    latency_ms=latency_ms,
+                    fallback=not is_complete,
+                )
                 self._record_circuit_success(provider_name)
                 result = self._record_provider_result(
                     provider=provider_name,
@@ -152,7 +160,7 @@ class MarketDataService:
                     missing_fields=missing,
                     message="ok" if not missing else f"partial payload: {', '.join(missing)}",
                 )
-                return ProviderResponse(
+                response = ProviderResponse(
                     data=payload,
                     provider=provider_name,
                     operation=method_name,
@@ -164,6 +172,12 @@ class MarketDataService:
                     message="ok" if not missing else f"partial payload: {', '.join(missing)}",
                     raw_result=result,
                 )
+                if is_complete:
+                    return response
+                if degraded_response is None or response.quality_score > degraded_response.quality_score:
+                    degraded_response = response
+                errors.append(f"{provider_name}: {response.message}")
+                continue
             except TimeoutError as exc:
                 latency_ms = (perf_counter() - started) * 1000
                 message = f"{provider_name}: {method_name} timeout after {self.provider_timeout_seconds:.1f}s"
@@ -190,6 +204,8 @@ class MarketDataService:
                     message=str(exc),
                 )
         self.last_errors = errors
+        if degraded_response is not None:
+            return degraded_response
         raise ProviderError(
             f"Semua provider gagal untuk {method_name}.",
             "\n".join(errors),

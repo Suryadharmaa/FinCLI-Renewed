@@ -89,7 +89,7 @@ fincli/
     storage/
       config.py                  # ConfigManager (JSON config)
       database.py                # FinCLIDatabase (SQLite)
-      secrets.py                 # Secret storage (~/.fincli/secrets.env)
+      secrets.py                 # Secret storage (OS credential store via keyring)
       cache.py                   # TTLCache (runtime)
       market_cache.py            # MarketCache (persistent SQLite)
       provider_metrics.py        # ProviderMetricsStore (persistent SQLite)
@@ -283,9 +283,9 @@ JSON file with:
 - Circuit breaker thresholds
 - Theme
 
-### Secrets (`~/.fincli/secrets.env`)
+### Secrets (OS credential store)
 
-Environment-style file with API keys. Never committed to git.
+API keys are stored as one JSON credential blob per FinCLI secret path using `keyring`. A legacy `~/.fincli/secrets.env` file is read once, migrated only after the new blob is verified, then removed with its default legacy key file. FinCLI fails with a configuration error when no usable credential-store backend exists.
 
 ---
 
@@ -317,7 +317,7 @@ Environment-style file with API keys. Never committed to git.
 
 `scripts/prepublish_check.py` scans for:
 
-- `.env` and `secrets.env` files
+- `.env` files and legacy `secrets.env` files
 - SQLite databases
 - Log files
 - Token-like strings in code

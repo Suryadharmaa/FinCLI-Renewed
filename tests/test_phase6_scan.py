@@ -39,7 +39,7 @@ class ScanMarketProvider:
 def test_scan_symbols_filters_by_rsi_threshold() -> None:
     provider = ScanMarketProvider()
 
-    results = CommandRouter()._run_async(scan_symbols(["AAPL", "MSFT"], provider, "rsi<35"))
+    results, errors = CommandRouter()._run_async(scan_symbols(["AAPL", "MSFT"], provider, "rsi<35"))
 
     symbols = [result.symbol for result in results]
     assert "MSFT" in symbols

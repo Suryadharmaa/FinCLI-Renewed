@@ -89,6 +89,11 @@ class FinCLIApp(App[None]):
         # Start auto-save timer (every 60 seconds)
         self.set_interval(60, self._auto_save_state)
 
+    def on_unmount(self) -> None:
+        shutdown = getattr(self.router, "shutdown", None)
+        if callable(shutdown):
+            shutdown()
+
     def on_input_changed(self, event: Input.Changed) -> None:
         palette = self.query_one(CommandPalette)
         palette_scroll = self.query_one("#command_palette_scroll", VerticalScroll)

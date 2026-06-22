@@ -40,7 +40,7 @@ def test_local_secret_overrides_empty_project_env_value(tmp_path: Path) -> None:
     load_local_secrets(target)
 
     assert os.getenv("GROQ_API_KEY") == "persisted-key"
-    assert secret_source("GROQ_API_KEY", target) == "~/.fincli/secrets.env"
+    assert secret_source("GROQ_API_KEY", target) == "OS credential store"
 
 
 def test_local_secret_overrides_stale_project_env_value_when_requested(tmp_path: Path) -> None:
@@ -51,7 +51,7 @@ def test_local_secret_overrides_stale_project_env_value_when_requested(tmp_path:
     load_local_secrets(target, override=True)
 
     assert os.getenv("FINNHUB_API_KEY") == "fresh-global-key"
-    assert secret_source("FINNHUB_API_KEY", target) == "~/.fincli/secrets.env"
+    assert secret_source("FINNHUB_API_KEY", target) == "OS credential store"
 
 
 def test_config_manager_load_prefers_saved_local_secret_over_stale_env(tmp_path: Path, monkeypatch) -> None:
@@ -65,7 +65,7 @@ def test_config_manager_load_prefers_saved_local_secret_over_stale_env(tmp_path:
     ConfigManager(tmp_path / "config.json")
 
     assert os.getenv("FINNHUB_API_KEY") == "fresh-global-key"
-    assert secret_source("FINNHUB_API_KEY", target) == "~/.fincli/secrets.env"
+    assert secret_source("FINNHUB_API_KEY", target) == "OS credential store"
 
 
 def test_ai_model_key_command_persists_key(tmp_path: Path, monkeypatch) -> None:

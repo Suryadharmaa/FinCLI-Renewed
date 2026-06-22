@@ -186,9 +186,15 @@ class PortfolioAnalytics:
             max_dd = min(max_dd, dd)
         max_dd = abs(max_dd)
 
-        # Annualized return
+        # Annualized return — use actual date range, not snapshot count
         total_return = (values[-1] / values[0] - 1.0) * 100 if values[0] > 0 else 0
-        years = len(values) / 252
+        try:
+            first_date = datetime.fromisoformat(str(snapshots[-1].created_at))
+            last_date = datetime.fromisoformat(str(snapshots[0].created_at))
+            actual_days = max((last_date - first_date).days, 1)
+            years = actual_days / 365.25
+        except (ValueError, TypeError):
+            years = len(values) / 252  # fallback to old behavior
         ann_return = ((1 + total_return / 100) ** (1 / years) - 1) * 100 if years > 0 else total_return
 
         # Annualized volatility

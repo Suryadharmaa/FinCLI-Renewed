@@ -50,10 +50,10 @@ Data quality depends on provider availability, API keys, provider plan entitleme
 - Theme system with 7 presets and custom theme support (create, import, export).
 - Error classification, crash context, and `/doctor report` for diagnostics.
 - Plugin system with manifest validation, sandbox, and lifecycle hooks.
-- Security: encrypted secrets at rest, token pattern scanning, input validation, `/security scan`.
+- Security: OS credential-store secrets, token pattern scanning, input validation, `/security scan`.
 - Automated CI/CD: GitHub Actions tests on 3 OSes, auto-publish to npm/PyPI on tag.
 - Session history with resume support.
-- Local-first storage: SQLite database, encrypted secrets, cache, sessions, audit log.
+- Local-first storage: SQLite database, OS credential-store secrets, cache, sessions, audit log.
 
 ---
 
@@ -408,7 +408,7 @@ Security:
 
 ```text
 ~/.fincli/config.json
-~/.fincli/secrets.env        # Encrypted at rest
+OS credential store          # API keys; legacy secrets.env migrates on first read
 ~/.fincli/fincli.db          # SQLite database
 ~/.fincli/themes/            # Custom themes
 ~/.fincli/plugins/           # Plugin directory

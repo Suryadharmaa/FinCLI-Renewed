@@ -20,7 +20,7 @@ After installing FinCLI, run through these steps:
 
 ## API Key Setup
 
-All API keys are stored locally in `~/.fincli/secrets.env`. Keys are never printed in the terminal -- only masked values like `abcd...wxyz` are shown.
+All API keys are stored in the operating system credential store through `keyring`. Keys are never printed in the terminal -- only masked values like `abcd...wxyz` are shown. A legacy `~/.fincli/secrets.env` file is migrated on first read and removed after the credential-store write is verified.
 
 ### AI Provider Keys
 
@@ -192,7 +192,7 @@ All data is stored locally under `~/.fincli/`:
 | File | Content |
 |------|---------|
 | `~/.fincli/config.json` | User preferences and settings |
-| `~/.fincli/secrets.env` | API keys (never commit this) |
+| OS credential store | API keys managed by `keyring` |
 | `~/.fincli/fincli.db` | SQLite database (portfolio, journal, watchlist, alerts, metrics, etc.) |
 | `~/.fincli/fincli.log` | Application log |
 

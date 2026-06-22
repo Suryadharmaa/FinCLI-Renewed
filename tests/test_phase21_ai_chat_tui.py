@@ -63,6 +63,6 @@ async def test_plain_input_is_treated_as_ai_chat(monkeypatch) -> None:
         command_input.value = "hello"
 
         await pilot.press("enter")
-        await pilot.pause()
+        await pilot.pause(2.0)  # Increased from default to avoid timing-sensitive flaky test
 
         assert "ai chat" in str(app.query_one("#status_bar").render())

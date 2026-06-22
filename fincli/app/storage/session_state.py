@@ -126,18 +126,12 @@ class SessionStateManager:
         return True
 
     def mark_clean_shutdown(self) -> None:
-        """Mark current session as cleanly shut down."""
+        """Mark all snapshots for current session as cleanly shut down."""
         if self._current_state:
-            # Get the latest id for this session
-            rows = self.db.query(
-                "SELECT MAX(id) as max_id FROM session_state WHERE session_id = ?",
+            self.db.execute(
+                "UPDATE session_state SET is_clean_shutdown = 1 WHERE session_id = ?",
                 (self._current_state.session_id,),
             )
-            if rows and rows[0]["max_id"]:
-                self.db.execute(
-                    "UPDATE session_state SET is_clean_shutdown = 1 WHERE id = ?",
-                    (int(rows[0]["max_id"]),),
-                )
 
     def get_last_unclean_state(self) -> SessionState | None:
         """Get the last unclean session state for recovery.

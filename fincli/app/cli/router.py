@@ -2133,12 +2133,12 @@ class CommandRouter:
         if action == "start":
             if daemon.is_running:
                 return CommandResult(Panel("Alert daemon sudah berjalan.", title="Alert Daemon"))
-            self._run_async(daemon.start())
+            daemon.start()
             return CommandResult(Panel("Alert daemon started. Checking every 60s. Use /alert daemon stop to halt.", title="Alert Daemon", border_style="green"))
         if action == "stop":
             if not daemon.is_running:
                 return CommandResult(Panel("Alert daemon tidak berjalan.", title="Alert Daemon"))
-            self._run_async(daemon.stop())
+            daemon.stop()
             return CommandResult(Panel("Alert daemon stopped.", title="Alert Daemon", border_style="yellow"))
         if action == "status":
             status = "running" if daemon.is_running else "stopped"
@@ -2309,16 +2309,25 @@ class CommandRouter:
         if args[0].lower() == "positions":
             return CommandResult(_format_positions(self.paper_trading.get_positions()))
         if len(args) < 4:
-            raise CommandError("Format: /trading paper <buy|sell> <symbol> <qty> <market|limit|stop_limit> [price]")
+            raise CommandError("Format: /trading paper <buy|sell> <symbol> <qty> <market|limit|stop_limit> [price] [--stop <price>]")
         side = args[0].lower()
         symbol = args[1].upper()
         try:
             quantity = float(args[2])
-            price = float(args[4]) if len(args) >= 5 else None
+            price = float(args[4]) if len(args) >= 5 and not args[4].startswith("--") else None
+            stop_raw = _extract_option_value(args, "--stop")
+            stop_price = float(stop_raw) if stop_raw is not None else None
         except ValueError as exc:
-            raise CommandError("Quantity dan price paper order harus angka.") from exc
+            raise CommandError("Quantity, price, dan stop price paper order harus angka.") from exc
         order_type = args[3].lower()
-        order = self.paper_trading.place_order(side, symbol, quantity, order_type, price=price)
+        quote = self._safe_quote(symbol)
+        if quote is not None and quote.price is not None:
+            self.paper_trading.process_market_price(symbol, quote.price)
+        if order_type == "market":
+            if quote is None or quote.price is None or quote.price <= 0:
+                raise CommandError("Paper market order requires a valid reference price from the quote provider.")
+            price = quote.price
+        order = self.paper_trading.place_order(side, symbol, quantity, order_type, price=price, stop_price=stop_price)
         return CommandResult(_format_paper_order(order))
 
     def _trading_stream(self, args: list[str]) -> CommandResult:
@@ -2360,8 +2369,11 @@ class CommandRouter:
         order_error = None
         if result.signal in {"buy", "sell"} and result.suggested_qty > 0:
             try:
+                quote = self._get_quote(symbol)
+                if quote.price is None or quote.price <= 0:
+                    raise CommandError("Paper market order requires a valid reference price from the quote provider.")
                 order_result = self.paper_trading.place_order(
-                    result.signal, symbol, result.suggested_qty, "market", strategy=strategy,
+                    result.signal, symbol, result.suggested_qty, "market", price=quote.price, strategy=strategy,
                 )
             except Exception as exc:  # noqa: BLE001 - risk guard may block
                 order_error = str(exc)
@@ -2422,6 +2434,7 @@ class CommandRouter:
             order_type = "limit" if price else "market"
 
             if not confirm:
+                quote = self._safe_quote(symbol)
                 # Show confirmation prompt
                 confirmation = self.live_trading.build_confirmation(
                     symbol=symbol,
@@ -2429,16 +2442,21 @@ class CommandRouter:
                     quantity=quantity,
                     order_type=order_type,
                     price=price,
+                    current_price=quote.price if quote is not None and quote.price is not None else 0.0,
                 )
                 return CommandResult(_format_order_confirmation(confirmation))
 
             # Place order with confirmation
+            quote = self._safe_quote(symbol)
+            if order_type == "market" and (quote is None or quote.price is None or quote.price <= 0):
+                raise CommandError("Live market order requires a valid reference price from the quote provider.")
             result = self._run_async(self.live_trading.place_order(
                 symbol=symbol,
                 side=action,
                 quantity=quantity,
                 order_type=order_type,
                 price=price,
+                reference_price=quote.price if quote is not None else None,
             ))
             return CommandResult(_format_live_order_result(result))
 
@@ -2635,14 +2653,14 @@ class CommandRouter:
                 return CommandResult(Panel("Watchlist kosong. Gunakan /watchlist add AAPL.", title="Scan"))
             filter_expression = remaining_args[0] if remaining_args else ""
             interval = remaining_args[1] if len(remaining_args) >= 2 else "1d"
-            results = self._run_async(scan_symbols(symbols, self.market_service, filter_expression, interval=interval))
-            return CommandResult(_format_scan_results(results, filter_expression or "all", interval, "watchlist"))
+            results, errors = self._run_async(scan_symbols(symbols, self.market_service, filter_expression, interval=interval))
+            return CommandResult(_format_scan_results(results, filter_expression or "all", interval, "watchlist", errors))
 
         if source in UNIVERSES:
             filter_expression = remaining_args[0] if remaining_args else ""
             interval = remaining_args[1] if len(remaining_args) >= 2 else "1d"
-            results = self._run_async(scan_universe(source, self.market_service, filter_expression, interval, limit=limit))
-            return CommandResult(_format_scan_results(results, filter_expression or "all", interval, source))
+            results, errors = self._run_async(scan_universe(source, self.market_service, filter_expression, interval, limit=limit))
+            return CommandResult(_format_scan_results(results, filter_expression or "all", interval, source, errors))
 
         raise CommandError(
             f"Source tidak dikenal: {source}. Gunakan: watchlist, {', '.join(UNIVERSES.keys())}"
@@ -2659,7 +2677,7 @@ class CommandRouter:
         symbols = [str(row["symbol"]) for row in rows]
         if not symbols:
             raise CommandError("Watchlist kosong. Gunakan /watchlist add AAPL.")
-        results = self._run_async(scan_symbols(symbols, self.market_service, filter_expression, interval=interval))
+        results, _errors = self._run_async(scan_symbols(symbols, self.market_service, filter_expression, interval=interval))
         written = export_rows(_scan_result_rows(results), export_format, target)
         return CommandResult(Panel(f"Scan export selesai: {written}", title="Scan Export", border_style="green"))
 
@@ -2742,6 +2760,12 @@ class CommandRouter:
             except TimeoutError:
                 future.cancel()
                 raise FinCLIError("Provider timeout — coba lagi atau kurangi beban query.")
+
+    def shutdown(self) -> None:
+        """Stop managed background services before the TUI event loop exits."""
+        daemon = getattr(self, "_alert_daemon_instance", None)
+        if daemon is not None:
+            daemon.stop()
 
     def _portfolio_market_values(self, row: dict[str, object]) -> tuple[float | None, float | None, float | None]:
         try:
@@ -3873,7 +3897,7 @@ def _format_rebalance(positions: list[dict], trades: list[dict], total_value: fl
     return table
 
 
-def _format_scan_results(results: list[ScanResult], filter_expression: str, interval: str, source: str = "watchlist") -> Table:
+def _format_scan_results(results: list[ScanResult], filter_expression: str, interval: str, source: str = "watchlist", errors: list[str] | None = None) -> Table:
     table = Table(title=f"Scan {source.title()} | {filter_expression} | {interval}", expand=True)
     table.add_column("Symbol", style="cyan")
     table.add_column("Close", justify="right")
@@ -3894,6 +3918,8 @@ def _format_scan_results(results: list[ScanResult], filter_expression: str, inte
         )
     if not results:
         table.add_row("-", "-", "-", "-", "-", "-", "Tidak ada symbol yang match.")
+    if errors:
+        table.add_row("-", "-", "-", "-", "-", "-", f"[yellow]{len(errors)} symbol(s) failed: {errors[0][:60]}[/]")
     return table
 
 

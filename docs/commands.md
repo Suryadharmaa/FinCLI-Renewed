@@ -285,6 +285,7 @@ Paper trading orders. Local simulation only -- no live orders are sent.
 /trading paper positions
 /trading paper buy AAPL 10 market
 /trading paper buy AAPL 5 limit 180
+/trading paper buy AAPL 5 stop_limit 180 --stop 185
 /trading paper sell AAPL 3 market
 ```
 

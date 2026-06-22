@@ -88,9 +88,14 @@ async def scan_symbols(
     filter_expression: str = "",
     interval: str = "1d",
     batch_size: int = 25,
-) -> list[ScanResult]:
-    """Scan symbols in bounded async batches."""
+) -> tuple[list[ScanResult], list[str]]:
+    """Scan symbols in bounded async batches.
+
+    Returns:
+        Tuple of (matched results, error messages for failed symbols).
+    """
     results: list[ScanResult] = []
+    errors: list[str] = []
     for index in range(0, len(symbols), batch_size):
         batch = symbols[index : index + batch_size]
         scanned = await asyncio.gather(
@@ -100,7 +105,9 @@ async def scan_symbols(
         for item in scanned:
             if isinstance(item, ScanResult) and item.matched:
                 results.append(item)
-    return results
+            elif isinstance(item, Exception):
+                errors.append(str(item))
+    return results, errors
 
 
 async def scan_universe(
@@ -110,8 +117,12 @@ async def scan_universe(
     interval: str = "1d",
     batch_size: int = 25,
     limit: int = 50,
-) -> list[ScanResult]:
-    """Scan a predefined universe with limit."""
+) -> tuple[list[ScanResult], list[str]]:
+    """Scan a predefined universe with limit.
+
+    Returns:
+        Tuple of (matched results, error messages for failed symbols).
+    """
     symbols = list(UNIVERSES.get(universe.lower(), ()))
     if not symbols:
         raise CommandError(f"Universe tidak dikenal: {universe}. Gunakan: {', '.join(UNIVERSES.keys())}")
@@ -229,7 +240,7 @@ def _parse_threshold(expression: str, prefix: str) -> float:
     try:
         return float(expression.replace(prefix, "", 1).strip())
     except ValueError:
-        return 0.0
+        raise CommandError(f"Invalid threshold in '{expression}'. Must be a number.")
 
 
 def _fmt(value: float | None) -> str:

@@ -218,11 +218,11 @@ class FinCLIDatabase:
         except sqlite3.Error as exc:
             raise StorageError("Database lokal gagal diinisialisasi.") from exc
 
-    def execute(self, sql: str, params: Iterable[object] = ()) -> None:
+    def execute(self, sql: str, params: Iterable[object] = ()) -> int | None:
         try:
             with closing(self.connect()) as db:
                 with db:
-                    db.execute(sql, tuple(params))
+                    return db.execute(sql, tuple(params)).lastrowid
         except sqlite3.Error as exc:
             raise StorageError("Operasi database gagal.") from exc
 
@@ -336,7 +336,8 @@ def _migrate_portfolio_schema(db: sqlite3.Connection) -> None:
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )"""
         )
-        db.execute("INSERT OR IGNORE INTO portfolios (name, description) VALUES ('main', 'Default portfolio')")
+    # Always ensure 'main' portfolio exists (handles fresh install and existing installs)
+    db.execute("INSERT OR IGNORE INTO portfolios (name, description) VALUES ('main', 'Default portfolio')")
 
     # Check if portfolio_name column exists
     columns = {str(row["name"]) for row in db.execute("PRAGMA table_info(portfolio_positions)").fetchall()}

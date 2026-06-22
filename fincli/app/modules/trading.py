@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
+import math
 
 from fincli.app.storage.database import FinCLIDatabase
 from fincli.app.utils.errors import CommandError
@@ -125,6 +126,10 @@ class RiskGuard:
         order_type: str,
         price: float | None = None,
         asset_class: str = "equity",
+        *,
+        equity: float | None = None,
+        current_notional: float | None = None,
+        daily_pnl: float | None = None,
     ) -> RiskCheckResult:
         if self.is_kill_switch_active():
             return RiskCheckResult(False, "Kill switch active. Use /trading resume to re-enable orders.")
@@ -138,40 +143,44 @@ class RiskGuard:
         if quantity <= 0:
             return RiskCheckResult(False, "Quantity must be greater than 0.")
 
-        if order_type == "limit" and (price is None or price <= 0):
-            return RiskCheckResult(False, "Limit orders require a positive price.")
-
-        if order_type == "stop_limit" and (price is None or price <= 0):
+        if order_type in {"market", "limit", "stop_limit"} and (price is None or not math.isfinite(price) or price <= 0):
+            if order_type == "market":
+                return RiskCheckResult(False, "Market orders require a valid reference price.")
+            if order_type == "limit":
+                return RiskCheckResult(False, "Limit orders require a positive price.")
             return RiskCheckResult(False, "Stop-limit orders require a positive price.")
 
         profile = self._get_profile()
-        if profile is not None:
-            equity = float(profile["equity"])
-            notional = float(quantity) * float(price or 0)
+        effective_equity = equity
+        if effective_equity is None and profile is not None:
+            effective_equity = float(profile["equity"])
+        if effective_equity is not None:
+            notional = float(quantity) * float(price)
+            existing = self._position_notional(symbol) if current_notional is None else float(current_notional)
+            effective_daily_pnl = self._daily_pnl() if daily_pnl is None else float(daily_pnl)
 
             # Max position size check
-            if notional > 0 and equity > 0:
-                existing = self._position_notional(symbol)
+            if notional > 0 and effective_equity > 0:
                 new_total = existing + notional if side == "buy" else existing - notional
-                if new_total > equity * self.max_position_pct:
+                projected_exposure = abs(new_total)
+                if projected_exposure > effective_equity * self.max_position_pct:
                     return RiskCheckResult(
                         False,
-                        f"Position size ${new_total:,.2f} exceeds {self.max_position_pct:.0%} of equity (${equity:,.2f}). Max allowed: ${equity * self.max_position_pct:,.2f}.",
+                        f"Position size ${projected_exposure:,.2f} exceeds {self.max_position_pct:.0%} of equity (${effective_equity:,.2f}). Max allowed: ${effective_equity * self.max_position_pct:,.2f}.",
                     )
 
             # Daily loss limit check
-            daily_pnl = self._daily_pnl()
-            if equity > 0 and daily_pnl < -(equity * self.daily_loss_limit_pct):
+            if effective_equity > 0 and effective_daily_pnl < -(effective_equity * self.daily_loss_limit_pct):
                 return RiskCheckResult(
                     False,
-                    f"Daily loss ${abs(daily_pnl):,.2f} exceeds {self.daily_loss_limit_pct:.0%} limit (${equity * self.daily_loss_limit_pct:,.2f}). Trading suspended for today.",
+                    f"Daily loss ${abs(effective_daily_pnl):,.2f} exceeds {self.daily_loss_limit_pct:.0%} limit (${effective_equity * self.daily_loss_limit_pct:,.2f}). Trading suspended for today.",
                 )
 
             # Leverage warning (not a block, but flagged)
-            if notional > equity and side == "buy":
+            if notional > effective_equity and side == "buy":
                 return RiskCheckResult(
                     False,
-                    f"Order notional ${notional:,.2f} exceeds available equity ${equity:,.2f}. Leverage not allowed in paper trading.",
+                    f"Order notional ${notional:,.2f} exceeds available equity ${effective_equity:,.2f}. Leverage not allowed in paper trading.",
                 )
 
         return RiskCheckResult(True, "passed")
@@ -202,7 +211,7 @@ class RiskGuard:
             """SELECT
                 SUM(CASE WHEN side = 'buy' THEN notional ELSE 0 END) -
                 SUM(CASE WHEN side = 'sell' THEN notional ELSE 0 END) as total
-            FROM paper_orders WHERE symbol = ? AND status IN ('filled', 'queued')""",
+            FROM paper_orders WHERE symbol = ? AND status IN ('filled', 'queued', 'triggered')""",
             (symbol.upper(),),
         )
         if rows and rows[0]["total"] is not None:
@@ -211,17 +220,12 @@ class RiskGuard:
 
     def _daily_pnl(self) -> float:
         today = date.today().isoformat()
-        rows = self.db.query(
-            "SELECT SUM(notional) as total FROM paper_orders WHERE date(created_at) = ? AND status = 'filled' AND side = 'sell'",
-            (today,),
-        )
-        sell_total = float(rows[0]["total"]) if rows and rows[0]["total"] is not None else 0.0
-        rows = self.db.query(
-            "SELECT SUM(notional) as total FROM paper_orders WHERE date(created_at) = ? AND status = 'filled' AND side = 'buy'",
-            (today,),
-        )
-        buy_total = float(rows[0]["total"]) if rows and rows[0]["total"] is not None else 0.0
-        return sell_total - buy_total
+        return float(sum(
+            realized
+            for state in _paper_position_states(self.db).values()
+            for fill_date, realized in state["daily_realized"]
+            if fill_date == today
+        ))
 
 
 # ---------------------------------------------------------------------------
@@ -279,6 +283,9 @@ class PaperTradingEngine:
         normalized_type = order_type.strip().lower()
         normalized_symbol = normalize_symbol(symbol)
 
+        if normalized_type == "stop_limit" and (stop_price is None or not math.isfinite(stop_price) or stop_price <= 0):
+            raise CommandError("Stop-limit orders require a positive stop price.")
+
         # Risk guard check
         risk = self.risk_guard.check(normalized_side, normalized_symbol, quantity, normalized_type, price)
         if not risk.passed:
@@ -297,21 +304,18 @@ class PaperTradingEngine:
         if normalized_type == "stop_limit" and stop_price is not None and stop_price <= 0:
             raise CommandError("Stop price harus lebih besar dari 0.")
 
-        status = "filled" if normalized_type == "market" or price is not None else "queued"
-        # For market orders without price, use 0 notional (risk guard will skip position check)
-        # For limit/stop orders, calculate notional from price
-        notional = float(quantity) * float(price or 0)
-        self.db.execute(
+        if normalized_side == "sell" and self._filled_quantity(normalized_symbol) + 1e-9 < quantity:
+            raise CommandError("Paper sell order exceeds the filled position. Short selling is not supported.")
+
+        status = "filled" if normalized_type == "market" else "queued"
+        notional = float(quantity) * float(price)
+        order_id = self.db.execute(
             """
             INSERT INTO paper_orders(side, symbol, quantity, order_type, price, stop_price, notional, status, strategy)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (normalized_side, normalized_symbol, quantity, normalized_type, price, stop_price, notional, status, strategy),
         )
-
-        # Get the order ID from the most recent insert
-        rows = self.db.query("SELECT MAX(id) as id FROM paper_orders WHERE symbol = ? AND side = ? AND status = ?", (normalized_symbol, normalized_side, status))
-        order_id = int(rows[0]["id"]) if rows and rows[0]["id"] is not None else None
 
         self.audit.record("placed", f"{normalized_side} {normalized_symbol} {quantity} {normalized_type} status={status}", order_id)
 
@@ -328,13 +332,58 @@ class PaperTradingEngine:
             "strategy": strategy,
         }
 
+    def process_market_price(self, symbol: str, market_price: float) -> list[dict[str, object]]:
+        """Fill queued paper orders whose limit and stop conditions match a quote."""
+        if not math.isfinite(market_price) or market_price <= 0:
+            raise CommandError("Market price must be a positive number.")
+
+        normalized_symbol = normalize_symbol(symbol)
+        rows = self.db.query(
+            """SELECT * FROM paper_orders
+               WHERE symbol = ? AND status IN ('queued', 'triggered')
+               ORDER BY id""",
+            (normalized_symbol,),
+        )
+        filled: list[dict[str, object]] = []
+        for row in rows:
+            order = dict(row)
+            status = str(order["status"])
+            side = str(order["side"])
+            order_type = str(order["order_type"])
+            limit_price = float(order["price"])
+            stop_price = order["stop_price"]
+
+            if order_type == "stop_limit" and status == "queued":
+                stop = float(stop_price)
+                triggered = market_price >= stop if side == "buy" else market_price <= stop
+                if not triggered:
+                    continue
+                self.db.execute("UPDATE paper_orders SET status = 'triggered' WHERE id = ?", (order["id"],))
+                status = "triggered"
+                self.audit.record("triggered", f"Order {order['id']} triggered at {market_price}", int(order["id"]))
+
+            if status not in {"queued", "triggered"}:
+                continue
+            matches_limit = market_price <= limit_price if side == "buy" else market_price >= limit_price
+            if not matches_limit:
+                continue
+            if side == "sell" and self._filled_quantity(normalized_symbol) + 1e-9 < float(order["quantity"]):
+                self.db.execute("UPDATE paper_orders SET status = 'rejected' WHERE id = ?", (order["id"],))
+                self.audit.record("rejected", f"Order {order['id']} exceeds filled position", int(order["id"]))
+                continue
+            self.db.execute("UPDATE paper_orders SET status = 'filled' WHERE id = ?", (order["id"],))
+            order["status"] = "filled"
+            self.audit.record("filled", f"Order {order['id']} filled at limit {limit_price}", int(order["id"]))
+            filled.append(order)
+        return filled
+
     def cancel_order(self, order_id: int) -> dict[str, object]:
         rows = self.db.query("SELECT * FROM paper_orders WHERE id = ?", (order_id,))
         if not rows:
             self.audit.record("cancel_failed", f"Order {order_id} not found")
             raise CommandError(f"Order tidak ditemukan: {order_id}")
         order = dict(rows[0])
-        if order["status"] not in {"queued", "pending"}:
+        if order["status"] not in {"queued", "pending", "triggered"}:
             self.audit.record("cancel_failed", f"Order {order_id} status={order['status']}")
             raise CommandError(f"Order {order_id} tidak bisa dibatalkan (status: {order['status']}).")
         self.db.execute("UPDATE paper_orders SET status = 'cancelled' WHERE id = ?", (order_id,))
@@ -355,35 +404,19 @@ class PaperTradingEngine:
         return [dict(row) for row in rows]
 
     def get_positions(self) -> list[dict[str, object]]:
-        """Aggregate filled orders into net positions per symbol."""
-        rows = self.db.query(
-            """
-            SELECT symbol,
-                   SUM(CASE WHEN side = 'buy' THEN quantity ELSE -quantity END) as net_qty,
-                   SUM(CASE WHEN side = 'buy' THEN notional ELSE 0 END) as buy_notional,
-                   SUM(CASE WHEN side = 'sell' THEN notional ELSE 0 END) as sell_notional,
-                   COUNT(*) as order_count
-            FROM paper_orders
-            WHERE status = 'filled'
-            GROUP BY symbol
-            HAVING ABS(net_qty) > 0.00000001
-            ORDER BY symbol
-            """
-        )
+        """Aggregate filled orders into positions using FIFO cost basis."""
         positions: list[dict[str, object]] = []
-        for row in rows:
-            net_qty = float(row["net_qty"])
-            buy_not = float(row["buy_notional"])
-            sell_not = float(row["sell_notional"])
-            avg_price = buy_not / net_qty if net_qty > 0 else 0.0
+        for symbol, state in sorted(_paper_position_states(self.db).items()):
+            if state["quantity"] <= 1e-9:
+                continue
             positions.append({
-                "symbol": row["symbol"],
-                "net_quantity": net_qty,
-                "avg_price": avg_price,
-                "buy_notional": buy_not,
-                "sell_notional": sell_not,
-                "realized_pnl": sell_not - buy_not if net_qty <= 0 else 0.0,
-                "order_count": row["order_count"],
+                "symbol": symbol,
+                "net_quantity": state["quantity"],
+                "avg_price": state["cost"] / state["quantity"],
+                "buy_notional": state["buy_notional"],
+                "sell_notional": state["sell_notional"],
+                "realized_pnl": state["realized_pnl"],
+                "order_count": state["order_count"],
             })
         return positions
 
@@ -397,6 +430,68 @@ class PaperTradingEngine:
         self.risk_guard.set_kill_switch(active, reason)
         action = "kill_switch_activated" if active else "kill_switch_deactivated"
         self.audit.record(action, reason)
+
+    def _filled_quantity(self, symbol: str) -> float:
+        state = _paper_position_states(self.db).get(symbol.upper())
+        return float(state["quantity"]) if state else 0.0
+
+
+def _paper_position_states(db: FinCLIDatabase) -> dict[str, dict[str, object]]:
+    """Replay filled orders to derive FIFO lots and realized PnL."""
+    rows = db.query(
+        """SELECT id, side, symbol, quantity, price, notional, created_at
+           FROM paper_orders WHERE status = 'filled' ORDER BY id"""
+    )
+    states: dict[str, dict[str, object]] = {}
+    for row in rows:
+        symbol = str(row["symbol"])
+        state = states.setdefault(
+            symbol,
+            {
+                "lots": [],
+                "quantity": 0.0,
+                "cost": 0.0,
+                "buy_notional": 0.0,
+                "sell_notional": 0.0,
+                "realized_pnl": 0.0,
+                "daily_realized": [],
+                "order_count": 0,
+            },
+        )
+        quantity = float(row["quantity"])
+        price = float(row["price"] or 0.0)
+        notional = float(row["notional"])
+        state["order_count"] = int(state["order_count"]) + 1
+        lots: list[list[float]] = state["lots"]  # [remaining_quantity, entry_price]
+
+        if row["side"] == "buy":
+            lots.append([quantity, price])
+            state["quantity"] = float(state["quantity"]) + quantity
+            state["cost"] = float(state["cost"]) + notional
+            state["buy_notional"] = float(state["buy_notional"]) + notional
+            continue
+
+        remaining = quantity
+        realized = 0.0
+        while remaining > 1e-9 and lots:
+            lot_quantity, lot_price = lots[0]
+            matched = min(remaining, lot_quantity)
+            realized += (price - lot_price) * matched
+            lot_quantity -= matched
+            remaining -= matched
+            state["quantity"] = float(state["quantity"]) - matched
+            state["cost"] = float(state["cost"]) - lot_price * matched
+            if lot_quantity <= 1e-9:
+                lots.pop(0)
+            else:
+                lots[0][0] = lot_quantity
+
+        state["sell_notional"] = float(state["sell_notional"]) + notional
+        state["realized_pnl"] = float(state["realized_pnl"]) + realized
+        fill_date = str(row["created_at"])[:10]
+        daily_realized: list[tuple[str, float]] = state["daily_realized"]
+        daily_realized.append((fill_date, realized))
+    return states
 
 
 # ---------------------------------------------------------------------------
@@ -467,8 +562,8 @@ class LiveTradingEngine:
         current_price: float = 0.0,
     ) -> LiveOrderConfirmation:
         """Build order confirmation for user review."""
-        # Run risk check
-        risk = self.risk_guard.check(side, symbol, quantity, order_type, price)
+        reference_price = price or current_price
+        risk = self.risk_guard.check(side, symbol, quantity, order_type, reference_price)
 
         # Estimate cost
         estimated_price = price or current_price
@@ -497,6 +592,7 @@ class LiveTradingEngine:
         price: float | None = None,
         stop_price: float | None = None,
         time_in_force: str = "day",
+        reference_price: float | None = None,
     ) -> dict:
         """Place a live order through broker with risk checks."""
         if not self._broker:
@@ -508,8 +604,26 @@ class LiveTradingEngine:
         normalized_type = order_type.strip().lower()
         normalized_symbol = symbol.strip().upper()
 
-        # Risk guard check (same as paper trading)
-        risk = self.risk_guard.check(normalized_side, normalized_symbol, quantity, normalized_type, price)
+        resolved_price = await self._resolve_reference_price(
+            normalized_symbol,
+            normalized_type,
+            price,
+            reference_price,
+        )
+        account = await self._broker.get_account()
+        positions = await self._broker.get_positions()
+        existing_notional = self._live_position_notional(positions, normalized_symbol)
+
+        # The live risk context must come from the broker, never the paper ledger.
+        risk = self.risk_guard.check(
+            normalized_side,
+            normalized_symbol,
+            quantity,
+            normalized_type,
+            resolved_price,
+            equity=float(account.equity),
+            current_notional=existing_notional,
+        )
         if not risk.passed:
             self.audit.record(
                 "live_risk_blocked",
@@ -555,6 +669,40 @@ class LiveTradingEngine:
                 f"{normalized_side} {normalized_symbol} {quantity} {normalized_type}: {exc}",
             )
             raise
+
+    async def _resolve_reference_price(
+        self,
+        symbol: str,
+        order_type: str,
+        price: float | None,
+        reference_price: float | None,
+    ) -> float:
+        candidate = reference_price if reference_price is not None else price
+        if candidate is not None and math.isfinite(candidate) and candidate > 0:
+            return float(candidate)
+        if order_type != "market":
+            raise CommandError("Limit and stop-limit orders require a positive price.")
+        get_quote = getattr(self._broker, "get_quote", None)
+        if get_quote is None:
+            raise CommandError("Live market orders require a reference price.")
+        quote = await get_quote(symbol)
+        quote_price = getattr(quote, "price", quote)
+        if quote_price is None or not math.isfinite(float(quote_price)) or float(quote_price) <= 0:
+            raise CommandError("Live market orders require a valid reference price.")
+        return float(quote_price)
+
+    @staticmethod
+    def _live_position_notional(positions: list[object], symbol: str) -> float:
+        for position in positions:
+            if str(getattr(position, "symbol", "")).upper() != symbol:
+                continue
+            market_value = float(getattr(position, "market_value", 0.0) or 0.0)
+            if market_value == 0.0:
+                market_value = float(getattr(position, "quantity", 0.0)) * float(
+                    getattr(position, "current_price", 0.0) or getattr(position, "avg_entry_price", 0.0)
+                )
+            return -abs(market_value) if str(getattr(position, "side", "long")).lower() == "short" else abs(market_value)
+        return 0.0
 
     async def get_positions(self) -> list:
         """Get positions from broker."""

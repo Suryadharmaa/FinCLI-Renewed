@@ -5,11 +5,9 @@ risk-adjusted ratios (Sharpe/Sortino/Calmar), trade statistics,
 Monte Carlo robustness testing, and exportable reports.
 
 Note on Monte Carlo:
-    Monte Carlo simulation uses `random.shuffle()` without a fixed seed.
-    Results vary between runs — this is intentional for robustness testing.
-    Each run gives a different permutation of trade order, showing the range
-    of possible outcomes. For reproducible results, set `random.seed()` before
-    calling `run_backtest()` with `include_monte_carlo=True`.
+    Monte Carlo simulation bootstraps observed trade returns with replacement
+    and compounds the sampled sequence. `_monte_carlo(..., seed=N)` supports
+    deterministic regression tests without mutating global RNG state.
 """
 
 from __future__ import annotations
@@ -77,9 +75,11 @@ class PositionSizer:
         return equity * self.fraction / price if price > 0 else 0
 
     def _kelly_size(self, equity: float, win_rate: float, avg_win: float, avg_loss: float, price: float) -> float:
-        if avg_loss <= 0 or price <= 0:
+        if price <= 0:
+            return 0.0
+        if avg_loss >= 0:  # avg_loss should be negative for losing trades
             return equity * self.fraction / price
-        b = avg_win / avg_loss  # win/loss ratio
+        b = avg_win / abs(avg_loss)  # win/loss ratio (avg_loss is negative)
         p = win_rate / 100.0
         q = 1 - p
         kelly_pct = (b * p - q) / b
@@ -660,18 +660,23 @@ def _run_walk_forward(
 # ---------------------------------------------------------------------------
 
 
-def _monte_carlo(trades: list[BacktestTrade], initial_equity: float, simulations: int) -> MonteCarloResult:
-    pnl_values = [t.pnl_absolute for t in trades]
-    if not pnl_values:
+def _monte_carlo(
+    trades: list[BacktestTrade],
+    initial_equity: float,
+    simulations: int,
+    seed: int | None = None,
+) -> MonteCarloResult:
+    trade_returns = [trade.pnl_percent / 100.0 for trade in trades]
+    if not trade_returns or initial_equity <= 0:
         return MonteCarloResult(simulations, 0, 0, 0, 0, 0, 0, 0)
 
+    rng = random.Random(seed)
     final_equities: list[float] = []
     for _ in range(simulations):
-        shuffled = list(pnl_values)
-        random.shuffle(shuffled)
+        sampled_returns = rng.choices(trade_returns, k=len(trade_returns))
         equity = initial_equity
-        for pnl in shuffled:
-            equity += pnl
+        for trade_return in sampled_returns:
+            equity = max(0.0, equity * (1.0 + trade_return))
         final_equities.append(equity)
 
     returns = [(e - initial_equity) / initial_equity * 100 for e in final_equities]

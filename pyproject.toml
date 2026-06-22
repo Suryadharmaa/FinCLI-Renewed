@@ -13,6 +13,7 @@ dependencies = [
   "rich>=13.9.0",
   "python-dotenv>=1.0.1",
   "httpx>=0.27.2",
+  "keyring>=25.0.0",
   "pydantic>=2.9.2",
   "yfinance>=0.2.50",
   "pandas>=2.2.3",

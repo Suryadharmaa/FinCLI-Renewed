@@ -1,18 +1,26 @@
-"""Local secret storage for globally installed FinCLI."""
+"""Secret storage backed by the operating system credential store."""
 
 from __future__ import annotations
 
 import base64
+import hashlib
+import json
 import os
 from pathlib import Path
 
 from fincli.app.storage.config_paths import APP_DIR
 from fincli.app.utils.errors import ConfigError
 
+try:
+    import keyring as _keyring
+except ImportError:  # pragma: no cover - exercised when optional dependency is absent
+    _keyring = None
+
 
 SECRETS_FILE = APP_DIR / "secrets.env"
 _KEY_FILE = APP_DIR / ".secrets_key"
 _MAGIC = b"FINCLI1:"
+_SERVICE_NAME = "fincli.secrets"
 
 
 def load_local_secrets(
@@ -21,27 +29,15 @@ def load_local_secrets(
     override: bool = False,
     override_keys: set[str] | None = None,
 ) -> None:
-    """Load persisted secrets into process environment."""
-    path = path or SECRETS_FILE
+    """Load OS-keyring secrets into the current process environment."""
     override_keys = override_keys or set()
-    if not path.exists():
-        return
-    raw_bytes = path.read_bytes()
-    plaintext = _decrypt(raw_bytes)
-    for line in plaintext.splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            continue
-        key, value = stripped.split("=", 1)
-        key = key.strip()
-        value = _unquote(value.strip())
-        if key and (override or key in override_keys or key not in os.environ or os.environ.get(key, "") == ""):
+    for key, value in read_secrets(path).items():
+        if override or key in override_keys or not os.environ.get(key):
             os.environ[key] = value
 
 
 def save_secret(env_key: str, value: str, path: Path | None = None) -> None:
-    """Persist a secret locally (encrypted at rest) and expose it to the current process."""
-    path = path or SECRETS_FILE
+    """Persist one secret in the OS credential store and expose it in-process."""
     key = _validate_env_key(env_key)
     secret = _sanitize_value(value)
     if not secret:
@@ -49,70 +45,140 @@ def save_secret(env_key: str, value: str, path: Path | None = None) -> None:
 
     secrets = read_secrets(path)
     secrets[key] = secret
-
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        raw = _serialize_secrets(secrets)
-        encrypted = _encrypt(raw)
-        path.write_bytes(encrypted)
-        try:
-            os.chmod(path, 0o600)
-        except OSError:
-            pass
-    except OSError as exc:
-        raise ConfigError("Secret lokal gagal disimpan.", f"Path: {path}") from exc
-
+    _write_secrets(path or SECRETS_FILE, secrets)
     os.environ[key] = secret
 
 
 def clear_secrets(path: Path | None = None) -> int:
-    """Clear persisted local secrets and remove them from the current process."""
-    path = path or SECRETS_FILE
-    secrets = read_secrets(path)
+    """Clear the credential-store blob and matching process environment values."""
+    target = path or SECRETS_FILE
+    secrets = read_secrets(target)
     for key in secrets:
         os.environ.pop(key, None)
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        raw = _serialize_secrets({})
-        encrypted = _encrypt(raw)
-        path.write_bytes(encrypted)
+    if secrets:
+        backend = _require_keyring()
         try:
-            os.chmod(path, 0o600)
-        except OSError:
-            pass
-    except OSError as exc:
-        raise ConfigError("Secret lokal gagal dibersihkan.", f"Path: {path}") from exc
+            backend.delete_password(_SERVICE_NAME, _credential_account(target))
+        except Exception as exc:  # noqa: BLE001 - keyring backends vary by OS
+            raise ConfigError("Secret lokal gagal dihapus dari credential store.") from exc
     return len(secrets)
 
 
 def read_secrets(path: Path | None = None) -> dict[str, str]:
-    """Read local secrets (auto-decrypts if encrypted)."""
-    path = path or SECRETS_FILE
-    if not path.exists():
+    """Read the JSON blob for a path, migrating a legacy file exactly once."""
+    target = path or SECRETS_FILE
+    backend = _require_keyring()
+    account = _credential_account(target)
+    try:
+        raw = backend.get_password(_SERVICE_NAME, account)
+    except Exception as exc:  # noqa: BLE001 - report unavailable backends uniformly
+        raise ConfigError("OS credential store tidak tersedia.") from exc
+    if raw is not None:
+        return _decode_blob(raw)
+    if not target.exists():
         return {}
-    raw_bytes = path.read_bytes()
-    plaintext = _decrypt(raw_bytes)
+    return _migrate_legacy_file(target, backend, account)
+
+
+def secret_source(env_key: str, path: Path | None = None) -> str:
+    """Return a display-safe source without exposing a local file path."""
+    current = os.getenv(env_key)
+    if not current:
+        return "-"
+    if read_secrets(path).get(env_key) == current:
+        return "OS credential store"
+    return "environment/.env"
+
+
+def _write_secrets(path: Path, secrets: dict[str, str]) -> None:
+    backend = _require_keyring()
+    payload = json.dumps(secrets, sort_keys=True, separators=(",", ":"))
+    try:
+        backend.set_password(_SERVICE_NAME, _credential_account(path), payload)
+    except Exception as exc:  # noqa: BLE001 - keyring backends vary by OS
+        raise ConfigError("Secret lokal gagal disimpan ke credential store.") from exc
+    try:
+        stored = backend.get_password(_SERVICE_NAME, _credential_account(path))
+    except Exception as exc:  # noqa: BLE001
+        raise ConfigError("Secret lokal gagal diverifikasi di credential store.") from exc
+    if stored is None or _decode_blob(stored) != secrets:
+        raise ConfigError("Secret lokal gagal diverifikasi di credential store.")
+
+
+def _migrate_legacy_file(path: Path, backend: object, account: str) -> dict[str, str]:
+    try:
+        legacy = _parse_legacy(_decrypt_legacy(path.read_bytes()))
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        raise ConfigError("File secret lama tidak dapat dimigrasikan.", f"Path: {path}") from exc
+
+    payload = json.dumps(legacy, sort_keys=True, separators=(",", ":"))
+    try:
+        backend.set_password(_SERVICE_NAME, account, payload)
+        stored = backend.get_password(_SERVICE_NAME, account)
+    except Exception as exc:  # noqa: BLE001
+        raise ConfigError("Migrasi secret ke OS credential store gagal.") from exc
+    if stored is None or _decode_blob(stored) != legacy:
+        raise ConfigError("Migrasi secret tidak dapat diverifikasi.")
+
+    try:
+        path.unlink()
+        if path == SECRETS_FILE and _KEY_FILE.exists():
+            _KEY_FILE.unlink()
+    except OSError as exc:
+        raise ConfigError("Migrasi secret berhasil tetapi file lama gagal dihapus.", f"Path: {path}") from exc
+    return legacy
+
+
+def _require_keyring() -> object:
+    if _keyring is None:
+        raise ConfigError("OS credential store tidak tersedia. Install dependency 'keyring'.")
+    try:
+        backend = _keyring.get_keyring()
+        if getattr(backend, "priority", 0) <= 0:
+            raise RuntimeError("no usable keyring backend")
+    except Exception as exc:  # noqa: BLE001
+        raise ConfigError("OS credential store tidak tersedia.") from exc
+    return _keyring
+
+
+def _credential_account(path: Path) -> str:
+    normalized = str(path.expanduser().resolve())
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def _decode_blob(raw: str) -> dict[str, str]:
+    try:
+        decoded = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ConfigError("Data OS credential store tidak valid.") from exc
+    if not isinstance(decoded, dict) or any(not isinstance(key, str) or not isinstance(value, str) for key, value in decoded.items()):
+        raise ConfigError("Data OS credential store tidak valid.")
+    return decoded
+
+
+def _parse_legacy(plaintext: str) -> dict[str, str]:
     result: dict[str, str] = {}
     for line in plaintext.splitlines():
         stripped = line.strip()
         if not stripped or stripped.startswith("#") or "=" not in stripped:
             continue
         key, value = stripped.split("=", 1)
-        result[key.strip()] = _unquote(value.strip())
+        result[_validate_env_key(key)] = _unquote(value.strip())
     return result
 
 
-def secret_source(env_key: str, path: Path | None = None) -> str:
-    """Return a display-safe source for a secret."""
-    path = path or SECRETS_FILE
-    current = os.getenv(env_key)
-    if not current:
-        return "-"
-    if env_key in os.environ:
-        if read_secrets(path).get(env_key) == current:
-            return "~/.fincli/secrets.env"
-        return "environment/.env"
-    return "-"
+def _decrypt_legacy(raw: bytes) -> str:
+    if not raw.startswith(_MAGIC):
+        return raw.decode("utf-8")
+    if not _KEY_FILE.exists():
+        raise ConfigError("Legacy secret key tidak ditemukan; migrasi tidak dapat dilakukan.")
+    encrypted = base64.b64decode(raw[len(_MAGIC):])
+    key = base64.b64decode(_KEY_FILE.read_bytes())
+    return _xorcrypt(encrypted, key).decode("utf-8")
+
+
+def _xorcrypt(data: bytes, key: bytes) -> bytes:
+    return bytes(byte ^ key[index % len(key)] for index, byte in enumerate(data))
 
 
 def _validate_env_key(env_key: str) -> str:
@@ -126,52 +192,7 @@ def _sanitize_value(value: str) -> str:
     return value.strip().replace("\r", "").replace("\n", "")
 
 
-def _quote(value: str) -> str:
-    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
-    return f'"{escaped}"'
-
-
 def _unquote(value: str) -> str:
     if len(value) >= 2 and value[0] == value[-1] == '"':
         return value[1:-1].replace('\\"', '"').replace("\\\\", "\\")
     return value
-
-
-def _serialize_secrets(secrets: dict[str, str]) -> str:
-    lines = ["# FinCLI local secrets. Do not commit or share this file."]
-    lines.extend(f"{k}={_quote(v)}" for k, v in sorted(secrets.items()))
-    return "\n".join(lines) + "\n"
-
-
-def _get_or_create_key() -> bytes:
-    if _KEY_FILE.exists():
-        return base64.b64decode(_KEY_FILE.read_bytes())
-    key = os.urandom(32)
-    _KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
-    _KEY_FILE.write_bytes(base64.b64encode(key))
-    try:
-        os.chmod(_KEY_FILE, 0o600)
-    except OSError:
-        pass
-    return key
-
-
-def _xorcrypt(data: bytes, key: bytes) -> bytes:
-    key_len = len(key)
-    return bytes(b ^ key[i % key_len] for i, b in enumerate(data))
-
-
-def _encrypt(plaintext: str) -> bytes:
-    key = _get_or_create_key()
-    encrypted = _xorcrypt(plaintext.encode("utf-8"), key)
-    return _MAGIC + base64.b64encode(encrypted)
-
-
-def _decrypt(raw: bytes) -> str:
-    if raw.startswith(_MAGIC):
-        encrypted_b64 = raw[len(_MAGIC):]
-        key = _get_or_create_key()
-        encrypted = base64.b64decode(encrypted_b64)
-        return _xorcrypt(encrypted, key).decode("utf-8")
-    # Legacy plaintext — backward compatible
-    return raw.decode("utf-8")

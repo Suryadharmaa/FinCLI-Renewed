@@ -32,11 +32,16 @@ class WebResearchService:
         self.timeout_seconds = timeout_seconds
         self._loop_id: int | None = None  # Track which event loop owns the client
 
-    def _get_client(self) -> httpx.AsyncClient:
+    async def _get_client(self) -> httpx.AsyncClient:
         """Lazily create and reuse HTTP client.
 
         Recreates client if event loop changed (handles multiple _run_async calls).
         """
+        if not self._owns_client:
+            if self._client is None:
+                raise ProviderError("Web research client tidak tersedia.")
+            return self._client
+
         try:
             current_loop = asyncio.get_running_loop()
             current_id = id(current_loop)
@@ -45,14 +50,9 @@ class WebResearchService:
 
         # Recreate client if loop changed or client doesn't exist
         if self._client is None or (current_id is not None and current_id != self._loop_id):
-            if self._client is not None and self._owns_client:
-                # Close old client (best effort)
-                try:
-                    loop = asyncio.get_running_loop()
-                    loop.create_task(self._client.aclose())
-                except RuntimeError:
-                    # No running loop — client will be garbage collected
-                    pass
+            if self._client is not None:
+                await self._client.aclose()
+                self._client = None
             self._client = httpx.AsyncClient(
                 timeout=self.timeout_seconds,
                 follow_redirects=True,
@@ -154,7 +154,7 @@ class WebResearchService:
         return text[:max_chars]
 
     async def _get_text(self, url: str) -> str:
-        client = self._get_client()
+        client = await self._get_client()
         try:
             response = await client.get(url)
             response.raise_for_status()
