@@ -1,4 +1,4 @@
-# FinCLI v1.5.0
+# FinCLI v1.5.1
 
 [![npm version](https://img.shields.io/npm/v/@drico2008/fincli)](https://www.npmjs.com/package/@drico2008/fincli)
 [![npm downloads](https://img.shields.io/npm/dm/@drico2008/fincli?label=npm%20downloads)](https://www.npmjs.com/package/@drico2008/fincli)
@@ -415,6 +415,16 @@ Security:
 ```
 
 ## Changelog
+
+### v1.5.1
+- Deep code review: 17 bug fixes across codebase
+- Fix operator precedence in provider error classification
+- Fix frozen dataclass mutability (lists → tuples)
+- Fix AlertDaemon silent exception swallowing
+- Fix RiskGuard net notional calculation (buy - sell)
+- Translate all remaining Indonesian text to English
+- Case-insensitive provider matching in news aggregator
+- Remove deleted /quote command from verb map
 
 ### v1.5.0
 - WebSocket reconnect logic with exponential backoff + jitter
