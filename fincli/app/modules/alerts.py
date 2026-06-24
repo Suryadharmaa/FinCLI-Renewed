@@ -154,14 +154,17 @@ class AlertDaemon:
         return results
 
     def _run(self) -> None:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         try:
             while not self._stop_event.is_set():
                 try:
-                    asyncio.run(self.check_once())
+                    loop.run_until_complete(self.check_once())
                 except Exception as exc:  # noqa: BLE001 - daemon should not crash
                     logger.warning("Alert check failed: %s", exc)
                 self._stop_event.wait(self.check_interval)
         finally:
+            loop.close()
             with self._lifecycle_lock:
                 self._running = False
                 if self._thread is current_thread():

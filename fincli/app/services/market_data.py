@@ -46,6 +46,7 @@ class MarketDataService:
         self.cache = cache
         self.cache_ttl_seconds = cache_ttl_seconds
         self.provider_timeout_seconds = max(0.05, float(provider_timeout_seconds))
+        self._loop: asyncio.AbstractEventLoop | None = None
         self.metrics_store = metrics_store
         self.symbol_resolver = symbol_resolver or SymbolResolver()
         self.circuit_breaker_failure_threshold = max(1, int(circuit_breaker_failure_threshold))
@@ -332,7 +333,9 @@ class MarketDataService:
         try:
             asyncio.get_running_loop()
         except RuntimeError:
-            return asyncio.run(awaitable)
+            if self._loop is None or self._loop.is_closed():
+                self._loop = asyncio.new_event_loop()
+            return self._loop.run_until_complete(awaitable)
         with ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(asyncio.run, awaitable)
             return future.result()

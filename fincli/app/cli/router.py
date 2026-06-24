@@ -3919,7 +3919,12 @@ def _format_scan_results(results: list[ScanResult], filter_expression: str, inte
     if not results:
         table.add_row("-", "-", "-", "-", "-", "-", "Tidak ada symbol yang match.")
     if errors:
-        table.add_row("-", "-", "-", "-", "-", "-", f"[yellow]{len(errors)} symbol(s) failed: {errors[0][:60]}[/]")
+        summary = f"{len(errors)} symbol(s) failed"
+        if errors:
+            summary += f": {errors[0][:50]}"
+            if len(errors) > 1:
+                summary += f" (+{len(errors)-1} more)"
+        table.add_row("-", "-", "-", "-", "-", "-", f"[yellow]{summary}[/]")
     return table
 
 

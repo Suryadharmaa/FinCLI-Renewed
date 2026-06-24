@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 import os
 import time
 from datetime import datetime, timezone
 from urllib.parse import urlencode
+
+logger = logging.getLogger(__name__)
 
 import httpx
 
@@ -118,7 +121,10 @@ class BinanceBroker(BaseBroker):
         resp = await self._client.request(method, url, params=params, headers=self._get_headers(), timeout=10)
 
         if resp.status_code != 200:
-            error = resp.json().get("msg", resp.text)
+            try:
+                error = resp.json().get("msg", resp.text)
+            except (ValueError, AttributeError):
+                error = resp.text[:200] if resp.text else f"HTTP {resp.status_code}"
             raise ProviderError(f"Binance API error: {error}")
 
         return resp.json()
@@ -132,7 +138,10 @@ class BinanceBroker(BaseBroker):
         resp = await self._client.request(method, url, params=params, timeout=10)
 
         if resp.status_code != 200:
-            error = resp.json().get("msg", resp.text)
+            try:
+                error = resp.json().get("msg", resp.text)
+            except (ValueError, AttributeError):
+                error = resp.text[:200] if resp.text else f"HTTP {resp.status_code}"
             raise ProviderError(f"Binance API error: {error}")
 
         return resp.json()
@@ -206,8 +215,8 @@ class BinanceBroker(BaseBroker):
                         ticker = await self._public_request("GET", "/api/v3/ticker/price", {"symbol": f"{balance['asset']}USDT"})
                         price = float(ticker.get("price", 0))
                         total_value += (float(balance["free"]) + float(balance["locked"])) * price
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.warning("Failed to fetch %s price for account: %s", balance["asset"], exc)
 
         return BrokerAccount(
             account_id="binance",
@@ -236,7 +245,8 @@ class BinanceBroker(BaseBroker):
             try:
                 ticker = await self._public_request("GET", "/api/v3/ticker/price", {"symbol": f"{balance['asset']}USDT"})
                 current_price = float(ticker.get("price", 0))
-            except Exception:
+            except Exception as exc:
+                logger.warning("Failed to fetch %s price for position: %s", balance["asset"], exc)
                 current_price = 0
 
             positions.append(BrokerPosition(

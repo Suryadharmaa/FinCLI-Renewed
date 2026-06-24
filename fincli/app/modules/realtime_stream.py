@@ -15,12 +15,15 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import random
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 
 from fincli.app.utils.errors import ProviderError
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -233,8 +236,8 @@ class KrakenWebSocketAdapter:
                 result = callback(event)
                 if asyncio.iscoroutine(result):
                     await result
-            except Exception:  # noqa: BLE001 - callbacks should not break the stream
-                pass
+            except Exception as exc:  # noqa: BLE001 - callbacks should not break the stream
+                logger.warning("Kraken stream callback error: %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -391,8 +394,8 @@ class HyperLiquidWebSocketAdapter:
                 result = callback(event)
                 if asyncio.iscoroutine(result):
                     await result
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("HyperLiquid stream callback error: %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -466,8 +469,8 @@ class EquityStreamingAdapter:
                             source="equity",
                         )
                     )
-                except Exception:  # noqa: BLE001 - poll failures should not crash the loop
-                    pass
+                except Exception as exc:  # noqa: BLE001 - poll failures should not crash the loop
+                    logger.debug("Equity poll failed for %s: %s", symbol, exc)
             await asyncio.sleep(self._interval)
 
     async def _emit(self, event: StreamEvent) -> None:
@@ -533,8 +536,14 @@ def _kraken_pair(symbol: str) -> str:
         "XRPUSD": "XRP/USD",
         "DOGEUSD": "DOGE/USD",
         "ADAUSD": "ADA/USD",
+        "DOTUSD": "DOT/USD",
+        "LINKUSD": "LINK/USD",
+        "MATICUSD": "MATIC/USD",
+        "AVAXUSD": "AVAX/USD",
         "BTCUSDT": "XBT/USDT",
         "ETHUSDT": "ETH/USDT",
+        "SOLUSDT": "SOL/USDT",
+        "XRPUSDT": "XRP/USDT",
     }
     return mappings.get(symbol, symbol)
 

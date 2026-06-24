@@ -133,11 +133,12 @@ class GeminiProviderHTTP(BaseAIProvider):
     async def complete(self, request: AIRequest) -> AIResponse:
         if not self.api_key:
             raise ProviderError("API key untuk provider gemini belum diatur.", "Gunakan /ai_model key gemini <api_key>.")
-        url = f"{self.base_url}/models/{request.model}:generateContent?key={self.api_key}"
+        url = f"{self.base_url}/models/{request.model}:generateContent"
+        headers = {"x-goog-api-key": self.api_key, "Content-Type": "application/json"}
         payload = {"contents": [{"parts": [{"text": request.prompt}]}]}
         try:
             client = self._get_client(request.timeout_seconds)
-            response = await client.post(url, json=payload)
+            response = await client.post(url, json=payload, headers=headers)
             if response.status_code == 429:
                 raise RateLimitError("Provider gemini terkena rate limit.")
             response.raise_for_status()
