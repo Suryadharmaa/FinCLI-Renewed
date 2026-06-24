@@ -246,7 +246,7 @@ sudo apt install nodejs -y
 <summary>Install from source (developers)</summary>
 
 ```bash
-git clone https://github.com/your-username/fincli.git
+git clone https://github.com/your-username/FinCLI-Renewed.git
 cd fincli
 python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
