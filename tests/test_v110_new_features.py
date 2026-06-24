@@ -109,8 +109,8 @@ class TestPromptBuilderWithHistory:
 class TestVersionBump:
     def test_version_is_1_3_0(self):
         from fincli import __version__
-        assert __version__ == "1.5.1"
+        assert __version__ == "1.5.2"
 
     def test_system_prompt_version(self):
         from fincli.app.analysis.assistant_context import FINCLI_ASSISTANT_SYSTEM_PROMPT
-        assert "v1.5.1" in FINCLI_ASSISTANT_SYSTEM_PROMPT
+        assert "v1.5.2" in FINCLI_ASSISTANT_SYSTEM_PROMPT

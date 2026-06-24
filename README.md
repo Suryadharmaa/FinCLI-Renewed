@@ -1,4 +1,4 @@
-# FinCLI
+# FinCLI v1.5.2
 
 [![npm version](https://img.shields.io/npm/v/@drico2008/fincli)](https://www.npmjs.com/package/@drico2008/fincli)
 [![npm downloads](https://img.shields.io/npm/dm/@drico2008/fincli?label=downloads%2Fmonth)](https://www.npmjs.com/package/@drico2008/fincli)
@@ -259,6 +259,16 @@ fincli
 ---
 
 ## Changelog
+
+### v1.5.2
+- Full codebase bug audit: 10 bugs fixed (2 High, 4 Medium, 4 Low)
+- Binance: handle non-JSON error responses in API requests
+- AlertDaemon: persistent event loop instead of new loop per iteration
+- Binance: log price fetch errors instead of silent swallow
+- MarketDataService: persistent event loop for sync wrapper
+- Scan results: show error count summary for failed symbols
+- Stream callbacks: log errors instead of silent swallow
+- Kraken: expanded pair mappings (DOT, LINK, MATIC, AVAX)
 
 ### v1.5.1
 - Deep code review: 17 bug fixes across codebase
