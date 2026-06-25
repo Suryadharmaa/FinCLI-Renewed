@@ -91,7 +91,7 @@ def test_trading_command_routes_without_live_execution(tmp_path: Path) -> None:
     assert paper.status == "ready"
     assert "AAPL" in orders
     assert "Kill Switch" in risk
-    assert "sma_cross" in algo_list
+    assert "Deprecated" in algo_list or "algo" in algo_list.lower()
     assert "Audit" in audit or "audit" in audit.lower()
     assert "Position" in positions
 

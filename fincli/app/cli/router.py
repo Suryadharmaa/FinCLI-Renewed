@@ -1026,16 +1026,23 @@ class CommandRouter:
                 border_style="yellow",
             ))
         if args and args[0].lower() in {"insider", "insiders"}:
-            if len(args) < 2:
-                raise CommandError("Format: /provider insider <symbol>")
-            provider = self.market_manager.create("finnhub")
-            rows = self._run_async(provider.insider_transactions(args[1].upper()))
-            return CommandResult(_format_insider_transactions(args[1].upper(), rows))
+            return CommandResult(
+                Panel(
+                    "[yellow]Deprecated:[/] `/provider insider` requires a paid Finnhub plan.\n"
+                    "Not available with free API keys.",
+                    title="Deprecated Command",
+                    border_style="yellow",
+                )
+            )
         if args and args[0].lower() == "ipo":
-            start, end, _, _ = _parse_calendar_args(args[1:] or ["week"])
-            provider = self.market_manager.create("finnhub")
-            rows = self._run_async(provider.ipo_calendar(start, end))
-            return CommandResult(_format_ipo_calendar(rows, start, end))
+            return CommandResult(
+                Panel(
+                    "[yellow]Deprecated:[/] `/provider ipo` requires a paid Finnhub plan.\n"
+                    "Not available with free API keys.",
+                    title="Deprecated Command",
+                    border_style="yellow",
+                )
+            )
         if args and args[0].lower() == "use":
             if len(args) < 2:
                 raise CommandError("Format: /provider use <provider>")
@@ -1579,58 +1586,32 @@ class CommandRouter:
         )
 
     def _encrypt_broker_key(self, broker_name: str) -> CommandResult:
-        """Encrypt a broker API key with master password."""
-        from fincli.app.utils.crypto import encrypt_broker_key
-        from fincli.app.storage.secrets import read_secrets, save_secret
-
-        # Get the API key from environment or secrets
-        broker_name = broker_name.lower()
-        env_key_map = {
-            "alpaca": ("ALPACA_API_KEY", "ALPACA_SECRET_KEY"),
-        }
-
-        if broker_name not in env_key_map:
-            raise CommandError(f"Broker tidak didukung: {broker_name}. Broker tersedia: {', '.join(env_key_map.keys())}")
-
-        api_key_env, secret_key_env = env_key_map[broker_name]
-
-        # Read current keys
-        secrets = read_secrets()
-        api_key = secrets.get(api_key_env) or os.getenv(api_key_env, "")
-        secret_key = secrets.get(secret_key_env) or os.getenv(secret_key_env, "")
-
-        if not api_key and not secret_key:
-            raise CommandError(
-                f"API key untuk {broker_name} belum diatur. "
-                f"Gunakan environment variable atau secrets store."
+        """Deprecated: encrypt-key is a stub. Keys are managed by OS credential store."""
+        return CommandResult(
+            Panel(
+                "[yellow]Deprecated:[/] `/security encrypt-key` is a stub and does not actually encrypt keys.\n\n"
+                "FinCLI uses your OS credential store (keyring) for secret storage.\n"
+                "Keys are encrypted at rest by the OS — no manual encryption needed.\n\n"
+                "To manage keys:\n"
+                "  /ai_model key <provider> <api_key>\n"
+                "  /news_model key <provider> <api_key>\n"
+                "  /secrets status",
+                title="Deprecated Command",
+                border_style="yellow",
             )
-
-        # In a real implementation, we would prompt for master password
-        # For now, we'll show the encryption would happen
-        table = Table(title=f"Broker Key Encryption ({broker_name})", show_header=False, border_style="cyan")
-        table.add_column("Field", style="bold")
-        table.add_column("Value")
-        table.add_row("Broker", broker_name)
-        table.add_row("API Key", "✓ found" if api_key else "✗ not set")
-        table.add_row("Secret Key", "✓ found" if secret_key else "✗ not set")
-        table.add_row("Status", "Ready for encryption")
-        table.add_row("Note", "Master password required for encryption. Use TUI for interactive encryption.")
-
-        return CommandResult(table)
+        )
 
     def _decrypt_broker_key(self, broker_name: str) -> CommandResult:
-        """Decrypt a broker API key with master password."""
-        from fincli.app.utils.crypto import decrypt_broker_key
-
-        broker_name = broker_name.lower()
-        table = Table(title=f"Broker Key Decryption ({broker_name})", show_header=False, border_style="yellow")
-        table.add_column("Field", style="bold")
-        table.add_column("Value")
-        table.add_row("Broker", broker_name)
-        table.add_row("Status", "Decryption requires master password")
-        table.add_row("Note", "Use TUI for interactive decryption. Keys are decrypted on-demand for broker connection.")
-
-        return CommandResult(table)
+        """Deprecated: decrypt-key is a stub. Keys are managed by OS credential store."""
+        return CommandResult(
+            Panel(
+                "[yellow]Deprecated:[/] `/security decrypt-key` is a stub and does not actually decrypt keys.\n\n"
+                "FinCLI uses your OS credential store (keyring) for secret storage.\n"
+                "Keys are decrypted on-demand by the OS — no manual decryption needed.",
+                title="Deprecated Command",
+                border_style="yellow",
+            )
+        )
 
     def _agent(self, args: list[str]) -> CommandResult:
         action = args[0].lower() if args else "list"
@@ -2344,17 +2325,19 @@ class CommandRouter:
         ))
 
     def _trading_algo(self, args: list[str]) -> CommandResult:
-        if not args:
-            raise CommandError("Format: /trading algo list, /trading algo run <strategy> <symbol> [timeframe] [qty]")
-        action = args[0].lower()
-        if action in {"list", "ls"}:
-            from fincli.app.modules.algo_engine import BUILTIN_STRATEGIES
-            return CommandResult(_format_algo_strategies(BUILTIN_STRATEGIES))
-        if action == "run":
-            if len(args) < 3:
-                raise CommandError("Format: /trading algo run <strategy> <symbol> [timeframe] [qty]")
-            return self._trading_algo_run(args[1:])
-        raise CommandError("Format: /trading algo list, /trading algo run <strategy> <symbol> [timeframe] [qty]")
+        return CommandResult(
+            Panel(
+                "[yellow]Deprecated:[/] `/trading algo` has been removed.\n\n"
+                "Algo strategies created false confidence with hardcoded logic.\n"
+                "Use `/trading paper` for manual paper trading instead.\n\n"
+                "For automated trading, consider:\n"
+                "  1. Build custom strategy in Python using FinCLI's market data API\n"
+                "  2. Use broker-native algo orders (Alpaca, Binance)\n"
+                "  3. Backtest with `/backtest` before manual execution",
+                title="Deprecated Command",
+                border_style="yellow",
+            )
+        )
 
     def _trading_algo_run(self, args: list[str]) -> CommandResult:
         from fincli.app.modules.algo_engine import StrategyEngine

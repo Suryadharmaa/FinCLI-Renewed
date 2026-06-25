@@ -25,6 +25,7 @@ AI_PROVIDERS: dict[str, AIProviderInfo] = {
     "together": AIProviderInfo("together", "TOGETHER_API_KEY", "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo"),
     "huggingface": AIProviderInfo("huggingface", "HUGGINGFACE_API_KEY", "meta-llama/Llama-3.1-8B-Instruct"),
     "groq": AIProviderInfo("groq", "GROQ_API_KEY", "llama-3.1-70b-versatile"),
+    "ollama": AIProviderInfo("ollama", "", "llama3.2"),
 }
 
 
@@ -53,6 +54,9 @@ class AIProviderManager:
             return OpenAICompatibleProvider(provider.name, "https://api.groq.com/openai/v1", api_key)
         if provider.name == "huggingface":
             return OpenAICompatibleProvider(provider.name, "https://router.huggingface.co/v1", api_key)
+        if provider.name == "ollama":
+            base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+            return OpenAICompatibleProvider(provider.name, base_url, api_key or "ollama")
         if provider.name == "gemini":
             return GeminiProviderHTTP(api_key)
         if provider.name == "anthropic":
