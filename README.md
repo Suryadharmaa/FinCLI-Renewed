@@ -1,4 +1,4 @@
-# FinCLI v1.5.2
+# FinCLI v1.6.0
 
 [![npm version](https://img.shields.io/npm/v/@drico2008/fincli)](https://www.npmjs.com/package/@drico2008/fincli)
 [![npm downloads](https://img.shields.io/npm/dm/@drico2008/fincli?label=downloads%2Fmonth)](https://www.npmjs.com/package/@drico2008/fincli)
@@ -259,6 +259,19 @@ fincli
 ---
 
 ## Changelog
+
+### v1.6.0
+- Ollama local LLM support (offline AI, no API key needed)
+- Deprecate dead features: `/provider insider`, `/provider ipo`, `/security encrypt-key`, `/security decrypt-key`, `/trading algo`
+- Internationalization: `/lang` command for English/Indonesian switching
+- Security: path traversal fix in `/theme import/export`
+- Security: XML billion laughs protection (defusedxml)
+- Performance: fix O(n²) patterns in crypto, commands, exporter
+- Fix 13 swallowed exception blocks across codebase
+- Add timeouts to async future.result() calls
+- Thread safety: event loop lock in MarketDataService
+- Translate all Indonesian text to English (default language)
+- Add `defusedxml` dependency for safe XML parsing
 
 ### v1.5.2
 - Full codebase bug audit: 10 bugs fixed (2 High, 4 Medium, 4 Low)

@@ -10,8 +10,11 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import logging
 import os
 import secrets
+
+logger = logging.getLogger(__name__)
 
 
 # PBKDF2 parameters
@@ -34,14 +37,16 @@ def _derive_key(master_password: str, salt: bytes) -> bytes:
 
 def _generate_keystream(key: bytes, length: int) -> bytes:
     """Generate a keystream using HMAC-SHA256 in counter mode."""
-    keystream = b""
+    blocks: list[bytes] = []
+    total = 0
     counter = 0
-    while len(keystream) < length:
+    while total < length:
         counter_bytes = counter.to_bytes(8, "big")
         block = hmac.new(key, counter_bytes, hashlib.sha256).digest()
-        keystream += block
+        blocks.append(block)
+        total += len(block)
         counter += 1
-    return keystream[:length]
+    return b"".join(blocks)[:length]
 
 
 def encrypt_broker_key(plaintext: str, master_password: str) -> str:
@@ -137,5 +142,6 @@ def verify_master_password(password: str, hashed: str) -> bool:
         stored_key = decoded[SALT_LENGTH:]
         computed_key = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, PBKDF2_ITERATIONS)
         return hmac.compare_digest(stored_key, computed_key)
-    except Exception:
+    except (ValueError, IndexError, KeyError) as exc:
+        logger.debug("Password verification failed: %s", exc)
         return False

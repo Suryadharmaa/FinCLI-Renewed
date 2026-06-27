@@ -262,12 +262,7 @@ def export_all(
 def _fieldnames(rows: list[dict[str, Any]]) -> list[str]:
     if not rows:
         return []
-    fields: list[str] = []
-    for row in rows:
-        for key in row:
-            if key not in fields:
-                fields.append(key)
-    return fields
+    return list(dict.fromkeys(key for row in rows for key in row))
 
 
 def _safe_export_path(target: str | Path, allowed_extensions: set[str]) -> Path:

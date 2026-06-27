@@ -731,11 +731,11 @@ def _max_drawdown(equity_curve: list[float], initial_equity: float) -> float:
 def _daily_returns(equity_curve: list[float]) -> list[float]:
     if len(equity_curve) < 2:
         return []
-    returns: list[float] = []
-    for i in range(1, len(equity_curve)):
-        if equity_curve[i - 1] > 0:
-            returns.append((equity_curve[i] / equity_curve[i - 1]) - 1.0)
-    return returns
+    return [
+        (equity_curve[i] / equity_curve[i - 1]) - 1.0
+        for i in range(1, len(equity_curve))
+        if equity_curve[i - 1] > 0
+    ]
 
 
 def _sharpe_ratio(daily_returns: list[float], risk_free_rate: float = 0.05 / 252) -> float:

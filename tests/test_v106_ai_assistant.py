@@ -18,7 +18,7 @@ from fincli.app.cli.commands import COMMANDS, CommandRegistry
 
 class TestSystemPrompt:
     def test_version_is_1_0_5(self):
-        assert "v1.5.2" in FINCLI_ASSISTANT_SYSTEM_PROMPT
+        assert "v1.6.0" in FINCLI_ASSISTANT_SYSTEM_PROMPT
 
     def test_contains_command_reference_instruction(self):
         assert "Command Reference" in FINCLI_ASSISTANT_SYSTEM_PROMPT

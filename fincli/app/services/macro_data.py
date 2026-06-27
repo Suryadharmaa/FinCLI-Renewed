@@ -137,7 +137,7 @@ class AlphaVantageEconomicService:
             return asyncio.run(awaitable)
         with ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(asyncio.run, awaitable)
-            return future.result()
+            return future.result(timeout=60)
 
     def _function(self, indicator: str) -> tuple[str, str, str]:
         normalized = indicator.strip().lower().replace(" ", "_").replace("-", "_")

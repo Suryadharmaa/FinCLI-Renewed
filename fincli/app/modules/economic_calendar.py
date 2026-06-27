@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta
 import html as html_lib
 import re
 from typing import Any
-import xml.etree.ElementTree as ET
+import defusedxml.ElementTree as ET
 
 import httpx
 

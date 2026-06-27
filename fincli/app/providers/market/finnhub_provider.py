@@ -195,11 +195,11 @@ class FinnhubProvider:
             return asyncio.run(awaitable)
         with ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(asyncio.run, awaitable)
-            return future.result()
+            return future.result(timeout=60)
 
     async def _get(self, path: str, params: dict[str, object]) -> Any:
         if not self.api_key:
-            raise ProviderError("API key Finnhub belum diatur.", "Gunakan /news_model key finnhub <api_key>.")
+            raise ProviderError("Finnhub API key not set.", "Use /news_model key finnhub <api_key>.")
         close_client = self._client is None
         client = self._client or httpx.AsyncClient(timeout=30)
         query = {**params, "token": self.api_key}

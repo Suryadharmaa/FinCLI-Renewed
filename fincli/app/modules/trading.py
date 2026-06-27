@@ -530,7 +530,7 @@ class LiveTradingEngine:
         self._mode: str = "paper"
 
     @property
-    def broker(self):
+    def broker(self) -> "BaseBroker | None":
         return self._broker
 
     @property

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import date
 import getpass
 import io
+import logging
 import os
 from pathlib import Path
 import shlex
@@ -124,6 +125,11 @@ from fincli.app.utils.security import SecurityValidator, SecretRedactor, RateLim
 from fincli.app.utils.errors import CommandError, FinCLIError, SecurityError
 from fincli.app.utils.formatting import AIResponseView, MarkdownBlock, semantic_text
 from fincli.app.utils.i18n import set_language, get_language, t
+
+logger = logging.getLogger(__name__)
+
+# Constants
+PROVIDER_TIMEOUT_BUFFER_SECONDS = 15.0
 
 
 @dataclass(slots=True)
@@ -361,7 +367,8 @@ class CommandRouter:
         try:
             preview = _render_history_preview(result.renderable)
             self.history.record_event(self.session_id, raw, result.status, preview)
-        except Exception:
+        except Exception as exc:
+            logger.debug("History record failed: %s", exc)
             return
 
     def _maybe_warn_provider_health(self, result: CommandResult) -> None:
@@ -373,8 +380,8 @@ class CommandRouter:
                 if warning_text:
                     result.metadata = result.metadata or {}
                     result.metadata["provider_warning"] = warning_text
-        except Exception:
-            pass  # health check should never break commands
+        except Exception as exc:
+            logger.debug("Provider health check failed: %s", exc)
 
     def _history(self, args: list[str]) -> CommandResult:
         action = args[0].lower() if args else "picker"
@@ -691,20 +698,20 @@ class CommandRouter:
         if action == "import":
             if len(args) < 2:
                 raise CommandError("Format: /theme import <path.json>")
-            path = Path(args[1])
+            path = SecurityValidator.validate_path(args[1], allowed_dirs=[Path.home(), Path.cwd()])
             if not path.exists():
-                raise CommandError(f"File tidak ditemukan: {path}")
+                raise CommandError(f"File not found: {path}")
             custom = load_custom_theme(path)
             register_custom_theme(custom)
-            return CommandResult(Panel(f"Tema '{custom.name}' di-import dan terdaftar.", title="Theme Imported", border_style="green"))
+            return CommandResult(Panel(f"Theme '{custom.name}' imported and registered.", title="Theme Imported", border_style="green"))
         if action == "export":
             if len(args) < 3:
                 raise CommandError("Format: /theme export <theme_name> <path.json>")
             theme_name = args[1]
             t = get_theme(theme_name)
-            path = Path(args[2])
+            path = SecurityValidator.validate_path(args[2], allowed_dirs=[Path.home(), Path.cwd()])
             save_custom_theme(path, t)
-            return CommandResult(Panel(f"Tema '{theme_name}' di-export ke {path}.", title="Theme Exported", border_style="green"))
+            return CommandResult(Panel(f"Theme '{theme_name}' exported to {path}.", title="Theme Exported", border_style="green"))
         if action in THEMES:
             # Store theme — actual CSS reload happens in TUI layer
             self.config.settings.theme = action
@@ -743,7 +750,7 @@ class CommandRouter:
         manager = AIProviderManager()
         current = self.config.settings
 
-        if len(args) == 0:
+        if not args:
             return self._ai_model_interactive(manager, current, con)
         if args[0].lower() == "key":
             con.print("[dim]Hint: /ai_model key akan deprecated. Gunakan /ai_model untuk picker interaktif.[/dim]")
@@ -841,7 +848,7 @@ class CommandRouter:
         con = Console()
         current = self.config.settings
 
-        if len(args) == 0:
+        if not args:
             return self._news_model_interactive(current, con)
 
         action = args[0].lower()
@@ -1370,7 +1377,8 @@ class CommandRouter:
                 table.add_row("1. Profile", "[green]OK[/]", f"Welcome back, {profile_rows[0]['name']}")
             else:
                 table.add_row("1. Profile", "[yellow]MISSING[/]", '/setup profile — set name, equity, currency')
-        except Exception:
+        except sqlite3.OperationalError as exc:
+            logger.debug("Profile check failed: %s", exc)
             table.add_row("1. Profile", "[yellow]MISSING[/]", '/setup profile')
 
         # Check AI key
@@ -1415,7 +1423,8 @@ class CommandRouter:
                 table.add_row("Profile", "ok", f"{p['name']} | {p['equity']} {p['currency']}")
             else:
                 table.add_row("Profile", "missing", "Run /setup profile")
-        except Exception:
+        except sqlite3.OperationalError as exc:
+            logger.debug("Profile read failed: %s", exc)
             table.add_row("Profile", "error", "Cannot read profile")
 
         # Keys
@@ -1468,8 +1477,8 @@ class CommandRouter:
                     title="Current Profile",
                     border_style="green",
                 ))
-        except Exception:
-            pass
+        except sqlite3.OperationalError as exc:
+            logger.debug("Profile query failed: %s", exc)
         return CommandResult(Panel(
             'No profile set.\n\nRun:\n/profile set "Your Name" 10000 USD 1x 3 conservative',
             title="Profile Setup",
@@ -2730,7 +2739,7 @@ class CommandRouter:
 
     def _run_async(self, awaitable: Any, timeout: float | None = None) -> Any:
         if timeout is None:
-            timeout = self.config.settings.provider_timeout_seconds + 15.0
+            timeout = self.config.settings.provider_timeout_seconds + PROVIDER_TIMEOUT_BUFFER_SECONDS
         try:
             asyncio.get_running_loop()
         except RuntimeError:
@@ -2742,7 +2751,7 @@ class CommandRouter:
                 return future.result(timeout=timeout)
             except TimeoutError:
                 future.cancel()
-                raise FinCLIError("Provider timeout — coba lagi atau kurangi beban query.")
+                raise FinCLIError("Provider timeout — try again or reduce query load.")
 
     def shutdown(self) -> None:
         """Stop managed background services before the TUI event loop exits."""
@@ -2901,7 +2910,8 @@ class CommandRouter:
             try:
                 quote = self._get_quote(symbol)
                 current_price = quote.price
-            except Exception:
+            except (httpx.HTTPError, ProviderError) as exc:
+                logger.debug("Price fetch failed for %s: %s", symbol, exc)
                 current_price = avg_price
             market_value = quantity * current_price
             total_value += market_value
@@ -3374,7 +3384,8 @@ def _render_history_preview(renderable: Any) -> str:
     try:
         console.print(renderable)
         return console.export_text(clear=False).strip()[:1200]
-    except Exception:
+    except (AttributeError, TypeError) as exc:
+        logger.debug("Renderable export failed: %s", exc)
         return str(renderable)[:1200]
 
 
@@ -4319,7 +4330,7 @@ def _format_security_scan(secrets: dict[str, str]) -> Table:
                 table.add_row("  ...", "info", f"+{len(issues) - 5} more. Run: python scripts/prepublish_check.py")
         else:
             table.add_row("Project Scan", "ok", "No leaked secrets in project files")
-    except Exception:
+    except FileNotFoundError:
         table.add_row("Project Scan", "info", "Could not run (scripts/prepublish_check.py not found)")
 
     # 6. .env file check

@@ -10,7 +10,7 @@ import os
 import re
 from typing import Any
 from urllib.parse import quote_plus
-import xml.etree.ElementTree as ET
+import defusedxml.ElementTree as ET
 
 import httpx
 

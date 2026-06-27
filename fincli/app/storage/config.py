@@ -9,7 +9,10 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 import difflib
 import json
+import logging
 import os
+
+logger = logging.getLogger(__name__)
 from pathlib import Path
 from typing import Any
 
@@ -153,7 +156,7 @@ class ConfigManager:
             # Validate and warn about issues
             warnings = settings.validate()
             for warning in warnings:
-                print(f"[WARNING] config.json: {warning}")
+                logger.warning("config.json: %s", warning)
 
             return settings
         except Exception as exc:  # noqa: BLE001

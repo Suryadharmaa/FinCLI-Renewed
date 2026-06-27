@@ -168,23 +168,25 @@ def _parse_legacy(plaintext: str) -> dict[str, str]:
 
 
 def _decrypt_legacy(raw: bytes) -> str:
+    """DEPRECATED: Only used for migrating legacy secret files. Will be removed in v2.0."""
     if not raw.startswith(_MAGIC):
         return raw.decode("utf-8")
     if not _KEY_FILE.exists():
-        raise ConfigError("Legacy secret key tidak ditemukan; migrasi tidak dapat dilakukan.")
+        raise ConfigError("Legacy secret key not found; migration cannot proceed.")
     encrypted = base64.b64decode(raw[len(_MAGIC):])
     key = base64.b64decode(_KEY_FILE.read_bytes())
     return _xorcrypt(encrypted, key).decode("utf-8")
 
 
 def _xorcrypt(data: bytes, key: bytes) -> bytes:
+    """DEPRECATED: Weak XOR cipher for legacy migration only. Will be removed in v2.0."""
     return bytes(byte ^ key[index % len(key)] for index, byte in enumerate(data))
 
 
 def _validate_env_key(env_key: str) -> str:
     key = env_key.strip().upper()
     if not key or not all(char.isalnum() or char == "_" for char in key):
-        raise ConfigError(f"Nama environment key tidak valid: {env_key}")
+        raise ConfigError(f"Invalid environment key name: {env_key}")
     return key
 
 

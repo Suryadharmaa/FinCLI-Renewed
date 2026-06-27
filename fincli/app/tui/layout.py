@@ -8,7 +8,7 @@ from threading import Lock
 
 from textual.app import App, ComposeResult, SystemCommand
 from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.css.query import NoMatches
+from textual.css.query import NoMatches, QueryError
 from textual.screen import Screen
 from textual.worker import Worker, WorkerState
 from textual.widgets import Input, RichLog, Static
@@ -20,6 +20,7 @@ from fincli.app.cli.router import CommandResult, CommandRouter
 from fincli.app.providers.ai.base import AIRequest
 from fincli.app.providers.ai.manager import AIProviderManager
 from fincli.app.tui.components import CommandPalette, WorkingIndicator, TokenCounter, StreamingOutput, working_verb
+from fincli.app.utils.errors import ProviderError
 from fincli.app.tui.components import format_user_message, write_output_entry
 from fincli.app.tui.market_provider_selector import MarketProviderSelectorScreen
 from fincli.app.tui.model_selector import AIModelSelectorScreen
@@ -303,7 +304,7 @@ class FinCLIApp(App[None]):
             finally:
                 loop.close()
             return "".join(accumulated)
-        except (AttributeError, Exception):
+        except (AttributeError, ProviderError):
             # Fallback: use router directly (for mock/test routers without streaming)
             result = self.router.route(f"/ai {prompt}")
             # Return renderable directly, not stringified
@@ -324,7 +325,7 @@ class FinCLIApp(App[None]):
         try:
             token_counter = self.query_one(TokenCounter)
             token_counter.increment(len(token.split()))
-        except Exception:
+        except (QueryError, ValueError):
             pass
         # Flush to streaming container every 10 tokens to avoid UI lag
         token_count = int(str(meta.get("_stream_flush_count", "0"))) + 1
@@ -347,7 +348,7 @@ class FinCLIApp(App[None]):
                 stream_out.start_stream()
                 meta["_stream_started"] = True
             stream_out.update_stream(Markdown(text))
-        except Exception:
+        except (QueryError, ValueError):
             pass
 
     def _apply_theme(self, theme_name: str) -> None:
@@ -437,7 +438,7 @@ class FinCLIApp(App[None]):
             try:
                 stream_out = self.query_one("#stream_output", StreamingOutput)
                 stream_out.end_stream()
-            except Exception:
+            except (QueryError, ValueError):
                 pass
             # Write final content to main output
             stream_text = meta.get("_stream_text", "")

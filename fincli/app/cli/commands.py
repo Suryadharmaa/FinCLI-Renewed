@@ -184,9 +184,11 @@ class CommandRegistry:
 
         exact = [cmd for cmd in self.commands if cmd.name.lower().startswith(normalized)]
         fuzzy = [cmd for cmd in self.commands if normalized.replace("/", "") in cmd.name.lower().replace("/", "")]
+        seen: set[str] = set()
         merged: list[CommandSpec] = []
         for cmd in [*exact, *fuzzy]:
-            if cmd not in merged:
+            if cmd.name not in seen:
+                seen.add(cmd.name)
                 merged.append(cmd)
         return merged[:limit]
 

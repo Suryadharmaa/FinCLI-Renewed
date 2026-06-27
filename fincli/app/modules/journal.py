@@ -55,11 +55,9 @@ class JournalService:
         # Build SET clause from whitelist only (no f-string SQL injection risk)
         set_parts = []
         values = []
-        for k in updates:
-            if k not in allowed:
-                continue
+        for k, v in updates.items():
             set_parts.append(f"{k} = ?")
-            values.append(updates[k])
+            values.append(v)
         if not set_parts:
             return False
         values.append(entry_id)

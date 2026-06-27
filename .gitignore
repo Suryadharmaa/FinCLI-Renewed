@@ -27,3 +27,4 @@ Thumbs.db
 .secrets_key
 secrets.env
 CLAUDE.md
+node_modules/

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
+import threading
 from dataclasses import asdict
 from datetime import datetime
 from time import monotonic, perf_counter
@@ -41,12 +42,13 @@ class MarketDataService:
         circuit_breaker_cooldown_seconds: float = 60.0,
     ) -> None:
         if not providers:
-            raise ProviderError("MarketDataService membutuhkan minimal satu provider.")
+            raise ProviderError("MarketDataService requires at least one provider.")
         self.providers = providers
         self.cache = cache
         self.cache_ttl_seconds = cache_ttl_seconds
         self.provider_timeout_seconds = max(0.05, float(provider_timeout_seconds))
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._loop_lock = threading.Lock()
         self.metrics_store = metrics_store
         self.symbol_resolver = symbol_resolver or SymbolResolver()
         self.circuit_breaker_failure_threshold = max(1, int(circuit_breaker_failure_threshold))
@@ -333,12 +335,13 @@ class MarketDataService:
         try:
             asyncio.get_running_loop()
         except RuntimeError:
-            if self._loop is None or self._loop.is_closed():
-                self._loop = asyncio.new_event_loop()
+            with self._loop_lock:
+                if self._loop is None or self._loop.is_closed():
+                    self._loop = asyncio.new_event_loop()
             return self._loop.run_until_complete(awaitable)
         with ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(asyncio.run, awaitable)
-            return future.result()
+            return future.result(timeout=self.provider_timeout_seconds)
 
 
 def _quote_to_payload(quote: Quote) -> dict[str, Any]:

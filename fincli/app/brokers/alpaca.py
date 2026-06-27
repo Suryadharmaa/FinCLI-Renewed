@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from datetime import datetime
 
@@ -266,7 +267,7 @@ class AlpacaBroker(BaseBroker):
             error_data = {}
             try:
                 error_data = exc.response.json()
-            except Exception:
+            except (json.JSONDecodeError, ValueError):
                 pass
             msg = error_data.get("message", f"HTTP {exc.response.status_code}")
             raise ProviderError(f"Gagal place order: {msg}") from exc
