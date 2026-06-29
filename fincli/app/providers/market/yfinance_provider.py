@@ -74,8 +74,8 @@ class YFinanceProvider(BaseMarketProvider):
             import yfinance as yf
         except ImportError as exc:
             raise ProviderError(
-                "Dependency yfinance belum terinstall.",
-                "Jalankan: pip install -e \".[market]\" atau pip install yfinance pandas numpy",
+                "Dependency yfinance not installed.",
+                "Run: pip install -e \".[market]\" or pip install yfinance pandas numpy",
             ) from exc
         return yf.Ticker(symbol)
 
@@ -93,7 +93,7 @@ class YFinanceProvider(BaseMarketProvider):
             if price is None:
                 history = ticker.history(period="5d", interval="1d")
                 if history.empty:
-                    raise ProviderError(f"Data harga kosong untuk {symbol}.", "Coba symbol lain, contoh AAPL atau BTC-USD.")
+                    raise ProviderError(f"Price data is empty for {symbol}.", "Try another symbol, e.g. AAPL or BTC-USD.")
                 price = float(history["Close"].dropna().iloc[-1])
 
             return Quote(
@@ -107,7 +107,7 @@ class YFinanceProvider(BaseMarketProvider):
         except ProviderError:
             raise
         except Exception as exc:
-            raise ProviderError(f"Gagal mengambil quote dari yfinance untuk {symbol}: {exc}") from exc
+            raise ProviderError(f"Failed to get quote from yfinance for {symbol}: {exc}") from exc
 
     def _history_sync(self, symbol: str, period: str, interval: str) -> list[Candle]:
         try:
@@ -116,8 +116,8 @@ class YFinanceProvider(BaseMarketProvider):
             frame = ticker.history(period=period, interval=interval)
             if frame.empty:
                 raise ProviderError(
-                    f"Data OHLCV kosong untuk {symbol} ({resolved.symbol}).",
-                    "Coba provider twelvedata/finnhub atau symbol lain, contoh EURUSD, XAUUSD, SPX, AAPL.",
+                    f"OHLCV data is empty for {symbol} ({resolved.symbol}).",
+                    "Try twelvedata/finnhub provider or another symbol, e.g. EURUSD, XAUUSD, SPX, AAPL.",
                 )
 
             candles: list[Candle] = []
@@ -137,7 +137,7 @@ class YFinanceProvider(BaseMarketProvider):
         except ProviderError:
             raise
         except Exception as exc:
-            raise ProviderError(f"Gagal mengambil history dari yfinance untuk {symbol}: {exc}") from exc
+            raise ProviderError(f"Failed to get history from yfinance for {symbol}: {exc}") from exc
 
     def _news_sync(self, symbol: str, limit: int) -> list[NewsItem]:
         try:
@@ -165,7 +165,7 @@ class YFinanceProvider(BaseMarketProvider):
         except ProviderError:
             raise
         except Exception as exc:
-            raise ProviderError(f"Gagal mengambil news dari yfinance untuk {symbol}: {exc}") from exc
+            raise ProviderError(f"Failed to get news from yfinance for {symbol}: {exc}") from exc
 
     def _fundamentals_sync(self, symbol: str) -> FundamentalSnapshot:
         try:
@@ -187,7 +187,7 @@ class YFinanceProvider(BaseMarketProvider):
         except ProviderError:
             raise
         except Exception as exc:
-            raise ProviderError(f"Gagal mengambil fundamentals dari yfinance untuk {symbol}: {exc}") from exc
+            raise ProviderError(f"Failed to get fundamentals from yfinance for {symbol}: {exc}") from exc
 
     def _yahoo_table_sync(self, symbol: str, section: str, period: str, interval: str) -> YahooTable:
         resolved = resolve_yfinance_symbol(symbol)
@@ -247,8 +247,8 @@ class YFinanceProvider(BaseMarketProvider):
             return YahooTable(resolved.symbol.upper(), "news", ["Title", "Source", "Published", "URL"], rows, source_url)
 
         raise ProviderError(
-            f"Yahoo section tidak dikenal: {section}",
-            "Gunakan: history, statistics, profile, financials, balance, cashflow, analysis, holders, news.",
+            f"Unknown Yahoo section: {section}",
+            "Use: history, statistics, profile, financials, balance, cashflow, analysis, holders, news.",
         )
 
     def _analysis_table(self, ticker: Any, symbol: str, source_url: str) -> YahooTable:

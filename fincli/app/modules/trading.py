@@ -294,15 +294,15 @@ class PaperTradingEngine:
 
         # Validation
         if normalized_side not in ALLOWED_SIDES:
-            raise CommandError("Paper order side harus buy atau sell.")
+            raise CommandError("Paper order side must be buy or sell.")
         if normalized_type not in ALLOWED_ORDER_TYPES:
-            raise CommandError(f"Paper order type harus salah satu dari: {', '.join(sorted(ALLOWED_ORDER_TYPES))}.")
+            raise CommandError(f"Paper order type must be one of: {', '.join(sorted(ALLOWED_ORDER_TYPES))}.")
         if quantity <= 0:
-            raise CommandError("Paper order quantity harus lebih besar dari 0.")
+            raise CommandError("Paper order quantity must be greater than 0.")
         if price is not None and price <= 0:
-            raise CommandError("Paper order price harus lebih besar dari 0.")
+            raise CommandError("Paper order price must be greater than 0.")
         if normalized_type == "stop_limit" and stop_price is not None and stop_price <= 0:
-            raise CommandError("Stop price harus lebih besar dari 0.")
+            raise CommandError("Stop price must be greater than 0.")
 
         if normalized_side == "sell" and self._filled_quantity(normalized_symbol) + 1e-9 < quantity:
             raise CommandError("Paper sell order exceeds the filled position. Short selling is not supported.")
@@ -381,11 +381,11 @@ class PaperTradingEngine:
         rows = self.db.query("SELECT * FROM paper_orders WHERE id = ?", (order_id,))
         if not rows:
             self.audit.record("cancel_failed", f"Order {order_id} not found")
-            raise CommandError(f"Order tidak ditemukan: {order_id}")
+            raise CommandError(f"Order not found: {order_id}")
         order = dict(rows[0])
         if order["status"] not in {"queued", "pending", "triggered"}:
             self.audit.record("cancel_failed", f"Order {order_id} status={order['status']}")
-            raise CommandError(f"Order {order_id} tidak bisa dibatalkan (status: {order['status']}).")
+            raise CommandError(f"Order {order_id} cannot be cancelled (status: {order['status']}).")
         self.db.execute("UPDATE paper_orders SET status = 'cancelled' WHERE id = ?", (order_id,))
         self.audit.record("cancelled", f"Order {order_id} cancelled", order_id)
         order["status"] = "cancelled"
@@ -597,7 +597,7 @@ class LiveTradingEngine:
         """Place a live order through broker with risk checks."""
         if not self._broker:
             from fincli.app.utils.errors import CommandError
-            raise CommandError("Broker belum terhubung. Gunakan /trading live connect <broker>.")
+            raise CommandError("Broker not connected. Use /trading live connect <broker>.")
 
         # Normalize
         normalized_side = side.strip().lower()
@@ -708,28 +708,28 @@ class LiveTradingEngine:
         """Get positions from broker."""
         if not self._broker:
             from fincli.app.utils.errors import CommandError
-            raise CommandError("Broker belum terhubung.")
+            raise CommandError("Broker not connected.")
         return await self._broker.get_positions()
 
     async def get_account(self):
         """Get account info from broker."""
         if not self._broker:
             from fincli.app.utils.errors import CommandError
-            raise CommandError("Broker belum terhubung.")
+            raise CommandError("Broker not connected.")
         return await self._broker.get_account()
 
     async def list_orders(self, status: str | None = None, limit: int = 50) -> list:
         """List orders from broker."""
         if not self._broker:
             from fincli.app.utils.errors import CommandError
-            raise CommandError("Broker belum terhubung.")
+            raise CommandError("Broker not connected.")
         return await self._broker.list_orders(status=status, limit=limit)
 
     async def cancel_order(self, broker_order_id: str):
         """Cancel order at broker."""
         if not self._broker:
             from fincli.app.utils.errors import CommandError
-            raise CommandError("Broker belum terhubung.")
+            raise CommandError("Broker not connected.")
         result = await self._broker.cancel_order(broker_order_id)
         self.audit.record("live_order_cancelled", f"broker_order_id={broker_order_id}")
         return result

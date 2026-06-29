@@ -80,9 +80,9 @@ class AlphaVantageEconomicService:
     async def indicator(self, indicator: str, region: str = "us") -> list[MacroIndicator]:
         normalized_region = region.strip().lower() or "us"
         if normalized_region not in {"us", "usa", "united states"}:
-            raise ProviderError("Alpha Vantage macro endpoint FinCLI saat ini hanya mendukung region US.")
+            raise ProviderError("Alpha Vantage macro endpoint currently only supports US region.")
         if not self.api_key:
-            raise ProviderError("ALPHA_VANTAGE_API_KEY belum diatur.", "Gunakan /news_model key alphavantage <api_key>.")
+            raise ProviderError("ALPHA_VANTAGE_API_KEY not set.", "Use /news_model key alphavantage <api_key>.")
         function, interval, label = self._function(indicator)
 
         close_client = self._client is None
@@ -93,25 +93,25 @@ class AlphaVantageEconomicService:
                 params={"function": function, "interval": interval, "apikey": self.api_key},
             )
             if response.status_code == 429:
-                raise RateLimitError("Alpha Vantage macro terkena rate limit.")
+                raise RateLimitError("Alpha Vantage macro rate limited.")
             response.raise_for_status()
             payload = response.json()
         except httpx.TimeoutException as exc:
             raise ProviderError("Alpha Vantage macro timeout.") from exc
         except httpx.HTTPStatusError as exc:
-            raise ProviderError(f"Alpha Vantage macro gagal: HTTP {exc.response.status_code}.") from exc
+            raise ProviderError(f"Alpha Vantage macro failed: HTTP {exc.response.status_code}.") from exc
         except ValueError as exc:
-            raise ProviderError("Response Alpha Vantage macro bukan JSON valid.") from exc
+            raise ProviderError("Alpha Vantage macro response is not valid JSON.") from exc
         finally:
             if close_client:
                 await client.aclose()
 
         if isinstance(payload, dict) and ("Error Message" in payload or "Information" in payload or "Note" in payload):
             message = str(payload.get("Error Message") or payload.get("Information") or payload.get("Note"))
-            raise ProviderError(f"Alpha Vantage macro gagal: {message}")
+            raise ProviderError(f"Alpha Vantage macro failed: {message}")
         rows = payload.get("data") if isinstance(payload, dict) else None
         if not isinstance(rows, list) or not rows:
-            raise ProviderError("Alpha Vantage macro tidak mengembalikan data.")
+            raise ProviderError("Alpha Vantage macro returned no data.")
         result: list[MacroIndicator] = []
         for row in rows[:12]:
             if not isinstance(row, dict):
@@ -142,7 +142,7 @@ class AlphaVantageEconomicService:
     def _function(self, indicator: str) -> tuple[str, str, str]:
         normalized = indicator.strip().lower().replace(" ", "_").replace("-", "_")
         if normalized not in self.FUNCTIONS:
-            raise ProviderError("Macro indicator tidak dikenal.", "Gunakan /cpi us, /nfp us, /gdp us, /fed funds us.")
+            raise ProviderError("Unknown macro indicator.", "Use /cpi us, /nfp us, /gdp us, /fed funds us.")
         return self.FUNCTIONS[normalized]
 
 

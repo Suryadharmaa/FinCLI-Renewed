@@ -177,7 +177,7 @@ class TestBrokerRegistry:
 
     def test_create_unknown_raises(self):
         registry = BrokerRegistry()
-        with pytest.raises(ValueError, match="Broker tidak didukung"):
+        with pytest.raises(ValueError, match="Unsupported broker"):
             registry.create("unknown")
 
     def test_broker_catalog_has_alpaca(self):
@@ -259,7 +259,7 @@ class TestLiveTradingEngine:
     def test_place_order_no_broker(self, tmp_path: Path):
         db = FinCLIDatabase(tmp_path / "fincli.db")
         engine = LiveTradingEngine(db)
-        with pytest.raises(Exception, match="Broker belum terhubung"):
+        with pytest.raises(Exception, match="Broker not connected"):
             asyncio.run(engine.place_order(symbol="AAPL", side="buy", quantity=10))
 
     def test_get_positions(self, tmp_path: Path):

@@ -41,12 +41,42 @@ def save_secret(env_key: str, value: str, path: Path | None = None) -> None:
     key = _validate_env_key(env_key)
     secret = _sanitize_value(value)
     if not secret:
-        raise ConfigError(f"Nilai {key} kosong.")
+        raise ConfigError(f"Value for {key} is empty.")
 
     secrets = read_secrets(path)
     secrets[key] = secret
     _write_secrets(path or SECRETS_FILE, secrets)
     os.environ[key] = secret
+
+
+def secret_age_days(env_key: str, path: Path | None = None) -> int | None:
+    """Return the age of a secret in days, or None if not tracked."""
+    from datetime import datetime, timezone
+    metadata = _read_metadata(path)
+    key = _validate_env_key(env_key)
+    saved_at = metadata.get(key)
+    if not saved_at:
+        return None
+    try:
+        saved_dt = datetime.fromisoformat(saved_at)
+        if saved_dt.tzinfo is None:
+            saved_dt = saved_dt.replace(tzinfo=timezone.utc)
+        delta = datetime.now(timezone.utc) - saved_dt
+        return max(0, delta.days)
+    except (ValueError, TypeError):
+        return None
+
+
+def rotate_secret(env_key: str, new_value: str, path: Path | None = None) -> None:
+    """Rotate a secret: archive old value metadata and save new value."""
+    save_secret(env_key, new_value, path)
+    _update_metadata(env_key, path)
+
+
+def list_secret_ages(path: Path | None = None) -> dict[str, int | None]:
+    """Return age in days for all stored secrets."""
+    secrets = read_secrets(path)
+    return {key: secret_age_days(key, path) for key in secrets}
 
 
 def clear_secrets(path: Path | None = None) -> int:
@@ -60,7 +90,7 @@ def clear_secrets(path: Path | None = None) -> int:
         try:
             backend.delete_password(_SERVICE_NAME, _credential_account(target))
         except Exception as exc:  # noqa: BLE001 - keyring backends vary by OS
-            raise ConfigError("Secret lokal gagal dihapus dari credential store.") from exc
+            raise ConfigError("Failed to delete secret from OS credential store.") from exc
     return len(secrets)
 
 
@@ -72,7 +102,7 @@ def read_secrets(path: Path | None = None) -> dict[str, str]:
     try:
         raw = backend.get_password(_SERVICE_NAME, account)
     except Exception as exc:  # noqa: BLE001 - report unavailable backends uniformly
-        raise ConfigError("OS credential store tidak tersedia.") from exc
+        raise ConfigError("OS credential store not available.") from exc
     if raw is not None:
         return _decode_blob(raw)
     if not target.exists():
@@ -96,48 +126,48 @@ def _write_secrets(path: Path, secrets: dict[str, str]) -> None:
     try:
         backend.set_password(_SERVICE_NAME, _credential_account(path), payload)
     except Exception as exc:  # noqa: BLE001 - keyring backends vary by OS
-        raise ConfigError("Secret lokal gagal disimpan ke credential store.") from exc
+        raise ConfigError("Failed to save secret to OS credential store.") from exc
     try:
         stored = backend.get_password(_SERVICE_NAME, _credential_account(path))
     except Exception as exc:  # noqa: BLE001
-        raise ConfigError("Secret lokal gagal diverifikasi di credential store.") from exc
+        raise ConfigError("Failed to verify secret in OS credential store.") from exc
     if stored is None or _decode_blob(stored) != secrets:
-        raise ConfigError("Secret lokal gagal diverifikasi di credential store.")
+        raise ConfigError("Failed to verify secret in OS credential store.")
 
 
 def _migrate_legacy_file(path: Path, backend: object, account: str) -> dict[str, str]:
     try:
         legacy = _parse_legacy(_decrypt_legacy(path.read_bytes()))
     except (OSError, UnicodeDecodeError, ValueError) as exc:
-        raise ConfigError("File secret lama tidak dapat dimigrasikan.", f"Path: {path}") from exc
+        raise ConfigError("Legacy secret file cannot be migrated.", f"Path: {path}") from exc
 
     payload = json.dumps(legacy, sort_keys=True, separators=(",", ":"))
     try:
         backend.set_password(_SERVICE_NAME, account, payload)
         stored = backend.get_password(_SERVICE_NAME, account)
     except Exception as exc:  # noqa: BLE001
-        raise ConfigError("Migrasi secret ke OS credential store gagal.") from exc
+        raise ConfigError("Failed to migrate secret to OS credential store.") from exc
     if stored is None or _decode_blob(stored) != legacy:
-        raise ConfigError("Migrasi secret tidak dapat diverifikasi.")
+        raise ConfigError("Secret migration could not be verified.")
 
     try:
         path.unlink()
         if path == SECRETS_FILE and _KEY_FILE.exists():
             _KEY_FILE.unlink()
     except OSError as exc:
-        raise ConfigError("Migrasi secret berhasil tetapi file lama gagal dihapus.", f"Path: {path}") from exc
+        raise ConfigError("Secret migration succeeded but failed to delete old file.", f"Path: {path}") from exc
     return legacy
 
 
 def _require_keyring() -> object:
     if _keyring is None:
-        raise ConfigError("OS credential store tidak tersedia. Install dependency 'keyring'.")
+        raise ConfigError("OS credential store not available. Install dependency 'keyring'.")
     try:
         backend = _keyring.get_keyring()
         if getattr(backend, "priority", 0) <= 0:
             raise RuntimeError("no usable keyring backend")
     except Exception as exc:  # noqa: BLE001
-        raise ConfigError("OS credential store tidak tersedia.") from exc
+        raise ConfigError("OS credential store not available.") from exc
     return _keyring
 
 
@@ -150,9 +180,9 @@ def _decode_blob(raw: str) -> dict[str, str]:
     try:
         decoded = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise ConfigError("Data OS credential store tidak valid.") from exc
+        raise ConfigError("OS credential store data is not valid.") from exc
     if not isinstance(decoded, dict) or any(not isinstance(key, str) or not isinstance(value, str) for key, value in decoded.items()):
-        raise ConfigError("Data OS credential store tidak valid.")
+        raise ConfigError("OS credential store data is not valid.")
     return decoded
 
 
@@ -198,3 +228,33 @@ def _unquote(value: str) -> str:
     if len(value) >= 2 and value[0] == value[-1] == '"':
         return value[1:-1].replace('\\"', '"').replace("\\\\", "\\")
     return value
+
+
+_METADATA_FILE = APP_DIR / "secrets_metadata.json"
+
+
+def _read_metadata(path: Path | None = None) -> dict[str, str]:
+    """Read secret metadata (creation timestamps)."""
+    meta_path = _METADATA_FILE
+    if not meta_path.exists():
+        return {}
+    try:
+        import json as _json
+        data = _json.loads(meta_path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _update_metadata(env_key: str, path: Path | None = None) -> None:
+    """Update the creation timestamp for a secret."""
+    from datetime import datetime, timezone
+    import json as _json
+    meta_path = _METADATA_FILE
+    metadata = _read_metadata(path)
+    key = _validate_env_key(env_key)
+    metadata[key] = datetime.now(timezone.utc).isoformat()
+    try:
+        meta_path.write_text(_json.dumps(metadata, indent=2), encoding="utf-8")
+    except OSError:
+        pass  # Best effort; don't fail the save

@@ -66,4 +66,4 @@ def test_journal_review_uses_ai_provider_with_stats_context(tmp_path: Path) -> N
     assert "Review:" in output
     assert "Total Entries" in ai.last_prompt
     assert "avoid chasing" in ai.last_prompt
-    assert "bukan nasihat keuangan" in output
+    assert "not financial advice" in output

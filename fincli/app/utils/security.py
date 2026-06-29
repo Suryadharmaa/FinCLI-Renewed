@@ -72,7 +72,7 @@ class SecurityValidator:
         try:
             resolved = Path(path).expanduser().resolve()
         except (ValueError, OSError) as exc:
-            raise CommandError(f"Path tidak valid: {path}") from exc
+            raise CommandError(f"Invalid path: {path}") from exc
 
         # Check for traversal in the original path components
         path_str = str(path).replace("\\", "/")
@@ -80,8 +80,8 @@ class SecurityValidator:
         for part in parts:
             if part in PATH_TRAVERSAL:
                 raise SecurityError(
-                    "Path traversal terdeteksi.",
-                    f"Path mengandung '{part}' yang tidak diizinkan.",
+                    "Path traversal detected.",
+                    f"Path contains disallowed '{part}'.",
                 )
 
         # Block absolute paths outside allowed directories
@@ -96,8 +96,8 @@ class SecurityValidator:
                     continue
             if not allowed:
                 raise SecurityError(
-                    "Path di luar direktori yang diizinkan.",
-                    f"Path harus berada di dalam: {', '.join(str(d) for d in allowed_dirs)}",
+                    "Path is outside allowed directories.",
+                    f"Path must be inside: {', '.join(str(d) for d in allowed_dirs)}",
                 )
 
         return resolved
@@ -213,8 +213,8 @@ class RateLimiter:
             if now < cooldown_end:
                 remaining = int(cooldown_end - now)
                 raise SecurityError(
-                    f"Rate limit tercapai untuk {command_group}.",
-                    f"Tunggu {remaining} detik sebelum mencoba lagi.",
+                    f"Rate limit reached for {command_group}.",
+                    f"Wait {remaining} seconds before trying again.",
                 )
             else:
                 del self._cooldowns[command_group]
@@ -230,9 +230,9 @@ class RateLimiter:
             if config.cooldown_seconds > 0:
                 self._cooldowns[command_group] = now + config.cooldown_seconds
             raise SecurityError(
-                f"Rate limit tercapai untuk {command_group}.",
-                f"Max {config.max_requests} request per {config.window_seconds:.0f} detik. "
-                f"Cooldown: {config.cooldown_seconds:.0f} detik.",
+                f"Rate limit reached for {command_group}.",
+                f"Max {config.max_requests} requests per {config.window_seconds:.0f}s. "
+                f"Cooldown: {config.cooldown_seconds:.0f}s.",
             )
 
         # Record request

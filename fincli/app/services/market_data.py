@@ -210,7 +210,7 @@ class MarketDataService:
         if degraded_response is not None:
             return degraded_response
         raise ProviderError(
-            f"Semua provider gagal untuk {method_name}.",
+            f"All providers failed for {method_name}.",
             "\n".join(errors),
         )
 

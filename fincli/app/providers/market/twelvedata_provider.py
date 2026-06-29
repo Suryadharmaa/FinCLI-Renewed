@@ -30,7 +30,7 @@ class TwelveDataProvider:
         data = await self._get("/quote", {"symbol": resolved.symbol})
         price = _safe_float(data.get("close") or data.get("price"))
         if price is None:
-            raise ProviderError(f"Twelve Data tidak mengembalikan quote valid untuk {symbol}.")
+            raise ProviderError(f"Twelve Data did not return a valid quote for {symbol}.")
         return Quote(
             symbol=str(data.get("symbol") or resolved.symbol).upper(),
             price=price,
@@ -54,12 +54,12 @@ class TwelveDataProvider:
         values = data.get("values") if isinstance(data, dict) else None
         if not isinstance(values, list) or not values:
             message = data.get("message") if isinstance(data, dict) else None
-            raise ProviderError(f"Twelve Data OHLCV kosong untuk {symbol}.", str(message) if message else None)
+            raise ProviderError(f"Twelve Data OHLCV is empty for {symbol}.", str(message) if message else None)
 
         candles = [_parse_candle(item) for item in values if isinstance(item, dict)]
         candles.sort(key=lambda candle: candle.timestamp)
         if not candles:
-            raise ProviderError(f"Twelve Data OHLCV kosong untuk {symbol}.")
+            raise ProviderError(f"Twelve Data OHLCV is empty for {symbol}.")
         return candles
 
     async def news(self, symbol: str, limit: int = 5) -> list[NewsItem]:
@@ -85,24 +85,24 @@ class TwelveDataProvider:
 
     async def _get(self, path: str, params: dict[str, object]) -> Any:
         if not self.api_key:
-            raise ProviderError("API key Twelve Data belum diatur.", "Gunakan /news_model key twelvedata <api_key>.")
+            raise ProviderError("Twelve Data API key not set.", "Use /news_model key twelvedata <api_key>.")
         close_client = self._client is None
         client = self._client or httpx.AsyncClient(timeout=30)
         try:
             response = await client.get(f"{self.base_url}{path}", params={**params, "apikey": self.api_key})
             if response.status_code == 429:
-                raise RateLimitError("Twelve Data terkena rate limit.")
+                raise RateLimitError("Twelve Data rate limited.")
             response.raise_for_status()
             data = response.json()
             if isinstance(data, dict) and data.get("status") == "error":
-                raise ProviderError(f"Twelve Data gagal: {data.get('message') or 'unknown error'}")
+                raise ProviderError(f"Twelve Data failed: {data.get('message') or 'unknown error'}")
             return data
         except httpx.TimeoutException as exc:
             raise ProviderError("Twelve Data timeout.") from exc
         except httpx.HTTPStatusError as exc:
-            raise ProviderError(f"Twelve Data gagal: HTTP {exc.response.status_code}.") from exc
+            raise ProviderError(f"Twelve Data failed: HTTP {exc.response.status_code}.") from exc
         except ValueError as exc:
-            raise ProviderError("Response Twelve Data bukan JSON valid.") from exc
+            raise ProviderError("Twelve Data response is not valid JSON.") from exc
         finally:
             if close_client:
                 await client.aclose()

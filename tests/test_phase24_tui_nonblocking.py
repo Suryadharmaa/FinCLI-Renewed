@@ -77,4 +77,4 @@ async def test_clear_invalidates_pending_route_output() -> None:
         await pilot.press("enter")
         await pilot.pause(1.0)
 
-        assert "cleared | /help untuk command" in str(app.query_one("#status_bar").render())
+        assert "cleared | /help for commands" in str(app.query_one("#status_bar").render())

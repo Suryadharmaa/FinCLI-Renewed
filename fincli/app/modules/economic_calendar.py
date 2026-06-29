@@ -42,8 +42,8 @@ class EconomicCalendarService:
     async def events(self, start: date, end: date) -> list[EconomicEvent]:
         if not self.api_key:
             raise ProviderError(
-                "Economic calendar provider belum dikonfigurasi.",
-                "Isi FINNHUB_API_KEY di .env untuk mengambil economic calendar aktual.",
+                "Economic calendar provider not configured.",
+                "Set FINNHUB_API_KEY in .env to fetch actual economic calendar.",
             )
 
         close_client = self._client is None
@@ -54,22 +54,22 @@ class EconomicCalendarService:
                 params={"from": start.isoformat(), "to": end.isoformat(), "token": self.api_key},
             )
             if response.status_code == 429:
-                raise RateLimitError("Finnhub economic calendar terkena rate limit.")
+                raise RateLimitError("Finnhub economic calendar rate limited.")
             response.raise_for_status()
             payload = response.json()
         except httpx.TimeoutException as exc:
             raise ProviderError("Finnhub economic calendar timeout.") from exc
         except httpx.HTTPStatusError as exc:
-            raise ProviderError(f"Finnhub economic calendar gagal: HTTP {exc.response.status_code}.") from exc
+            raise ProviderError(f"Finnhub economic calendar failed: HTTP {exc.response.status_code}.") from exc
         except ValueError as exc:
-            raise ProviderError("Response economic calendar bukan JSON valid.") from exc
+            raise ProviderError("Economic calendar response is not valid JSON.") from exc
         finally:
             if close_client:
                 await client.aclose()
 
         raw_events = payload.get("economicCalendar") if isinstance(payload, dict) else None
         if not isinstance(raw_events, list):
-            raise ProviderError("Response Finnhub economic calendar tidak valid.")
+            raise ProviderError("Finnhub economic calendar response is not valid.")
         return [_parse_event(item) for item in raw_events if isinstance(item, dict)]
 
 
@@ -109,13 +109,13 @@ class PublicEconomicCalendarService:
         finally:
             if close_client:
                 await client.aclose()
-        raise ProviderError("Semua public economic calendar fallback gagal: " + "; ".join(errors))
+        raise ProviderError("All public economic calendar fallbacks failed: " + "; ".join(errors))
 
     async def _fetch_forex_factory_json(self, client: httpx.AsyncClient, start: date, end: date) -> list[EconomicEvent]:
         response = await _calendar_get(client, f"{self.base_url}/ff_calendar_thisweek.json", "ForexFactory public calendar")
         payload = _calendar_json(response, "ForexFactory public calendar")
         if not isinstance(payload, list):
-            raise ProviderError("Response ForexFactory calendar tidak valid.")
+            raise ProviderError("ForexFactory calendar response is not valid.")
         events = [_parse_public_event(item) for item in payload if isinstance(item, dict)]
         return [event for event in events if event.time is None or start <= event.time.date() <= end]
 
@@ -147,7 +147,7 @@ class PublicEconomicCalendarService:
         )
         payload = _calendar_json(response, "Trading Economics guest calendar")
         if not isinstance(payload, list):
-            raise ProviderError("Response Trading Economics calendar tidak valid.")
+            raise ProviderError("Trading Economics calendar response is not valid.")
         events = [_parse_trading_economics_event(item) for item in payload if isinstance(item, dict)]
         return [event for event in events if event.time is None or start <= event.time.date() <= end]
 
@@ -162,14 +162,14 @@ async def _calendar_get(
     except httpx.TimeoutException as exc:
         raise ProviderError(f"{label} timeout.") from exc
     except httpx.HTTPStatusError as exc:
-        raise ProviderError(f"{label} gagal: HTTP {exc.response.status_code}.") from exc
+        raise ProviderError(f"{label} failed: HTTP {exc.response.status_code}.") from exc
 
 
 def _calendar_json(response: httpx.Response, label: str) -> Any:
     try:
         return response.json()
     except ValueError as exc:
-        raise ProviderError(f"Response {label} bukan JSON valid.") from exc
+        raise ProviderError(f"{label} response is not valid JSON.") from exc
 
 
 def default_calendar_window(mode: str | None = None) -> tuple[date, date]:
@@ -300,7 +300,7 @@ def _parse_forex_factory_xml(payload: str) -> list[EconomicEvent]:
     try:
         root = ET.fromstring(payload)
     except ET.ParseError as exc:
-        raise ProviderError("Response ForexFactory XML calendar tidak valid.") from exc
+        raise ProviderError("ForexFactory XML calendar response is not valid.") from exc
 
     events: list[EconomicEvent] = []
     for item in root.findall(".//event"):
@@ -323,7 +323,7 @@ def _parse_forex_factory_xml(payload: str) -> list[EconomicEvent]:
 def _parse_fred_calendar_html(payload: str) -> list[EconomicEvent]:
     tbody_match = re.search(r"<tbody>(?P<body>.*?)</tbody>", payload, re.IGNORECASE | re.DOTALL)
     if not tbody_match:
-        raise ProviderError("Response FRED release calendar tidak valid.")
+        raise ProviderError("FRED release calendar response is not valid.")
 
     rows = re.findall(r"<tr[^>]*>(.*?)</tr>", tbody_match.group("body"), flags=re.IGNORECASE | re.DOTALL)
     current_date: datetime | None = None

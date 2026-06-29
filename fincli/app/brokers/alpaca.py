@@ -124,7 +124,7 @@ class AlpacaBroker(BaseBroker):
                 broker=self.name,
                 mode=mode,
                 account_id=None,
-                message=f"Mode tidak didukung: {mode}. Gunakan 'paper' atau 'live'.",
+                message=f"Unsupported mode: {mode}. Use 'paper' or 'live'.",
             )
 
         if not self.api_key or not self.secret_key:
@@ -133,7 +133,7 @@ class AlpacaBroker(BaseBroker):
                 broker=self.name,
                 mode=mode,
                 account_id=None,
-                message="API key atau secret key belum diatur. Set ALPACA_API_KEY dan ALPACA_SECRET_KEY.",
+                message="API key or secret key not set. Set ALPACA_API_KEY and ALPACA_SECRET_KEY.",
             )
 
         # Set correct base URL
@@ -166,7 +166,7 @@ class AlpacaBroker(BaseBroker):
                 broker=self.name,
                 mode=mode,
                 account_id=None,
-                message=f"Gagal terhubung ke Alpaca: {exc}",
+                message=f"Failed to connect to Alpaca: {exc}",
             )
 
     async def disconnect(self) -> None:
@@ -197,9 +197,9 @@ class AlpacaBroker(BaseBroker):
                 broker=self.name,
             )
         except httpx.HTTPStatusError as exc:
-            raise ProviderError(f"Gagal mengambil account info: HTTP {exc.response.status_code}") from exc
+            raise ProviderError(f"Failed to get account info: HTTP {exc.response.status_code}") from exc
         except Exception as exc:
-            raise ProviderError(f"Gagal mengambil account info: {exc}") from exc
+            raise ProviderError(f"Failed to get account info: {exc}") from exc
 
     async def get_positions(self) -> list[BrokerPosition]:
         """Get all open positions."""
@@ -220,9 +220,9 @@ class AlpacaBroker(BaseBroker):
                 ))
             return positions
         except httpx.HTTPStatusError as exc:
-            raise ProviderError(f"Gagal mengambil posisi: HTTP {exc.response.status_code}") from exc
+            raise ProviderError(f"Failed to get positions: HTTP {exc.response.status_code}") from exc
         except Exception as exc:
-            raise ProviderError(f"Gagal mengambil posisi: {exc}") from exc
+            raise ProviderError(f"Failed to get positions: {exc}") from exc
 
     async def place_order(
         self,
@@ -270,9 +270,9 @@ class AlpacaBroker(BaseBroker):
             except (json.JSONDecodeError, ValueError):
                 pass
             msg = error_data.get("message", f"HTTP {exc.response.status_code}")
-            raise ProviderError(f"Gagal place order: {msg}") from exc
+            raise ProviderError(f"Failed to place order: {msg}") from exc
         except Exception as exc:
-            raise ProviderError(f"Gagal place order: {exc}") from exc
+            raise ProviderError(f"Failed to place order: {exc}") from exc
 
     async def cancel_order(self, broker_order_id: str) -> BrokerOrder:
         """Cancel a pending order."""
@@ -282,9 +282,9 @@ class AlpacaBroker(BaseBroker):
             response.raise_for_status()
             return _parse_order(response.json(), self.name)
         except httpx.HTTPStatusError as exc:
-            raise ProviderError(f"Gagal cancel order: HTTP {exc.response.status_code}") from exc
+            raise ProviderError(f"Failed to cancel order: HTTP {exc.response.status_code}") from exc
         except Exception as exc:
-            raise ProviderError(f"Gagal cancel order: {exc}") from exc
+            raise ProviderError(f"Failed to cancel order: {exc}") from exc
 
     async def get_order(self, broker_order_id: str) -> BrokerOrder:
         """Get order status."""
@@ -294,9 +294,9 @@ class AlpacaBroker(BaseBroker):
             response.raise_for_status()
             return _parse_order(response.json(), self.name)
         except httpx.HTTPStatusError as exc:
-            raise ProviderError(f"Gagal mengambil order: HTTP {exc.response.status_code}") from exc
+            raise ProviderError(f"Failed to get order: HTTP {exc.response.status_code}") from exc
         except Exception as exc:
-            raise ProviderError(f"Gagal mengambil order: {exc}") from exc
+            raise ProviderError(f"Failed to get order: {exc}") from exc
 
     async def list_orders(self, status: str | None = None, limit: int = 50) -> list[BrokerOrder]:
         """List orders, optionally filtered by status."""
@@ -318,9 +318,9 @@ class AlpacaBroker(BaseBroker):
             response.raise_for_status()
             return [_parse_order(order, self.name) for order in response.json()]
         except httpx.HTTPStatusError as exc:
-            raise ProviderError(f"Gagal mengambil orders: HTTP {exc.response.status_code}") from exc
+            raise ProviderError(f"Failed to list orders: HTTP {exc.response.status_code}") from exc
         except Exception as exc:
-            raise ProviderError(f"Gagal mengambil orders: {exc}") from exc
+            raise ProviderError(f"Failed to list orders: {exc}") from exc
 
     async def get_quote(self, symbol: str) -> float:
         """Get current price for a symbol."""
@@ -332,6 +332,6 @@ class AlpacaBroker(BaseBroker):
             quote = data.get("quote", {})
             return float(quote.get("ap", 0) or quote.get("bp", 0) or 0)
         except httpx.HTTPStatusError as exc:
-            raise ProviderError(f"Gagal mengambil quote: HTTP {exc.response.status_code}") from exc
+            raise ProviderError(f"Failed to get quote: HTTP {exc.response.status_code}") from exc
         except Exception as exc:
-            raise ProviderError(f"Gagal mengambil quote: {exc}") from exc
+            raise ProviderError(f"Failed to get quote: {exc}") from exc

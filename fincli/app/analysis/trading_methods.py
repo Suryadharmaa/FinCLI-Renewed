@@ -25,7 +25,7 @@ class TradingMethodContext:
 
 def analyze_trading_methods(candles: list[Candle], left: int = 3, right: int = 3) -> TradingMethodContext:
     if not candles:
-        raise ValueError("Data candle kosong.")
+        raise ValueError("Candle data is empty.")
 
     pivot_highs, pivot_lows = _pivots(candles, left, right)
     recent = candles[-20:]

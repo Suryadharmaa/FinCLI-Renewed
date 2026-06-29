@@ -41,6 +41,6 @@ def test_scan_expression_rejects_unknown_filter() -> None:
     try:
         matches_filter_expression(summary(50, "neutral"), "magic=1")
     except CommandError as exc:
-        assert "Filter scan tidak dikenal" in str(exc)
+        assert "Unknown scan filter" in str(exc)
     else:
         raise AssertionError("Expected CommandError for unsupported scan filter")

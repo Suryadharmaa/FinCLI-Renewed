@@ -195,8 +195,8 @@ class AlertService:
         normalized = condition.strip().lower()
         if normalized not in CONDITIONAL_TYPES:
             raise CommandError(
-                f"Condition tidak dikenal: {condition}.",
-                f"Gunakan: {', '.join(sorted(CONDITIONAL_TYPES))}.",
+                f"Unknown condition: {condition}.",
+                f"Use: {', '.join(sorted(CONDITIONAL_TYPES))}.",
             )
         self.db.execute(
             """
@@ -266,8 +266,8 @@ def normalize_condition(condition: str) -> str:
     if normalized in CONDITIONAL_TYPES:
         return normalized
     raise CommandError(
-        f"Alert condition tidak dikenal: {condition}.",
-        f"Gunakan: above, below, atau {', '.join(sorted(CONDITIONAL_TYPES))}.",
+        f"Unknown alert condition: {condition}.",
+        f"Use: above, below, or {', '.join(sorted(CONDITIONAL_TYPES))}.",
     )
 
 

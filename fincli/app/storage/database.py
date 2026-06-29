@@ -23,8 +23,10 @@ class FinCLIDatabase:
         self.initialize()
 
     def connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.db_file)
+        connection = sqlite3.connect(self.db_file, timeout=10)
         connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("PRAGMA busy_timeout=5000")
         return connection
 
     def initialize(self) -> None:
@@ -216,7 +218,7 @@ class FinCLIDatabase:
                     _migrate_watchlist_notes(db)
                     _migrate_portfolio_schema(db)
         except sqlite3.Error as exc:
-            raise StorageError("Database lokal gagal diinisialisasi.") from exc
+            raise StorageError("Local database failed to initialize.") from exc
 
     def execute(self, sql: str, params: Iterable[object] = ()) -> int | None:
         try:
@@ -224,14 +226,14 @@ class FinCLIDatabase:
                 with db:
                     return db.execute(sql, tuple(params)).lastrowid
         except sqlite3.Error as exc:
-            raise StorageError("Operasi database gagal.") from exc
+            raise StorageError("Database operation failed.") from exc
 
     def query(self, sql: str, params: Iterable[object] = ()) -> list[sqlite3.Row]:
         try:
             with closing(self.connect()) as db:
                 return list(db.execute(sql, tuple(params)).fetchall())
         except sqlite3.Error as exc:
-            raise StorageError("Query database gagal.") from exc
+            raise StorageError("Database query failed.") from exc
 
 
 def _migrate_paper_orders_schema(db: sqlite3.Connection) -> None:

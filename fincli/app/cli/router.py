@@ -694,7 +694,7 @@ class CommandRouter:
             path = config_paths.APP_DIR / "themes" / f"{name}.json"
             save_custom_theme(path, custom)
             register_custom_theme(custom)
-            return CommandResult(Panel(f"Tema '{name}' dibuat di {path}. Edit JSON untuk kustomisasi warna.", title="Theme Created", border_style="green"))
+            return CommandResult(Panel(f"Theme '{name}' created at {path}. Edit JSON to customize colors.", title="Theme Created", border_style="green"))
         if action == "import":
             if len(args) < 2:
                 raise CommandError("Format: /theme import <path.json>")
@@ -718,10 +718,10 @@ class CommandRouter:
             self.config.save()
             t = get_theme(action)
             return CommandResult(
-                Panel(f"Tema diubah ke: [bold]{t.name}[/] — {t.description}", title="Theme", border_style=t.accent),
+                Panel(f"Theme changed to: [bold]{t.name}[/] — {t.description}", title="Theme", border_style=t.accent),
                 metadata={"theme_changed": action},
             )
-        raise CommandError(f"Tema tidak dikenal: {action}. Gunakan /theme list.")
+        raise CommandError(f"Unknown theme: {action}. Use /theme list.")
 
     def _config_panel(self) -> Panel:
         safe = self.config.settings.safe_dict()
@@ -753,13 +753,13 @@ class CommandRouter:
         if not args:
             return self._ai_model_interactive(manager, current, con)
         if args[0].lower() == "key":
-            con.print("[dim]Hint: /ai_model key akan deprecated. Gunakan /ai_model untuk picker interaktif.[/dim]")
+            con.print("[dim]Hint: /ai_model key is deprecated. Use /ai_model for interactive picker.[/dim]")
             if len(args) < 3:
                 raise CommandError("Format: /ai_model key <provider> <api_key>")
             provider = args[1].lower()
             info = manager.get(provider)
             if info is None:
-                raise CommandError(f"AI provider tidak dikenal: {provider}")
+                raise CommandError(f"Unknown AI provider: {provider}")
             save_secret(info.env_key, args[2])
             model = current.ai_model if current.ai_provider == provider else info.default_model
             self.config.set_ai_model(provider, model)
@@ -767,9 +767,9 @@ class CommandRouter:
             return CommandResult(
                 Panel(
                     (
-                        f"API key AI untuk {provider} disimpan global di ~/.fincli/secrets.env.\n"
-                        f"Provider aktif disimpan: {provider} / {model}.\n"
-                        "Key tidak ditampilkan di terminal dan dipakai lintas session."
+                        f"AI API key for {provider} saved globally in ~/.fincli/secrets.env.\n"
+                        f"Active provider saved: {provider} / {model}.\n"
+                        "Key is not displayed in terminal and persists across sessions."
                     ),
                     title="AI API Key Saved",
                     border_style="green",
@@ -780,22 +780,22 @@ class CommandRouter:
             provider = args[0].lower()
             info = manager.get(provider)
             if info is None:
-                raise CommandError(f"AI provider tidak dikenal: {provider}. Gunakan: {', '.join(p.name for p in manager.list_providers())}")
+                raise CommandError(f"Unknown AI provider: {provider}. Use: {', '.join(p.name for p in manager.list_providers())}")
             if not os.getenv(info.env_key):
-                con.print(f"[yellow]API key {info.env_key} belum disimpan.[/yellow]")
+                con.print(f"[yellow]API key {info.env_key} not set.[/yellow]")
                 key_val = _interactive_prompt(f"Paste {info.env_key}", mask=True)
                 if key_val:
                     save_secret(info.env_key, key_val)
                     con.print(f"[green]✓ {info.env_key} saved.[/green]")
                 else:
-                    raise CommandError("API key dibutuhkan. Coba lagi dengan /ai_model.")
+                    raise CommandError("API key required. Try again with /ai_model.")
             self.config.set_ai_model(provider, info.default_model)
             self.ai_provider = manager.create(provider)
-            return CommandResult(Panel(f"AI model aktif: {provider} / {info.default_model}", title="AI Model Updated"))
+            return CommandResult(Panel(f"AI model active: {provider} / {info.default_model}", title="AI Model Updated"))
         # /ai_model <provider> <model> — direct set
         self.config.set_ai_model(args[0], args[1])
         self.ai_provider = manager.create(args[0])
-        return CommandResult(Panel(f"AI model aktif: {args[0]} / {args[1]}", title="AI Model Updated"))
+        return CommandResult(Panel(f"AI model active: {args[0]} / {args[1]}", title="AI Model Updated"))
 
     def _ai_model_interactive(self, manager: AIProviderManager, current: Any, con: Console) -> CommandResult:
         """Interactive AI provider/model picker."""
@@ -810,21 +810,21 @@ class CommandRouter:
 
         selected_provider = _interactive_select(items, "Select AI Provider", current=current.ai_provider, console=con)
         if not selected_provider:
-            return CommandResult(Panel("Dibatalkan.", title="AI Model"))
+            return CommandResult(Panel("Cancelled.", title="AI Model"))
 
         info = manager.get(selected_provider)
         if info is None:
-            raise CommandError(f"Provider tidak dikenal: {selected_provider}")
+            raise CommandError(f"Unknown provider: {selected_provider}")
 
         # Prompt for API key if missing
         if not os.getenv(info.env_key):
-            con.print(f"\n[yellow]API key [bold]{info.env_key}[/bold] belum disimpan untuk {selected_provider}.[/yellow]")
+            con.print(f"\n[yellow]API key [bold]{info.env_key}[/bold] not set for {selected_provider}.[/yellow]")
             key_val = _interactive_prompt(f"Paste {info.env_key}", mask=True)
             if key_val:
                 save_secret(info.env_key, key_val)
                 con.print(f"[green]✓ {info.env_key} saved.[/green]")
             else:
-                con.print("[dim]Skip API key. Provider mungkin tidak bekerja tanpa key.[/dim]")
+                con.print("[dim]Skip API key. Provider may not work without key.[/dim]")
 
         # Show model picker
         models = MODEL_CATALOG.get(selected_provider, ())
@@ -841,7 +841,7 @@ class CommandRouter:
         self.config.set_ai_model(selected_provider, selected_model)
         self.ai_provider = manager.create(selected_provider)
         return CommandResult(
-            Panel(f"AI model aktif: [bold]{selected_provider}[/bold] / [cyan]{selected_model}[/cyan]", title="AI Model Updated", border_style="green")
+            Panel(f"AI model active: [bold]{selected_provider}[/bold] / [cyan]{selected_model}[/cyan]", title="AI Model Updated", border_style="green")
         )
 
     def _news_model(self, args: list[str]) -> CommandResult:
@@ -867,7 +867,7 @@ class CommandRouter:
             self.config.set_news_provider_priority(providers)
             return CommandResult(
                 Panel(
-                    f"News fallback priority disimpan: {', '.join(self.config.settings.news_provider_priority)}",
+                    f"News fallback priority saved: {', '.join(self.config.settings.news_provider_priority)}",
                     title="News Priority Updated",
                     border_style="green",
                 )
@@ -887,14 +887,14 @@ class CommandRouter:
                 )
             )
         if action == "key":
-            con.print("[dim]Hint: /news_model key akan deprecated. Gunakan /news_model untuk picker interaktif.[/dim]")
+            con.print("[dim]Hint: /news_model key is deprecated. Use /news_model for interactive picker.[/dim]")
             if len(args) < 3:
-                raise CommandError("Format: /news_model key <provider> <api_key> [base_url untuk custom]")
+                raise CommandError("Format: /news_model key <provider> <api_key> [base_url for custom]")
             provider = args[1].lower()
             env_key = news_connector_secret_key(provider)
             env_keys = (env_key,) if env_key else _market_provider_secret_keys(provider)
             if not env_keys:
-                raise CommandError(f"Provider {provider} tidak membutuhkan API key atau tidak dikenal.")
+                raise CommandError(f"Provider {provider} does not require an API key or is unknown.")
             save_secret(env_keys[0], args[2])
             if provider == "custom_news" and len(args) >= 4:
                 save_secret("CUSTOM_NEWS_BASE_URL", args[3])
@@ -907,13 +907,13 @@ class CommandRouter:
             else:
                 self.config.set_news_provider_priority([provider, *self._news_priority_tail(provider)])
             self.cache.clear()
-            extra = "\nBase URL custom juga disimpan." if provider in {"custom", "custom_news"} and len(args) >= 4 else ""
+            extra = "\nCustom base URL also saved." if provider in {"custom", "custom_news"} and len(args) >= 4 else ""
             return CommandResult(
                 Panel(
                     (
-                        f"API key market/news untuk {provider} disimpan global di ~/.fincli/secrets.env.{extra}\n"
-                        f"Provider news aktif disimpan: {provider}.\n"
-                        "Key tidak ditampilkan di terminal dan dipakai lintas session."
+                        f"Market/news API key for {provider} saved globally in ~/.fincli/secrets.env.{extra}\n"
+                        f"Active news provider saved: {provider}.\n"
+                        "Key is not displayed in terminal and persists across sessions."
                     ),
                     title="News API Key Saved",
                     border_style="green",
@@ -949,7 +949,7 @@ class CommandRouter:
 
         selected = _interactive_select(items, "Select Market/News Provider", current=current.market_provider, console=con)
         if not selected:
-            return CommandResult(Panel("Dibatalkan.", title="News Model"))
+            return CommandResult(Panel("Cancelled.", title="News Model"))
 
         return self._news_model_select_provider(selected, con)
 
@@ -959,7 +959,7 @@ class CommandRouter:
         if self.market_manager.get(provider) is not None:
             env_keys = _market_provider_secret_keys(provider)
             if env_keys and not any(os.getenv(k) for k in env_keys):
-                con.print(f"\n[yellow]API key belum disimpan untuk [bold]{provider}[/bold].[/yellow]")
+                con.print(f"\n[yellow]API key not set for [bold]{provider}[/bold].[/yellow]")
                 for key in env_keys:
                     if key.endswith("_BASE_URL"):
                         val = _interactive_prompt(f"Paste {key} (URL)")
@@ -975,13 +975,13 @@ class CommandRouter:
             self.config.set_market_provider_priority([provider, *self._priority_tail(provider)])
             self._refresh_market_service()
             self.cache.clear()
-            return CommandResult(Panel(f"Provider market/news aktif: [bold]{provider}[/bold]", title="Provider Updated", border_style="green"))
+            return CommandResult(Panel(f"Active market/news provider: [bold]{provider}[/bold]", title="Provider Updated", border_style="green"))
 
         # Check if it's a news connector
         env_key = news_connector_secret_key(provider)
         env_keys = (env_key,) if env_key else ()
         if env_keys and not any(os.getenv(k) for k in env_keys):
-            con.print(f"\n[yellow]API key belum disimpan untuk [bold]{provider}[/bold].[/yellow]")
+            con.print(f"\n[yellow]API key not set for [bold]{provider}[/bold].[/yellow]")
             for key in env_keys:
                 val = _interactive_prompt(f"Paste {key}", mask=True)
                 if val:
@@ -993,7 +993,7 @@ class CommandRouter:
         self._validate_news_providers([provider])
         self.config.set_news_provider_priority([provider, *self._news_priority_tail(provider)])
         self.cache.clear()
-        return CommandResult(Panel(f"Provider news aktif: [bold]{provider}[/bold]", title="News Provider Updated", border_style="green"))
+        return CommandResult(Panel(f"Active news provider: [bold]{provider}[/bold]", title="News Provider Updated", border_style="green"))
 
     def _provider(self, args: list[str]) -> CommandResult:
         if args and args[0].lower() == "list":
@@ -1017,18 +1017,18 @@ class CommandRouter:
             }
             key_name = secret_keys.get(provider)
             if not key_name:
-                raise CommandError(f"Provider '{provider}' tidak dikenal. Gunakan: {', '.join(secret_keys)}")
+                raise CommandError(f"Unknown provider: '{provider}'. Use: {', '.join(secret_keys)}")
             old_secrets = read_secrets()
             old_value = old_secrets.get(key_name, "")
             if old_value:
                 masked = f"{old_value[:4]}...{old_value[-2:]}" if len(old_value) > 6 else "***"
                 return CommandResult(Panel(
-                    f"Key untuk {provider} sudah ada: {masked}\nGunakan /secrets clear dulu, lalu /news_model key {provider} <new_key>.",
+                    f"Key for {provider} already exists: {masked}\nUse /secrets clear first, then /news_model key {provider} <new_key>.",
                     title="Key Rotate",
                     border_style="yellow",
                 ))
             return CommandResult(Panel(
-                f"Belum ada key untuk {provider}. Gunakan /news_model key {provider} <api_key> untuk menyimpan.",
+                f"No key set for {provider}. Use /news_model key {provider} <api_key> to save.",
                 title="Key Rotate",
                 border_style="yellow",
             ))
@@ -1057,7 +1057,7 @@ class CommandRouter:
             self.config.set_market_provider_priority([provider, *self._priority_tail(provider)])
             self._refresh_market_service()
             self.cache.clear()
-            return CommandResult(Panel(f"Provider market aktif: {provider}", title="Provider Updated"))
+            return CommandResult(Panel(f"Active market provider: {provider}", title="Provider Updated"))
         if args and args[0].lower() == "priority":
             if len(args) < 2:
                 raise CommandError("Format: /provider priority finnhub,yfinance")
@@ -1071,8 +1071,8 @@ class CommandRouter:
                 raise CommandError("Format: /provider reset <provider_name>")
             provider_name = args[1].lower()
             if self.market_service.reset_circuit(provider_name):
-                return CommandResult(Panel(f"Circuit breaker untuk {provider_name} di-reset.", title="Circuit Reset", border_style="green"))
-            return CommandResult(Panel(f"Provider '{provider_name}' tidak ditemukan dalam metrics.", title="Circuit Reset", border_style="red"))
+                return CommandResult(Panel(f"Circuit breaker for {provider_name} reset.", title="Circuit Reset", border_style="green"))
+            return CommandResult(Panel(f"Provider '{provider_name}' not found in metrics.", title="Circuit Reset", border_style="red"))
         if args and args[0].lower() == "status":
             settings = self.config.settings
             provider_status = self._provider_health_text()
@@ -1537,7 +1537,38 @@ class CommandRouter:
                     border_style="yellow",
                 )
             )
-        raise CommandError("Format: /secrets status atau /secrets clear")
+        if action == "age":
+            return CommandResult(_format_secret_ages())
+        if action == "rotate":
+            if len(args) < 2:
+                raise CommandError("Format: /secrets rotate <PROVIDER_KEY>")
+            return self._rotate_secret(args[1])
+        raise CommandError("Format: /secrets status, /secrets clear, /secrets age, /secrets rotate <KEY>")
+
+    def _rotate_secret(self, env_key: str) -> CommandResult:
+        from fincli.app.storage.secrets import rotate_secret, secret_age_days
+        key = env_key.strip().upper()
+        if not key or not all(c.isalnum() or c == "_" for c in key):
+            raise CommandError(f"Invalid key name: {env_key}")
+        # Check if key exists
+        current = os.getenv(key)
+        if not current:
+            raise CommandError(f"Key {key} is not currently set. Use /ai_model key or /news_model key first.")
+        # Prompt for new value
+        new_value = input(f"Enter new value for {key}: ").strip()
+        if not new_value:
+            raise CommandError("New value cannot be empty.")
+        if new_value == current:
+            raise CommandError("New value is the same as the current value.")
+        rotate_secret(key, new_value)
+        masked = new_value[:4] + "..." + new_value[-4:] if len(new_value) > 8 else "****"
+        return CommandResult(
+            Panel(
+                f"Key {key} rotated successfully.\nNew value: {masked}",
+                title="Key Rotated",
+                border_style="green",
+            )
+        )
 
     def _security(self, args: list[str]) -> CommandResult:
         if not args:
@@ -1633,9 +1664,9 @@ class CommandRouter:
                 raise CommandError("Format: /agent show <slug>")
             agent = self.agent_registry.get(args[1])
             if agent is None:
-                raise CommandError(f"Agent tidak ditemukan: {args[1]}")
+                raise CommandError(f"Agent not found: {args[1]}")
             return CommandResult(_format_agent(agent))
-        raise CommandError("Format: /agent list [category] atau /agent show <slug>")
+        raise CommandError("Format: /agent list [category] or /agent show <slug>")
 
     def _connector(self, args: list[str]) -> CommandResult:
         action = args[0].lower() if args else "list"
@@ -1663,7 +1694,7 @@ class CommandRouter:
                 errors = validate_manifest(plugin)
                 results.append((plugin, errors))
             return CommandResult(_format_plugin_validation(results))
-        raise CommandError("Format: /plugin list, /plugin status, atau /plugin validate")
+        raise CommandError("Format: /plugin list, /plugin status, or /plugin validate")
 
     def _cache(self, args: list[str]) -> CommandResult:
         if args and args[0].lower() == "stats":
@@ -1680,7 +1711,7 @@ class CommandRouter:
         if args and args[0].lower() == "clear":
             self.cache.clear()
             cleared = self.market_cache.clear()
-            return CommandResult(Panel(f"Runtime cache dan persistent cache dibersihkan ({cleared} entry).", title="Cache"))
+            return CommandResult(Panel(f"Runtime cache and persistent cache cleared ({cleared} entries).", title="Cache"))
         raise CommandError("Format: /cache clear atau /cache stats")
 
     def _watchlist(self, args: list[str]) -> CommandResult:
@@ -1693,20 +1724,20 @@ class CommandRouter:
             group = args[2] if len(args) >= 3 else "default"
             notes = args[3] if len(args) >= 4 else ""
             self.watchlist.add(args[1], group_name=group, notes=notes)
-            return CommandResult(Panel(f"{args[1].upper()} ditambahkan ke watchlist (group: {group}).", title="Watchlist"))
+            return CommandResult(Panel(f"{args[1].upper()} added to watchlist (group: {group}).", title="Watchlist"))
         if action == "remove" and len(args) >= 2:
             self.watchlist.remove(args[1])
-            return CommandResult(Panel(f"{args[1].upper()} dihapus dari watchlist.", title="Watchlist"))
+            return CommandResult(Panel(f"{args[1].upper()} removed from watchlist.", title="Watchlist"))
         if action == "list":
             group = args[1] if len(args) >= 2 else None
             return self._watchlist_table(group)
         if action == "note" and len(args) >= 3:
             self.watchlist.update_notes(args[1], " ".join(args[2:]))
-            return CommandResult(Panel(f"Catatan untuk {args[1].upper()} disimpan.", title="Watchlist"))
+            return CommandResult(Panel(f"Note for {args[1].upper()} saved.", title="Watchlist"))
         if action == "groups":
             groups = self.watchlist.groups()
             if not groups:
-                return CommandResult(Panel("Belum ada group.", title="Watchlist Groups"))
+                return CommandResult(Panel("No groups yet.", title="Watchlist Groups"))
             table = Table(title="Watchlist Groups", expand=True)
             table.add_column("Group", style="cyan")
             table.add_column("Count", justify="right")
@@ -1746,7 +1777,7 @@ class CommandRouter:
                 str(row["created_at"]),
             )
         if not rows:
-            table.add_row("-", "-", "-", "-", "-", "Belum ada data. Gunakan /watchlist add AAPL", "-")
+            table.add_row("-", "-", "-", "-", "-", "No data yet. Use /watchlist add AAPL", "-")
         return CommandResult(table)
 
     def _portfolio(self, args: list[str]) -> CommandResult:
@@ -1766,7 +1797,7 @@ class CommandRouter:
             portfolios = self.portfolio.list_portfolios()
             names = {str(p["name"]) for p in portfolios}
             if name not in names:
-                raise CommandError(f"Portfolio '{name}' tidak ditemukan. Buat dengan /portfolio create {name}")
+                raise CommandError(f"Portfolio '{name}' not found. Create with /portfolio create {name}")
             self.portfolio.set_portfolio(name)
             return CommandResult(Panel(f"Active portfolio: {name}", title="Portfolio", border_style="green"))
 
@@ -1848,7 +1879,7 @@ class CommandRouter:
                     "-",
                     "-",
                     "-",
-                    "Belum ada posisi. Gunakan /portfolio add BTC-USD 0.05 65000",
+                    "No positions yet. Use /portfolio add BTC-USD 0.05 65000",
                 )
             return CommandResult(table)
 
@@ -1932,7 +1963,7 @@ class CommandRouter:
                 )
             )
 
-        raise CommandError("Format: /tx add <buy|sell> <symbol> <qty> <price> [currency] atau /tx list")
+        raise CommandError("Format: /tx add <buy|sell> <symbol> <qty> <price> [currency] or /tx list")
 
     def _journal(self, args: list[str]) -> CommandResult:
         if not args:
@@ -1952,9 +1983,9 @@ class CommandRouter:
             prompt = build_journal_review_prompt(rows, stats)
             response = self._run_async(self.ai_provider.complete(AIRequest(prompt=prompt, model=self.config.settings.ai_model)))
             if not isinstance(response, AIResponse):
-                raise CommandError("AI provider mengembalikan data tidak valid.")
+                raise CommandError("AI provider returned invalid data.")
             return CommandResult(
-                MarkdownBlock("Journal Review", _format_ai_response(response), "Disclaimer: bukan nasihat keuangan.")
+                MarkdownBlock("Journal Review", _format_ai_response(response), "Disclaimer: not financial advice.")
             )
 
         if action == "add":
@@ -2000,7 +2031,7 @@ class CommandRouter:
             else:
                 entry_reason = args[i]; i += 1
         self.journal.add(instrument, bias=bias, entry_reason=entry_reason, exit_reason=exit_reason, result=result, emotion=emotion, lesson=lesson, tags=tags)
-        return CommandResult(Panel(f"Journal untuk {instrument.upper()} ditambahkan.", title="Journal"))
+        return CommandResult(Panel(f"Journal entry for {instrument.upper()} added.", title="Journal"))
 
     def _journal_edit(self, args: list[str]) -> CommandResult:
         if not args:
@@ -2008,7 +2039,7 @@ class CommandRouter:
         try:
             entry_id = int(args[0])
         except ValueError:
-            raise CommandError("ID harus berupa angka.")
+            raise CommandError("ID must be a number.")
         fields: dict[str, str] = {}
         i = 1
         while i < len(args):
@@ -2018,12 +2049,12 @@ class CommandRouter:
             else:
                 i += 1
         if not fields:
-            raise CommandError("Tidak ada field yang diubah. Gunakan --bias, --entry_reason, dll.")
+            raise CommandError("No fields to update. Use --bias, --entry_reason, etc.")
         entry = self.journal.get(entry_id)
         if not entry:
-            raise CommandError(f"Journal entry #{entry_id} tidak ditemukan.")
+            raise CommandError(f"Journal entry #{entry_id} not found.")
         self.journal.edit(entry_id, **fields)
-        return CommandResult(Panel(f"Journal #{entry_id} diperbarui.", title="Journal"))
+        return CommandResult(Panel(f"Journal #{entry_id} updated.", title="Journal"))
 
     def _journal_delete(self, args: list[str]) -> CommandResult:
         if not args:
@@ -2031,21 +2062,21 @@ class CommandRouter:
         try:
             entry_id = int(args[0])
         except ValueError:
-            raise CommandError("ID harus berupa angka.")
+            raise CommandError("ID must be a number.")
         entry = self.journal.get(entry_id)
         if not entry:
-            raise CommandError(f"Journal entry #{entry_id} tidak ditemukan.")
+            raise CommandError(f"Journal entry #{entry_id} not found.")
         self.journal.delete(entry_id)
-        return CommandResult(Panel(f"Journal #{entry_id} ({entry['instrument']}) dihapus.", title="Journal"))
+        return CommandResult(Panel(f"Journal #{entry_id} ({entry['instrument']}) deleted.", title="Journal"))
 
     def _journal_show(self, id_str: str) -> CommandResult:
         try:
             entry_id = int(id_str)
         except ValueError:
-            raise CommandError("ID harus berupa angka.")
+            raise CommandError("ID must be a number.")
         entry = self.journal.get(entry_id)
         if not entry:
-            raise CommandError(f"Journal entry #{entry_id} tidak ditemukan.")
+            raise CommandError(f"Journal entry #{entry_id} not found.")
         table = Table(title=f"Journal #{entry_id}", expand=True)
         table.add_column("Field", style="cyan", no_wrap=True)
         table.add_column("Value")
@@ -2069,7 +2100,7 @@ class CommandRouter:
                 str(row["created_at"]),
             )
         if not rows:
-            table.add_row("-", "-", "-", 'Belum ada journal. Gunakan /journal add BTC-USD bullish "Alasan entry"', "-")
+            table.add_row("-", "-", "-", 'No journal entries yet. Use /journal add BTC-USD bullish "Entry reason"', "-")
         return table
 
     def _alert(self, args: list[str]) -> CommandResult:
@@ -2122,12 +2153,12 @@ class CommandRouter:
 
         if action == "start":
             if daemon.is_running:
-                return CommandResult(Panel("Alert daemon sudah berjalan.", title="Alert Daemon"))
+                return CommandResult(Panel("Alert daemon is already running.", title="Alert Daemon"))
             daemon.start()
             return CommandResult(Panel("Alert daemon started. Checking every 60s. Use /alert daemon stop to halt.", title="Alert Daemon", border_style="green"))
         if action == "stop":
             if not daemon.is_running:
-                return CommandResult(Panel("Alert daemon tidak berjalan.", title="Alert Daemon"))
+                return CommandResult(Panel("Alert daemon is not running.", title="Alert Daemon"))
             daemon.stop()
             return CommandResult(Panel("Alert daemon stopped.", title="Alert Daemon", border_style="yellow"))
         if action == "status":
@@ -2146,7 +2177,7 @@ class CommandRouter:
         interval = args[1] if len(args) >= 2 else "1d"
         candles = self._run_async(self.market_service.history(symbol, period="6mo", interval=interval))
         if not candles:
-            raise CommandError(f"Data teknikal kosong untuk {symbol}.")
+            raise CommandError(f"No technical data for {symbol}.")
         summary = summarize_technical_indicators(candles)
         structure = analyze_market_structure(candles)
         debate = run_technical_debate(summary, structure, candles)
@@ -2161,7 +2192,7 @@ class CommandRouter:
         if not args:
             raise CommandError(
                 "Format: /chart <symbol> [interval] [--overlay rsi,macd] [--width N] [--height N]\n"
-                "Contoh: /chart AAPL 1d --overlay rsi,macd"
+                "Example: /chart AAPL 1d --overlay rsi,macd"
             )
 
         symbol = args[0].upper()
@@ -2502,7 +2533,7 @@ class CommandRouter:
         provider = YFinanceProvider()
         table = self._run_async(provider.yahoo_table(symbol, section, period=period, interval=interval))
         if not isinstance(table, YahooTable):
-            raise CommandError("YFinance provider mengembalikan data tabel tidak valid.")
+            raise CommandError("YFinance provider returned invalid table data.")
         return CommandResult(_format_yahoo_table(table))
 
     def _ai(self, args: list[str]) -> CommandResult:
@@ -2548,7 +2579,7 @@ class CommandRouter:
         request = AIRequest(prompt=assistant_prompt, model=model)
         response = self._run_async(self.ai_provider.complete(request))
         if not isinstance(response, AIResponse):
-            raise CommandError("AI provider mengembalikan data tidak valid.")
+            raise CommandError("AI provider returned invalid data.")
 
         # Cache the response
         if response.content:
@@ -2576,7 +2607,7 @@ class CommandRouter:
         request = AIRequest(prompt=assistant_prompt, model=self.config.settings.ai_model)
         response = self._run_async(self.ai_provider.complete(request))
         if not isinstance(response, AIResponse):
-            raise CommandError("AI provider mengembalikan data tidak valid.")
+            raise CommandError("AI provider returned invalid data.")
         return CommandResult(_format_ai_response(response))
 
     def _analyze(self, args: list[str]) -> CommandResult:
@@ -2605,7 +2636,7 @@ class CommandRouter:
         request = AIRequest(prompt=prompt, model=self.config.settings.ai_model)
         response = self._run_async(self.ai_provider.complete(request))
         if not isinstance(response, AIResponse):
-            raise CommandError("AI provider mengembalikan data tidak valid.")
+            raise CommandError("AI provider returned invalid data.")
         return CommandResult(
             MarkdownBlock(f"AI Market Analysis: {symbol}", _format_ai_response(response), "Disclaimer: bukan nasihat keuangan.")
         )
@@ -2620,7 +2651,7 @@ class CommandRouter:
                 "  /scan <universe> [filter] [interval] [--limit N]\n\n"
                 "Universes: sp500, nasdaq, crypto, forex, commodities\n"
                 "Filters: rsi<30, rsi>70, trend=bullish, sma_cross, sma_death, above_support\n"
-                "Contoh: /scan sp500 rsi<30 --limit 20"
+                "Example: /scan sp500 rsi<30 --limit 20"
             )
 
         source = args[0].lower()
@@ -2642,7 +2673,7 @@ class CommandRouter:
             rows = self.watchlist.list()
             symbols = [str(row["symbol"]) for row in rows]
             if not symbols:
-                return CommandResult(Panel("Watchlist kosong. Gunakan /watchlist add AAPL.", title="Scan"))
+                return CommandResult(Panel("Watchlist is empty. Use /watchlist add AAPL.", title="Scan"))
             filter_expression = remaining_args[0] if remaining_args else ""
             interval = remaining_args[1] if len(remaining_args) >= 2 else "1d"
             results, errors = self._run_async(scan_symbols(symbols, self.market_service, filter_expression, interval=interval))
@@ -2655,7 +2686,7 @@ class CommandRouter:
             return CommandResult(_format_scan_results(results, filter_expression or "all", interval, source, errors))
 
         raise CommandError(
-            f"Source tidak dikenal: {source}. Gunakan: watchlist, {', '.join(UNIVERSES.keys())}"
+            f"Unknown source: {source}. Use: watchlist, {', '.join(UNIVERSES.keys())}"
         )
 
     def _scan_export(self, args: list[str]) -> CommandResult:
@@ -2668,10 +2699,10 @@ class CommandRouter:
         rows = self.watchlist.list()
         symbols = [str(row["symbol"]) for row in rows]
         if not symbols:
-            raise CommandError("Watchlist kosong. Gunakan /watchlist add AAPL.")
+            raise CommandError("Watchlist is empty. Use /watchlist add AAPL.")
         results, _errors = self._run_async(scan_symbols(symbols, self.market_service, filter_expression, interval=interval))
         written = export_rows(_scan_result_rows(results), export_format, target)
-        return CommandResult(Panel(f"Scan export selesai: {written}", title="Scan Export", border_style="green"))
+        return CommandResult(Panel(f"Scan export complete: {written}", title="Scan Export", border_style="green"))
 
     def _report(self, args: list[str]) -> CommandResult:
         if len(args) < 4 or args[0].lower() != "market":
@@ -2682,7 +2713,7 @@ class CommandRouter:
         interval = args[4] if len(args) >= 5 else "1d"
         overview = self._run_async(build_market_overview(symbol, self.market_service, interval))
         written = write_market_report(overview, report_format, target)
-        return CommandResult(Panel(f"Market report selesai: {written}", title="Market Report", border_style="green"))
+        return CommandResult(Panel(f"Market report complete: {written}", title="Market Report", border_style="green"))
 
     def _calendar(self, args: list[str]) -> CommandResult:
         if args and args[0].lower() == "export":
@@ -2691,7 +2722,7 @@ class CommandRouter:
         secrets = read_secrets()
         service = EconomicCalendarService(api_key=secrets.get("FINNHUB_API_KEY"))
         source = "finnhub"
-        note = "Aktual dari provider Finnhub."
+        note = "Actual data from Finnhub provider."
         try:
             events = self._run_async(service.events(start, end))
         except FinCLIError as exc:
@@ -2836,7 +2867,7 @@ class CommandRouter:
             "SELECT id, total_value, cost_basis, unrealized_pnl, realized_pnl, created_at FROM portfolio_snapshots ORDER BY id DESC LIMIT 20"
         )
         if not rows:
-            return CommandResult(Panel("Belum ada portfolio snapshot. Gunakan /portfolio snapshot untuk menyimpan.", title="Portfolio History"))
+            return CommandResult(Panel("No portfolio snapshots yet. Use /portfolio snapshot to save.", title="Portfolio History"))
         table = Table(title="Portfolio History (Last 20 Snapshots)", expand=True)
         table.add_column("#", style="dim", justify="right")
         table.add_column("Date", style="cyan")
@@ -2898,7 +2929,7 @@ class CommandRouter:
         """Suggest rebalancing trades based on equal-weight allocation."""
         rows = self.portfolio.list()
         if not rows:
-            return CommandResult(Panel("Portfolio kosong. Tambah posisi dulu dengan /portfolio add.", title="Rebalance"))
+            return CommandResult(Panel("Portfolio is empty. Add positions first with /portfolio add.", title="Rebalance"))
 
         # Calculate current values
         positions = []
@@ -2923,7 +2954,7 @@ class CommandRouter:
             })
 
         if total_value <= 0:
-            return CommandResult(Panel("Total portfolio value = 0. Tidak bisa rebalance.", title="Rebalance"))
+            return CommandResult(Panel("Total portfolio value = 0. Cannot rebalance.", title="Rebalance"))
 
         # Equal-weight target
         n = len(positions)
@@ -3259,8 +3290,8 @@ class CommandRouter:
         unknown = [provider for provider in providers if provider not in known]
         if unknown:
             raise CommandError(
-                f"News provider tidak dikenal: {', '.join(unknown)}",
-                "Gunakan /news_model list atau /news_model search <query> untuk melihat provider yang tersedia.",
+                f"Unknown news provider: {', '.join(unknown)}",
+                "Use /news_model list or /news_model search <query> to see available providers.",
             )
 
 
@@ -3270,7 +3301,7 @@ def _format_theme_current(current: object, all_themes: list[object]) -> Table:
     table.add_column("Current", style="white", no_wrap=True)
     table.add_column("Description", style="dim")
     table.add_row(str(current.name), str(current.description))
-    table.caption = "/theme <name> untuk ganti. /theme list untuk semua."
+    table.caption = "/theme <name> to change. /theme list for all."
     return table
 
 
@@ -3284,7 +3315,7 @@ def _format_theme_list(themes: list[object]) -> Table:
     for idx, t in enumerate(themes, 1):
         preview = f"[{t.accent}]███[/{t.accent}]"
         table.add_row(str(idx), t.name, preview, t.description)
-    table.caption = "/theme <name> untuk mengganti tema"
+    table.caption = "/theme <name> to change theme"
     return table
 
 
@@ -3317,7 +3348,7 @@ def _format_sessions(sessions: list[dict[str, object]], current_session_id: str)
             str(session["updated_at"]),
         )
     if not sessions:
-        table.add_row("-", "-", "Belum ada session.", "0", "-")
+        table.add_row("-", "-", "No sessions yet.", "0", "-")
     table.caption = "/history current | /history show <session_id> | /history delete <session_id>"
     return table
 
@@ -3348,7 +3379,7 @@ def _format_session_picker(
             session_id,
         )
     if not sessions:
-        table.add_row("-", "-", "Belum ada session.", "0", "-")
+        table.add_row("-", "-", "No sessions yet.", "0", "-")
     table.caption = "/history resume <#|id> | /history show <id> | /history save <title> | /history delete <id>"
     return table
 
@@ -3370,7 +3401,7 @@ def _format_session_events(session: dict[str, object], events: list[dict[str, ob
             str(event["output_preview"] or "")[:180],
         )
     if not events:
-        table.add_row("-", "-", "-", "Belum ada command di session ini.", "")
+        table.add_row("-", "-", "-", "No commands in this session yet.", "")
     table.caption = "/history sessions | /history save <title> | /history clear current"
     return table
 
@@ -3617,7 +3648,7 @@ def _format_technical(
         f"\n{signal_text}\n"
         f"\n{debate_text}\n"
         f"\n{ai_summary}\n"
-        "Disclaimer: analisis ini bersifat informasional, bukan nasihat keuangan."
+        "Disclaimer: this analysis is informational only, not financial advice."
     )
 
 
@@ -3633,7 +3664,7 @@ def _format_structure(symbol: str, interval: str, structure: MarketStructureSumm
         f"Resistance: {_fmt(structure.resistance)}\n"
         f"Liquidity Area: {structure.liquidity_area or 'N/A'}\n"
         f"Risk Zone: {structure.risk_zone or 'N/A'}\n"
-        "Disclaimer: struktur pasar ini bersifat skenario, bukan nasihat keuangan."
+        "Disclaimer: this market structure is scenario-based, not financial advice."
     )
 
 
@@ -3911,7 +3942,7 @@ def _format_scan_results(results: list[ScanResult], filter_expression: str, inte
             semantic_text(result.reason),
         )
     if not results:
-        table.add_row("-", "-", "-", "-", "-", "-", "Tidak ada symbol yang match.")
+        table.add_row("-", "-", "-", "-", "-", "-", "No matching symbols.")
     if errors:
         summary = f"{len(errors)} symbol(s) failed"
         if errors:
@@ -3941,9 +3972,9 @@ def _scan_result_rows(results: list[ScanResult]) -> list[dict[str, object]]:
 def _parse_timeframes(value: str) -> tuple[str, ...]:
     frames = tuple(frame.strip().lower() for frame in value.split(",") if frame.strip())
     if not frames:
-        raise CommandError("Timeframe tidak valid. Contoh: /mtf AAPL 1d,1h,15m")
+        raise CommandError("Invalid timeframe. Example: /mtf AAPL 1d,1h,15m")
     if len(frames) > 6:
-        raise CommandError("Maksimal 6 timeframe dalam satu /mtf.")
+        raise CommandError("Maximum 6 timeframes in one /mtf.")
     return frames
 
 
@@ -3997,7 +4028,7 @@ def _parse_calendar_args(args: list[str]) -> tuple[date, date, str | None, str |
         raise CommandError("Format: /calendar [today|week|<from YYYY-MM-DD> <to YYYY-MM-DD>] [country=US] [impact=high]")
 
     if end < start:
-        raise CommandError("Tanggal akhir calendar tidak boleh lebih kecil dari tanggal awal.")
+        raise CommandError("Calendar end date cannot be earlier than start date.")
     return start, end, country, impact
 
 
@@ -4005,16 +4036,16 @@ def _parse_date_arg(value: str) -> date:
     try:
         return date.fromisoformat(value)
     except ValueError as exc:
-        raise CommandError("Tanggal calendar harus format YYYY-MM-DD.") from exc
+        raise CommandError("Calendar date must be in YYYY-MM-DD format.") from exc
 
 
 def _calendar_fallback_note(exc: FinCLIError, has_key: bool) -> str:
     if has_key:
         return (
-            "FinCLI memakai fallback kategori event. "
-            "Periksa API key, entitlement/plan Finnhub, atau rate-limit untuk data aktual."
+            "FinCLI uses fallback event categories. "
+            "Check API key, Finnhub entitlement/plan, or rate-limit for actual data."
         )
-    return "FinCLI memakai fallback kategori event. Isi FINNHUB_API_KEY untuk data aktual."
+    return "FinCLI uses fallback event categories. Set FINNHUB_API_KEY for actual data."
 
 
 def _calendar_static_fallback_note(provider_error: FinCLIError, public_error: FinCLIError | None) -> str:
@@ -4054,7 +4085,7 @@ def _format_calendar(events: list[EconomicEvent], start: date, end: date, source
         )
 
     if not events:
-        table.add_row("-", "-", "-", "Tidak ada event yang cocok dengan filter.", "-", "-", "-")
+        table.add_row("-", "-", "-", "No events match the filter.", "-", "-", "-")
     summary = calendar_summary(events)
     table.add_row(
         "Summary",
@@ -4202,6 +4233,35 @@ def _format_secrets_status(secrets: dict[str, str]) -> Table:
     return table
 
 
+def _format_secret_ages() -> Table:
+    from fincli.app.storage.secrets import list_secret_ages
+    ages = list_secret_ages()
+    table = Table(title="Key Age", expand=True)
+    table.add_column("Key", style="cyan", no_wrap=True)
+    table.add_column("Age (days)", no_wrap=True)
+    table.add_column("Status")
+    if not ages:
+        table.add_row("-", "-", "No secrets stored.")
+        return table
+    for key in sorted(ages):
+        age = ages[key]
+        if age is None:
+            status = "unknown"
+            age_str = "-"
+        elif age > 90:
+            status = "[red]⚠ Rotate recommended[/red]"
+            age_str = str(age)
+        elif age > 60:
+            status = "[yellow]aging[/yellow]"
+            age_str = str(age)
+        else:
+            status = "[green]ok[/green]"
+            age_str = str(age)
+        table.add_row(key, age_str, status)
+    table.caption = "Keys older than 90 days should be rotated. Use /secrets rotate <KEY>."
+    return table
+
+
 def _format_security_status(router: object) -> Table:
     table = Table(title="🔒 Security Status", expand=True)
     table.add_column("Check", style="cyan", no_wrap=True)
@@ -4216,6 +4276,15 @@ def _format_security_status(router: object) -> Table:
     table.add_row("Audit Log", "active", f"{router.audit_log.count_events()} events recorded")
     table.add_row("Path Traversal Protection", "active", "File operations validate paths")
     table.add_row("File Permissions", "0o600", "Secrets file is owner-read-write only")
+
+    # Key age warnings
+    from fincli.app.storage.secrets import list_secret_ages
+    ages = list_secret_ages()
+    stale_keys = [key for key, age in ages.items() if age is not None and age > 90]
+    if stale_keys:
+        table.add_row("Key Rotation", "[red]⚠ warning[/red]", f"{len(stale_keys)} key(s) older than 90 days: {', '.join(stale_keys)}")
+    else:
+        table.add_row("Key Rotation", "[green]ok[/green]", "All keys are fresh")
 
     table.caption = "Use /security audit to view audit log. Use /security lockdown for emergency secret wipe."
     return table
@@ -4724,7 +4793,7 @@ def _format_order_confirmation(conf) -> Panel:
         f"  Risk Check  : [{risk_style}]{risk_text}[/]\n"
         f"  Broker      : {conf.broker}\n"
         f"  Mode        : {conf.mode}\n\n"
-        f"  Add --confirm flag untuk execute order:\n"
+        f"  Add --confirm flag to execute order:\n"
         f"  /trading live {conf.side} {conf.symbol} {conf.quantity} --confirm"
     )
     return Panel(text, title="Order Confirmation Required", border_style="yellow")
@@ -5128,7 +5197,7 @@ def _format_transactions(rows: list[dict[str, object]]) -> Table:
             str(row["created_at"]),
         )
     if not rows:
-        table.add_row("-", "-", "-", "-", "-", "-", "Belum ada transaksi. Gunakan /tx add buy AAPL 10 100")
+        table.add_row("-", "-", "-", "-", "-", "-", "No transactions yet. Use /tx add buy AAPL 10 100")
     return table
 
 
@@ -5148,7 +5217,7 @@ def _format_journal_stats(stats: JournalStats) -> Table:
 
 def _format_news(symbol: str, items: list[NewsItem]) -> str:
     if not items:
-        return f"News: {symbol}\nBelum ada news dari provider aktif."
+        return f"News: {symbol}\nNo news from active provider."
     lines = [f"News: {symbol}"]
     for index, item in enumerate(items, start=1):
         published = item.published_at.isoformat(timespec="seconds") if item.published_at else "unknown time"
@@ -5338,16 +5407,16 @@ def _validate_symbol(symbol: str) -> str:
     """Validate and normalize a symbol. Raises CommandError on invalid input."""
     import re
     if not symbol or not symbol.strip():
-        raise CommandError("Symbol tidak boleh kosong.")
+        raise CommandError("Symbol cannot be empty.")
     normalized = symbol.strip().upper()
     # Reject path traversal and shell metacharacters
     dangerous = re.search(r'[.;|&`$!#~<>{}()\[\]\\]', normalized)
     if dangerous:
-        raise CommandError(f"Symbol mengandung karakter tidak valid: '{dangerous.group()}'.")
+        raise CommandError(f"Symbol contains invalid character: '{dangerous.group()}'.")
     if ".." in normalized or "/" in normalized or "\\" in normalized:
-        raise CommandError(f"Symbol tidak boleh mengandung path separator: '{normalized}'.")
+        raise CommandError(f"Symbol cannot contain path separator: '{normalized}'.")
     if len(normalized) > 20:
-        raise CommandError(f"Symbol terlalu panjang (max 20 karakter): '{normalized}'.")
+        raise CommandError(f"Symbol too long (max 20 characters): '{normalized}'.")
     return normalized
 
 
@@ -5610,6 +5679,6 @@ class UnavailableAIProvider:
 
     async def complete(self, request: AIRequest) -> AIResponse:
         raise CommandError(
-            f"AI provider {self.name} belum siap dipakai.",
-            "Gunakan /ai_model untuk memilih provider dan /ai_model key <provider> <api_key> untuk menyimpan API key.",
+            f"AI provider {self.name} is not ready.",
+            "Use /ai_model to select provider and /ai_model key <provider> <api_key> to save API key.",
         )

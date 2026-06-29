@@ -80,7 +80,7 @@ class MarketProviderManager:
             return TwelveDataProvider(api_key=os.getenv("TWELVE_DATA_API_KEY"))
         if provider_name == "alphavantage":
             return AlphaVantageProvider(api_key=os.getenv("ALPHA_VANTAGE_API_KEY"))
-        raise ValueError(f"Market provider tidak dikenal: {name}")
+        raise ValueError(f"Unknown market provider: {name}")
 
     def create_many(self, names: list[str]) -> list[BaseMarketProvider]:
         providers: list[BaseMarketProvider] = []

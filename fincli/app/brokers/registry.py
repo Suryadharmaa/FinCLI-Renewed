@@ -67,7 +67,7 @@ class BrokerRegistry:
         if name_lower == "binance":
             from fincli.app.brokers.binance import BinanceBroker
             return BinanceBroker()
-        raise ValueError(f"Broker tidak didukung: {name}. Broker tersedia: {', '.join(BROKER_CATALOG.keys())}")
+        raise ValueError(f"Unsupported broker: {name}. Available brokers: {', '.join(BROKER_CATALOG.keys())}")
 
     async def connect(self, name: str, mode: str = "paper") -> BrokerConnectionStatus:
         """Connect to a broker."""

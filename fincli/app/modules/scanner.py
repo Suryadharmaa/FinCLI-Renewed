@@ -125,7 +125,7 @@ async def scan_universe(
     """
     symbols = list(UNIVERSES.get(universe.lower(), ()))
     if not symbols:
-        raise CommandError(f"Universe tidak dikenal: {universe}. Gunakan: {', '.join(UNIVERSES.keys())}")
+        raise CommandError(f"Unknown universe: {universe}. Use: {', '.join(UNIVERSES.keys())}")
     symbols = symbols[:limit]
     return await scan_symbols(symbols, provider, filter_expression, interval, batch_size)
 
@@ -231,8 +231,8 @@ def _matches_single_filter(summary: TechnicalSummary, expr: str) -> tuple[bool, 
         return diff_pct < 3.0, f"price={summary.latest_close:.2f} resistance={summary.resistance:.2f} ({diff_pct:.1f}%)"
 
     raise CommandError(
-        f"Filter scan tidak dikenal: {expr}",
-        "Gunakan: trend=bullish, rsi<30, rsi>70, sma_cross, sma_death, above_support, below_resistance. Gabungkan dengan and/or.",
+        f"Unknown scan filter: {expr}",
+        "Use: trend=bullish, rsi<30, rsi>70, sma_cross, sma_death, above_support, below_resistance. Combine with and/or.",
     )
 
 

@@ -108,7 +108,7 @@ def test_web_command_handles_connection_error(tmp_path: Path) -> None:
     result = router.route("/web sources penyebab rupiah melemah hari ini")
 
     assert result.status == "error"
-    assert "Semua web search provider gagal" in str(result.renderable.renderable)
+    assert "All web search providers failed" in str(result.renderable.renderable)
 
 
 def test_web_research_falls_back_to_google_news_when_duckduckgo_times_out() -> None:

@@ -55,9 +55,9 @@ def encrypt_broker_key(plaintext: str, master_password: str) -> str:
     Returns base64-encoded string with format: salt + ciphertext + hmac
     """
     if not plaintext:
-        raise ValueError("Plaintext tidak boleh kosong.")
+        raise ValueError("Plaintext must not be empty.")
     if not master_password:
-        raise ValueError("Master password tidak boleh kosong.")
+        raise ValueError("Master password must not be empty.")
 
     # Generate random salt
     salt = secrets.token_bytes(SALT_LENGTH)
@@ -85,19 +85,19 @@ def decrypt_broker_key(encrypted_b64: str, master_password: str) -> str:
     Raises ValueError if decryption fails (wrong password or corrupted data).
     """
     if not encrypted_b64:
-        raise ValueError("Encrypted data tidak boleh kosong.")
+        raise ValueError("Encrypted data must not be empty.")
     if not master_password:
-        raise ValueError("Master password tidak boleh kosong.")
+        raise ValueError("Master password must not be empty.")
 
     try:
         encrypted = base64.b64decode(encrypted_b64)
     except Exception as exc:
-        raise ValueError("Data terenkripsi tidak valid.") from exc
+        raise ValueError("Invalid encrypted data.") from exc
 
     # Minimum length: salt + hmac (ciphertext can be empty but that's invalid)
     min_length = SALT_LENGTH + HMAC_LENGTH + 1
     if len(encrypted) < min_length:
-        raise ValueError("Data terenkripsi terlalu pendek.")
+        raise ValueError("Encrypted data too short.")
 
     # Extract components
     salt = encrypted[:SALT_LENGTH]
@@ -110,7 +110,7 @@ def decrypt_broker_key(encrypted_b64: str, master_password: str) -> str:
     # Verify HMAC
     computed_mac = hmac.new(key, salt + ciphertext, hashlib.sha256).digest()
     if not hmac.compare_digest(stored_mac, computed_mac):
-        raise ValueError("Decryption gagal. Password salah atau data terkorupsi.")
+        raise ValueError("Decryption failed. Wrong password or corrupted data.")
 
     # Decrypt
     keystream = _generate_keystream(key, len(ciphertext))
@@ -119,7 +119,7 @@ def decrypt_broker_key(encrypted_b64: str, master_password: str) -> str:
     try:
         return plaintext_bytes.decode("utf-8")
     except UnicodeDecodeError as exc:
-        raise ValueError("Decryption gagal. Data terkorupsi.") from exc
+        raise ValueError("Decryption failed. Corrupted data.") from exc
 
 
 def generate_master_password() -> str:

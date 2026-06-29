@@ -135,7 +135,7 @@ class FinCLIApp(App[None]):
             self._invalidate_pending_workers()
             self.query_one(WorkingIndicator).stop()
             output.clear()
-            status.update("cleared | /help untuk command")
+            status.update("cleared | /help for commands")
             return
         if raw.lower() == "/exit":
             self.exit()
@@ -241,7 +241,7 @@ class FinCLIApp(App[None]):
         self.router.ai_provider = AIProviderManager().create(provider)
         output = self.query_one("#output", RichLog)
         status = self.query_one("#status_bar", Static)
-        write_output_entry(output, f"AI model aktif: {provider} / {model}")
+        write_output_entry(output, f"AI model active: {provider} / {model}")
         status.update(f"ready | ai model: {provider}/{model}")
 
     def _set_market_provider_from_selector(self, providers: tuple[str, ...]) -> None:
@@ -249,7 +249,7 @@ class FinCLIApp(App[None]):
         self.router.cache.clear()
         output = self.query_one("#output", RichLog)
         status = self.query_one("#status_bar", Static)
-        write_output_entry(output, f"Provider market/news priority aktif: {', '.join(providers)}")
+        write_output_entry(output, f"Active market/news provider priority: {', '.join(providers)}")
         status.update(f"ready | market provider: {providers[0] if providers else 'yfinance'}")
 
     def _handle_ai_chat(self, prompt: str) -> None:
@@ -428,7 +428,7 @@ class FinCLIApp(App[None]):
             status.update(f"cancelled | {display_raw}")
             return
         if event.state == WorkerState.ERROR:
-            write_output_entry(output, f"Error menjalankan {display_raw}: {worker.error}")
+            write_output_entry(output, f"Error running {display_raw}: {worker.error}")
             status.update(f"error | {display_raw}")
             return
 

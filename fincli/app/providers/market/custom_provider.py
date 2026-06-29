@@ -59,7 +59,7 @@ class CustomMarketProvider(BaseMarketProvider):
         data = await self._get(f"/history/{symbol.upper()}", params={"period": period, "interval": interval})
         raw_items = data.get("candles") if isinstance(data, dict) else data
         if not isinstance(raw_items, list):
-            raise ProviderError("Response history custom provider tidak valid.")
+            raise ProviderError("Custom provider history response is not valid.")
         candles: list[Candle] = []
         for item in raw_items:
             if not isinstance(item, dict):
@@ -75,14 +75,14 @@ class CustomMarketProvider(BaseMarketProvider):
                 )
             )
         if not candles:
-            raise ProviderError(f"Data OHLCV kosong untuk {symbol}.")
+            raise ProviderError(f"OHLCV data is empty for {symbol}.")
         return candles
 
     async def news(self, symbol: str, limit: int = 5) -> list[NewsItem]:
         data = await self._get(f"/news/{symbol.upper()}", params={"limit": limit})
         raw_items = data.get("news") if isinstance(data, dict) else data
         if not isinstance(raw_items, list):
-            raise ProviderError("Response news custom provider tidak valid.")
+            raise ProviderError("Custom provider news response is not valid.")
         items: list[NewsItem] = []
         for item in raw_items[:limit]:
             if not isinstance(item, dict):
@@ -131,13 +131,13 @@ class CustomMarketProvider(BaseMarketProvider):
     async def _get(self, path: str, params: dict[str, object] | None = None) -> Any:
         if not self.api_key:
             raise ProviderError(
-                "API key custom market provider belum diatur.",
-                "Gunakan /news_model key custom <api_key> <base_url>.",
+                "Custom market provider API key not set.",
+                "Use /news_model key custom <api_key> <base_url>.",
             )
         if not self.base_url:
             raise ProviderError(
-                "Base URL custom market provider belum diatur.",
-                "Gunakan /news_model key custom <api_key> <base_url>.",
+                "Custom market provider base URL not set.",
+                "Use /news_model key custom <api_key> <base_url>.",
             )
 
         close_client = self._client is None
@@ -146,7 +146,7 @@ class CustomMarketProvider(BaseMarketProvider):
         try:
             response = await client.get(f"{self.base_url}{path}", params=params, headers=headers)
             if response.status_code == 429:
-                raise RateLimitError("Custom market provider terkena rate limit.")
+                raise RateLimitError("Custom market provider rate limited.")
             response.raise_for_status()
             data = response.json()
             return data

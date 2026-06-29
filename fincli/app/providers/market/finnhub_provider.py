@@ -42,7 +42,7 @@ class FinnhubProvider:
             if resolved.asset_class in {"forex", "crypto"}:
                 candles = await self.history(symbol, period="5d", interval="1d")
                 if not candles:
-                    raise ProviderError(f"Finnhub tidak mengembalikan harga valid untuk {symbol}.")
+                    raise ProviderError(f"Finnhub did not return a valid price for {symbol}.")
                 latest = candles[-1]
                 return Quote(
                     symbol=resolved.symbol,
@@ -54,10 +54,10 @@ class FinnhubProvider:
                 )
             data = await self._get("/quote", {"symbol": symbol.upper()})
             if not isinstance(data, dict):
-                raise ProviderError(f"Response Finnhub quote tidak valid untuk {symbol}.")
+                raise ProviderError(f"Finnhub quote response is not valid for {symbol}.")
             price = _safe_float(data.get("c"))
             if price is None or price == 0:
-                raise ProviderError(f"Finnhub tidak mengembalikan harga valid untuk {symbol}.")
+                raise ProviderError(f"Finnhub did not return a valid price for {symbol}.")
             return Quote(
                 symbol=symbol.upper(),
                 price=price,
@@ -69,7 +69,7 @@ class FinnhubProvider:
         except ProviderError:
             raise
         except Exception as exc:
-            raise ProviderError(f"Gagal mengambil quote dari Finnhub untuk {symbol}: {exc}") from exc
+            raise ProviderError(f"Failed to get quote from Finnhub for {symbol}: {exc}") from exc
 
     async def history(self, symbol: str, period: str = "6mo", interval: str = "1d") -> list[Candle]:
         try:
@@ -90,7 +90,7 @@ class FinnhubProvider:
                 },
             )
             if not isinstance(data, dict) or data.get("s") != "ok":
-                raise ProviderError(f"Finnhub candle data kosong untuk {symbol} ({resolved.symbol}).")
+                raise ProviderError(f"Finnhub candle data is empty for {symbol} ({resolved.symbol}).")
             timestamps = data.get("t") or []
             candles = [
                 Candle(
@@ -104,12 +104,12 @@ class FinnhubProvider:
                 for index, ts in enumerate(timestamps)
             ]
             if not candles:
-                raise ProviderError(f"Finnhub candle data kosong untuk {symbol} ({resolved.symbol}).")
+                raise ProviderError(f"Finnhub candle data is empty for {symbol} ({resolved.symbol}).")
             return candles
         except ProviderError:
             raise
         except Exception as exc:
-            raise ProviderError(f"Gagal mengambil history dari Finnhub untuk {symbol}: {exc}") from exc
+            raise ProviderError(f"Failed to get history from Finnhub for {symbol}: {exc}") from exc
 
     async def news(self, symbol: str, limit: int = 5) -> list[NewsItem]:
         try:
@@ -120,7 +120,7 @@ class FinnhubProvider:
                 {"symbol": symbol.upper(), "from": start.isoformat(), "to": today.isoformat()},
             )
             if not isinstance(data, list):
-                raise ProviderError("Response Finnhub news tidak valid.")
+                raise ProviderError("Finnhub news response is not valid.")
             items: list[NewsItem] = []
             for item in data[:limit]:
                 if not isinstance(item, dict):
@@ -140,13 +140,13 @@ class FinnhubProvider:
         except ProviderError:
             raise
         except Exception as exc:
-            raise ProviderError(f"Gagal mengambil news dari Finnhub untuk {symbol}: {exc}") from exc
+            raise ProviderError(f"Failed to get news from Finnhub for {symbol}: {exc}") from exc
 
     async def fundamentals(self, symbol: str) -> FundamentalSnapshot:
         try:
             data = await self._get("/stock/profile2", {"symbol": symbol.upper()})
             if not isinstance(data, dict):
-                raise ProviderError(f"Response Finnhub fundamentals tidak valid untuk {symbol}.")
+                raise ProviderError(f"Finnhub fundamentals response is not valid for {symbol}.")
             return FundamentalSnapshot(
                 symbol=str(data.get("ticker") or symbol).upper(),
                 provider=self.name,
@@ -158,20 +158,20 @@ class FinnhubProvider:
         except ProviderError:
             raise
         except Exception as exc:
-            raise ProviderError(f"Gagal mengambil fundamentals dari Finnhub untuk {symbol}: {exc}") from exc
+            raise ProviderError(f"Failed to get fundamentals from Finnhub for {symbol}: {exc}") from exc
 
     async def insider_transactions(self, symbol: str, limit: int = 20) -> list[dict[str, object]]:
         data = await self._get("/stock/insider-transactions", {"symbol": symbol.upper()})
         rows = data.get("data") if isinstance(data, dict) else None
         if not isinstance(rows, list):
-            raise ProviderError("Response Finnhub insider transactions tidak valid.")
+            raise ProviderError("Finnhub insider transactions response is not valid.")
         return [_parse_insider_transaction(item, symbol) for item in rows[:limit] if isinstance(item, dict)]
 
     async def ipo_calendar(self, start: date, end: date) -> list[dict[str, object]]:
         data = await self._get("/calendar/ipo", {"from": start.isoformat(), "to": end.isoformat()})
         rows = data.get("ipoCalendar") if isinstance(data, dict) else None
         if not isinstance(rows, list):
-            raise ProviderError("Response Finnhub IPO calendar tidak valid.")
+            raise ProviderError("Finnhub IPO calendar response is not valid.")
         return [_parse_ipo_item(item) for item in rows if isinstance(item, dict)]
 
     async def status(self) -> ProviderStatus:
@@ -206,15 +206,15 @@ class FinnhubProvider:
         try:
             response = await client.get(f"{self.base_url}{path}", params=query)
             if response.status_code == 429:
-                raise RateLimitError("Finnhub terkena rate limit.")
+                raise RateLimitError("Finnhub rate limited.")
             response.raise_for_status()
             return response.json()
         except httpx.TimeoutException as exc:
             raise ProviderError("Finnhub timeout.") from exc
         except httpx.HTTPStatusError as exc:
-            raise ProviderError(f"Finnhub gagal: HTTP {exc.response.status_code}.") from exc
+            raise ProviderError(f"Finnhub failed: HTTP {exc.response.status_code}.") from exc
         except ValueError as exc:
-            raise ProviderError("Response Finnhub bukan JSON valid.") from exc
+            raise ProviderError("Finnhub response is not valid JSON.") from exc
         finally:
             if close_client:
                 await client.aclose()

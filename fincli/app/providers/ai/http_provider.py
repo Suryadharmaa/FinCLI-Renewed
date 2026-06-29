@@ -54,8 +54,8 @@ class OpenAICompatibleProvider(BaseAIProvider):
     async def complete(self, request: AIRequest) -> AIResponse:
         if not self.api_key:
             raise ProviderError(
-                f"API key untuk provider {self.name} belum diatur.",
-                f"Gunakan /ai_model key {self.name} <api_key> atau set environment variable.",
+                f"API key for provider {self.name} not set.",
+                f"Use /ai_model key {self.name} <api_key> or set the environment variable.",
             )
 
         client = self._get_client(request.timeout_seconds)
@@ -66,7 +66,7 @@ class OpenAICompatibleProvider(BaseAIProvider):
                 headers=self._headers(),
             )
             if response.status_code == 429:
-                raise RateLimitError(f"Provider {self.name} terkena rate limit.")
+                raise RateLimitError(f"Provider {self.name} rate limited.")
             response.raise_for_status()
             data = response.json()
             content = _extract_openai_content(data)
@@ -75,14 +75,14 @@ class OpenAICompatibleProvider(BaseAIProvider):
         except httpx.TimeoutException as exc:
             raise ProviderError(f"AI provider {self.name} timeout.") from exc
         except httpx.HTTPStatusError as exc:
-            raise ProviderError(f"AI provider {self.name} gagal: HTTP {exc.response.status_code}.") from exc
+            raise ProviderError(f"AI provider {self.name} failed: HTTP {exc.response.status_code}.") from exc
         except (KeyError, IndexError, TypeError, ValueError) as exc:
-            raise ProviderError(f"Response AI provider {self.name} tidak valid.") from exc
+            raise ProviderError(f"AI provider {self.name} response is not valid.") from exc
 
     async def stream_complete(self, request: AIRequest) -> AsyncIterator[str]:
         """Stream tokens via SSE from OpenAI-compatible API."""
         if not self.api_key:
-            raise ProviderError(f"API key untuk provider {self.name} belum diatur.")
+            raise ProviderError(f"API key for provider {self.name} not set.")
 
         client = self._get_client(httpx.Timeout(request.timeout_seconds, connect=10.0))
         async with client.stream(
@@ -92,7 +92,7 @@ class OpenAICompatibleProvider(BaseAIProvider):
             headers=self._headers(),
         ) as response:
             if response.status_code == 429:
-                raise RateLimitError(f"Provider {self.name} terkena rate limit.")
+                raise RateLimitError(f"Provider {self.name} rate limited.")
             response.raise_for_status()
             async for line in response.aiter_lines():
                 if not line.startswith("data: "):
@@ -132,7 +132,7 @@ class GeminiProviderHTTP(BaseAIProvider):
 
     async def complete(self, request: AIRequest) -> AIResponse:
         if not self.api_key:
-            raise ProviderError("API key untuk provider gemini belum diatur.", "Gunakan /ai_model key gemini <api_key>.")
+            raise ProviderError("API key for provider gemini not set.", "Use /ai_model key gemini <api_key>.")
         url = f"{self.base_url}/models/{request.model}:generateContent"
         headers = {"x-goog-api-key": self.api_key, "Content-Type": "application/json"}
         payload = {"contents": [{"parts": [{"text": request.prompt}]}]}
@@ -140,7 +140,7 @@ class GeminiProviderHTTP(BaseAIProvider):
             client = self._get_client(request.timeout_seconds)
             response = await client.post(url, json=payload, headers=headers)
             if response.status_code == 429:
-                raise RateLimitError("Provider gemini terkena rate limit.")
+                raise RateLimitError("Provider gemini rate limited.")
             response.raise_for_status()
             data = response.json()
             content = data["candidates"][0]["content"]["parts"][0]["text"]
@@ -148,9 +148,9 @@ class GeminiProviderHTTP(BaseAIProvider):
         except httpx.TimeoutException as exc:
             raise ProviderError("AI provider gemini timeout.") from exc
         except httpx.HTTPStatusError as exc:
-            raise ProviderError(f"AI provider gemini gagal: HTTP {exc.response.status_code}.") from exc
+            raise ProviderError(f"AI provider gemini failed: HTTP {exc.response.status_code}.") from exc
         except (KeyError, IndexError, TypeError, ValueError) as exc:
-            raise ProviderError("Response AI provider gemini tidak valid.") from exc
+            raise ProviderError("AI provider gemini response is not valid.") from exc
 
 
 class AnthropicProviderHTTP(BaseAIProvider):
@@ -193,12 +193,12 @@ class AnthropicProviderHTTP(BaseAIProvider):
 
     async def complete(self, request: AIRequest) -> AIResponse:
         if not self.api_key:
-            raise ProviderError("API key untuk provider anthropic belum diatur.", "Gunakan /ai_model key anthropic <api_key>.")
+            raise ProviderError("API key for provider anthropic not set.", "Use /ai_model key anthropic <api_key>.")
         try:
             client = self._get_client(request.timeout_seconds)
             response = await client.post(f"{self.base_url}/messages", json=self._payload(request), headers=self._headers())
             if response.status_code == 429:
-                raise RateLimitError("Provider anthropic terkena rate limit.")
+                raise RateLimitError("Provider anthropic rate limited.")
             response.raise_for_status()
             data = response.json()
             content = data["content"][0]["text"]
@@ -212,14 +212,14 @@ class AnthropicProviderHTTP(BaseAIProvider):
         except httpx.TimeoutException as exc:
             raise ProviderError("AI provider anthropic timeout.") from exc
         except httpx.HTTPStatusError as exc:
-            raise ProviderError(f"AI provider anthropic gagal: HTTP {exc.response.status_code}.") from exc
+            raise ProviderError(f"AI provider anthropic failed: HTTP {exc.response.status_code}.") from exc
         except (KeyError, IndexError, TypeError, ValueError) as exc:
-            raise ProviderError("Response AI provider anthropic tidak valid.") from exc
+            raise ProviderError("AI provider anthropic response is not valid.") from exc
 
     async def stream_complete(self, request: AIRequest) -> AsyncIterator[str]:
         """Stream tokens via SSE from Anthropic API."""
         if not self.api_key:
-            raise ProviderError("API key untuk provider anthropic belum diatur.")
+            raise ProviderError("API key for provider anthropic not set.")
 
         client = self._get_client(httpx.Timeout(request.timeout_seconds, connect=10.0))
         async with client.stream(
@@ -229,7 +229,7 @@ class AnthropicProviderHTTP(BaseAIProvider):
             headers=self._headers(),
         ) as response:
             if response.status_code == 429:
-                raise RateLimitError("Provider anthropic terkena rate limit.")
+                raise RateLimitError("Provider anthropic rate limited.")
             response.raise_for_status()
             async for line in response.aiter_lines():
                 if not line.startswith("data: "):
@@ -248,17 +248,17 @@ class AnthropicProviderHTTP(BaseAIProvider):
 def _extract_openai_content(data: dict[str, object]) -> str:
     choices = data["choices"]
     if not isinstance(choices, list) or not choices:
-        raise ValueError("choices kosong")
+        raise ValueError("choices is empty")
     first = choices[0]
     if not isinstance(first, dict):
-        raise ValueError("choice tidak valid")
+        raise ValueError("choice is not valid")
     message = first.get("message")
     if isinstance(message, dict) and message.get("content"):
         return str(message["content"])
     text = first.get("text")
     if text:
         return str(text)
-    raise ValueError("content kosong")
+    raise ValueError("content is empty")
 
 
 def _extract_openai_usage(data: dict[str, object]) -> AIUsage | None:

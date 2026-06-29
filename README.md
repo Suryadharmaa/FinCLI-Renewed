@@ -1,4 +1,4 @@
-# FinCLI v1.6.0
+# FinCLI v1.7.0
 
 [![npm version](https://img.shields.io/npm/v/@drico2008/fincli)](https://www.npmjs.com/package/@drico2008/fincli)
 [![npm downloads](https://img.shields.io/npm/dm/@drico2008/fincli?label=downloads%2Fmonth)](https://www.npmjs.com/package/@drico2008/fincli)
@@ -259,6 +259,16 @@ fincli
 ---
 
 ## Changelog
+
+### v1.7.0
+- Complete Indonesian → English translation (250+ strings across 20+ files)
+- SQLite WAL mode for better concurrent read performance
+- API key rotation: `/secrets age` and `/secrets rotate <KEY>` commands
+- Key age warnings in `/security status` (alerts when keys > 90 days old)
+- Dependency audit: `pip-audit` integrated into prepublish check
+- Property-based testing with Hypothesis (crypto, formatting)
+- Test infrastructure: `@pytest.mark.integration` and `@pytest.mark.slow` markers
+- Add `hypothesis` dev dependency
 
 ### v1.6.0
 - Ollama local LLM support (offline AI, no API key needed)

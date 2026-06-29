@@ -41,7 +41,7 @@ class AIProviderManager:
     def create(self, name: str) -> BaseAIProvider:
         provider = self.get(name)
         if provider is None:
-            raise ValueError(f"AI provider tidak dikenal: {name}")
+            raise ValueError(f"Unknown AI provider: {name}")
 
         api_key = os.getenv(provider.env_key)
         if provider.name == "openrouter":
@@ -61,4 +61,4 @@ class AIProviderManager:
             return GeminiProviderHTTP(api_key)
         if provider.name == "anthropic":
             return AnthropicProviderHTTP(api_key)
-        raise ValueError(f"AI provider tidak didukung: {name}")
+        raise ValueError(f"Unsupported AI provider: {name}")

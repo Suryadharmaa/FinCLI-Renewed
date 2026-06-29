@@ -39,7 +39,7 @@ class WebResearchService:
         """
         if not self._owns_client:
             if self._client is None:
-                raise ProviderError("Web research client tidak tersedia.")
+                raise ProviderError("Web research client not available.")
             return self._client
 
         try:
@@ -100,10 +100,10 @@ class WebResearchService:
                 continue
             if results:
                 return results
-        detail = "\n".join(f"- {error}" for error in errors) if errors else "Tidak ada hasil publik."
+        detail = "\n".join(f"- {error}" for error in errors) if errors else "No public results found."
         raise ProviderError(
-            "Semua web search provider gagal atau kosong.",
-            f"{detail}\nCoba ulangi, sederhanakan query, atau cek koneksi/DNS.",
+            "All web search providers failed or returned empty.",
+            f"{detail}\nTry again, simplify the query, or check your connection/DNS.",
         )
 
     async def _search_duckduckgo(self, query: str, limit: int) -> list[WebSearchResult]:
@@ -127,7 +127,7 @@ class WebResearchService:
         try:
             root = ElementTree.fromstring(rss)
         except ElementTree.ParseError as exc:
-            raise ProviderError("Google News RSS tidak valid.") from exc
+            raise ProviderError("Google News RSS is not valid.") from exc
 
         results: list[WebSearchResult] = []
         seen: set[str] = set()
@@ -162,9 +162,9 @@ class WebResearchService:
         except httpx.TimeoutException as exc:
             raise ProviderError("Web research timeout.", f"URL: {url}") from exc
         except httpx.HTTPStatusError as exc:
-            raise ProviderError(f"Web research gagal: HTTP {exc.response.status_code}.", f"URL: {url}") from exc
+            raise ProviderError(f"Web research failed: HTTP {exc.response.status_code}.", f"URL: {url}") from exc
         except httpx.RequestError as exc:
-            raise ProviderError(f"Web research gagal terhubung: {exc}.", f"URL: {url}") from exc
+            raise ProviderError(f"Web research connection failed: {exc}.", f"URL: {url}") from exc
 
 
 def should_use_web_research(prompt: str) -> bool:

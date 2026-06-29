@@ -26,7 +26,7 @@ def phase_one_structure_status() -> str:
 def analyze_market_structure(candles: list[Candle], lookback: int = 20) -> MarketStructureSummary:
     """Detect a compact HH/HL/LH/LL-style market structure summary."""
     if not candles:
-        raise ValueError("Data candle kosong.")
+        raise ValueError("Candle data is empty.")
 
     recent = candles[-lookback:]
     highs = [float(candle.high) for candle in recent]

@@ -59,7 +59,7 @@ def test_transaction_cannot_sell_from_wrong_portfolio(tmp_path: Path) -> None:
         transactions.add("sell", "AAPL", 5, 160.0)
         assert False, "Should have raised CommandError"
     except Exception as exc:
-        assert "Tidak ada posisi" in str(exc)
+        assert "No position" in str(exc)
 
 
 def test_transaction_buy_creates_position_in_active_portfolio(tmp_path: Path) -> None:

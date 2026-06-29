@@ -17,9 +17,9 @@ class TransactionService:
         normalized_action = action.lower()
         normalized_symbol = normalize_symbol(symbol)
         if normalized_action not in {"buy", "sell"}:
-            raise CommandError("Action transaksi harus buy atau sell.")
+            raise CommandError("Transaction action must be buy or sell.")
         if quantity <= 0 or price <= 0:
-            raise CommandError("Quantity dan price harus lebih besar dari 0.")
+            raise CommandError("Quantity and price must be greater than 0.")
 
         current = self._position(normalized_symbol)
         realized_pnl = 0.0
@@ -32,11 +32,11 @@ class TransactionService:
             self.portfolio.add(normalized_symbol, new_qty, new_avg, currency)
         else:
             if current is None:
-                raise CommandError(f"Tidak ada posisi {normalized_symbol} untuk dijual.")
+                raise CommandError(f"No position {normalized_symbol} to sell.")
             old_qty = float(current["quantity"])
             old_avg = float(current["average_price"])
             if quantity > old_qty:
-                raise CommandError(f"Quantity sell melebihi posisi {normalized_symbol}.")
+                raise CommandError(f"Sell quantity exceeds position {normalized_symbol}.")
             realized_pnl = (price - old_avg) * quantity
             remaining = old_qty - quantity
             if remaining == 0:

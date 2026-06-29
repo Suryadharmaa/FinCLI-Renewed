@@ -20,16 +20,16 @@ def write_research_report(brief: ResearchBrief, fmt: str, target: str | Path) ->
     if report_format in {"md", "markdown"}:
         path.write_text(_research_markdown(brief), encoding="utf-8")
         return path
-    raise CommandError("Research export format harus md atau json.")
+    raise CommandError("Research export format must be md or json.")
 
 
 def _safe_research_path(target: str | Path, fmt: str) -> Path:
     path = Path(target).expanduser()
     if any(part == ".." for part in path.parts):
-        raise CommandError("Research export path tidak boleh mengandung '..'.")
+        raise CommandError("Research export path must not contain '..'.")
     allowed = {".md", ".json"} if fmt in {"md", "markdown", "json"} else set()
     if path.suffix.lower() not in allowed:
-        raise CommandError("Research export path harus berakhir .md atau .json.")
+        raise CommandError("Research export path must end with .md or .json.")
     return path
 
 

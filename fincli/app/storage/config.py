@@ -161,8 +161,8 @@ class ConfigManager:
             return settings
         except Exception as exc:  # noqa: BLE001
             raise ConfigError(
-                "Config lokal gagal dibaca.",
-                "Periksa ~/.fincli/config.json atau hapus file tersebut untuk memakai default.",
+                "Local config failed to read.",
+                "Check ~/.fincli/config.json or delete the file to use defaults.",
             ) from exc
 
     def save(self) -> None:
@@ -173,7 +173,7 @@ class ConfigManager:
                 encoding="utf-8",
             )
         except Exception as exc:  # noqa: BLE001
-            raise ConfigError("Config lokal gagal disimpan.") from exc
+            raise ConfigError("Local config failed to save.") from exc
 
     def set_ai_model(self, provider: str, model: str) -> None:
         self.settings.ai_provider = provider.strip().lower()

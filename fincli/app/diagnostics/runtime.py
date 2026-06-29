@@ -49,11 +49,11 @@ def startup_dependency_error(exc: ImportError) -> str:
 
     missing = getattr(exc, "name", None) or "unknown"
     return (
-        f"FinCLI gagal memuat dependency Python: {missing}\n\n"
-        "Fix cepat:\n"
+        f"FinCLI failed to load Python dependency: {missing}\n\n"
+        "Quick fix:\n"
         "- npm global: npm install -g @drico2008/fincli@latest --registry=https://registry.npmjs.org/\n"
         "- local dev : pip install -e \".[dev]\"\n\n"
-        "Jika memakai npm global dan error tetap muncul, hapus install lama lalu install ulang:\n"
+        "If using npm global and the error persists, uninstall and reinstall:\n"
         "npm uninstall -g @drico2008/fincli && npm install -g @drico2008/fincli@latest"
     )
 

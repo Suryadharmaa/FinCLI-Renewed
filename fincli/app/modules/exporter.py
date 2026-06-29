@@ -268,7 +268,7 @@ def _fieldnames(rows: list[dict[str, Any]]) -> list[str]:
 def _safe_export_path(target: str | Path, allowed_extensions: set[str]) -> Path:
     path = Path(target).expanduser()
     if any(part == ".." for part in path.parts):
-        raise CommandError("Path export tidak boleh mengandung '..'.")
+        raise CommandError("Export path must not contain '..'.")
     if path.suffix.lower() not in allowed_extensions:
-        raise CommandError(f"Path export harus berakhiran salah satu dari: {', '.join(sorted(allowed_extensions))}.")
+        raise CommandError(f"Export path must end with one of: {', '.join(sorted(allowed_extensions))}.")
     return path

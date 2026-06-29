@@ -32,7 +32,7 @@ def phase_one_indicator_status() -> str:
 def summarize_technical_indicators(candles: list[Candle]) -> TechnicalSummary:
     """Calculate a compact technical summary from OHLCV candles."""
     if not candles:
-        raise ValueError("Data candle kosong.")
+        raise ValueError("Candle data is empty.")
 
     closes = [float(candle.close) for candle in candles]
     highs = [float(candle.high) for candle in candles]

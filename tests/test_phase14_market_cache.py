@@ -78,7 +78,7 @@ def test_cache_stats_and_clear_commands_include_persistent_cache(tmp_path: Path)
 
     cleared = router.route("/cache clear")
     assert cleared.status == "ready"
-    assert "persistent cache dibersihkan" in render_text(cleared.renderable).lower()
+    assert "persistent cache cleared" in render_text(cleared.renderable).lower()
 
     stats_after = router.route("/cache stats")
     assert "Persistent entries: 0" in render_text(stats_after.renderable)

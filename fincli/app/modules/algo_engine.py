@@ -69,7 +69,7 @@ class StrategyEngine:
     async def run(self, strategy_name: str, symbol: str, timeframe: str = "1d", quantity: float = 1.0) -> StrategyResult:
         normalized = strategy_name.strip().lower()
         if normalized not in self._strategies:
-            raise CommandError(f"Strategi tidak dikenal: {strategy_name}. Gunakan: {', '.join(sorted(self._strategies))}.")
+            raise CommandError(f"Unknown strategy: {strategy_name}. Use: {', '.join(sorted(self._strategies))}.")
 
         candles = await self.market_service.history(symbol.upper(), period="6mo", interval=timeframe)
         if not candles or len(candles) < 30:

@@ -39,7 +39,7 @@ class AlphaVantageProvider:
                 rate = data.get("Realtime Currency Exchange Rate", {})
                 price = _safe_float(rate.get("5. Exchange Rate"))
                 if price is None:
-                    raise ProviderError(f"Alpha Vantage tidak mengembalikan FX quote valid untuk {symbol}.")
+                    raise ProviderError(f"Alpha Vantage did not return a valid FX quote for {symbol}.")
                 return Quote(
                     symbol=resolved.symbol,
                     price=price,
@@ -53,7 +53,7 @@ class AlphaVantageProvider:
             quote = data.get("Global Quote", {})
             price = _safe_float(quote.get("05. price"))
             if price is None:
-                raise ProviderError(f"Alpha Vantage tidak mengembalikan quote valid untuk {symbol}.")
+                raise ProviderError(f"Alpha Vantage did not return a valid quote for {symbol}.")
             return Quote(
                 symbol=str(quote.get("01. symbol") or resolved.symbol).upper(),
                 price=price,
@@ -65,7 +65,7 @@ class AlphaVantageProvider:
         except ProviderError:
             raise
         except Exception as exc:
-            raise ProviderError(f"Gagal mengambil quote dari Alpha Vantage untuk {symbol}: {exc}") from exc
+            raise ProviderError(f"Failed to get quote from Alpha Vantage for {symbol}: {exc}") from exc
 
     async def history(self, symbol: str, period: str = "6mo", interval: str = "1d") -> list[Candle]:
         try:
@@ -91,14 +91,14 @@ class AlphaVantageProvider:
                 series = data.get("Time Series (Daily)", {})
 
             if not isinstance(series, dict) or not series:
-                raise ProviderError(f"Alpha Vantage OHLCV kosong untuk {symbol}.")
+                raise ProviderError(f"Alpha Vantage OHLCV is empty for {symbol}.")
             candles = [_parse_daily_candle(day, payload) for day, payload in series.items() if isinstance(payload, dict)]
             candles.sort(key=lambda candle: candle.timestamp)
             return candles
         except ProviderError:
             raise
         except Exception as exc:
-            raise ProviderError(f"Gagal mengambil history dari Alpha Vantage untuk {symbol}: {exc}") from exc
+            raise ProviderError(f"Failed to get history from Alpha Vantage for {symbol}: {exc}") from exc
 
     async def news(self, symbol: str, limit: int = 5) -> list[NewsItem]:
         try:
@@ -121,7 +121,7 @@ class AlphaVantageProvider:
         except ProviderError:
             raise
         except Exception as exc:
-            raise ProviderError(f"Gagal mengambil news dari Alpha Vantage untuk {symbol}: {exc}") from exc
+            raise ProviderError(f"Failed to get news from Alpha Vantage for {symbol}: {exc}") from exc
 
     async def fundamentals(self, symbol: str) -> FundamentalSnapshot:
         try:
@@ -142,7 +142,7 @@ class AlphaVantageProvider:
         except ProviderError:
             raise
         except Exception as exc:
-            raise ProviderError(f"Gagal mengambil fundamentals dari Alpha Vantage untuk {symbol}: {exc}") from exc
+            raise ProviderError(f"Failed to get fundamentals from Alpha Vantage for {symbol}: {exc}") from exc
 
     async def status(self) -> ProviderStatus:
         status = "configured" if self.api_key else "unavailable"
@@ -160,29 +160,29 @@ class AlphaVantageProvider:
 
     async def _get(self, params: dict[str, object]) -> dict[str, Any]:
         if not self.api_key:
-            raise ProviderError("API key Alpha Vantage belum diatur.", "Gunakan /news_model key alphavantage <api_key>.")
+            raise ProviderError("Alpha Vantage API key not set.", "Use /news_model key alphavantage <api_key>.")
         close_client = self._client is None
         client = self._client or httpx.AsyncClient(timeout=30)
         try:
             response = await client.get(self.base_url, params={**params, "apikey": self.api_key})
             if response.status_code == 429:
-                raise RateLimitError("Alpha Vantage terkena rate limit.")
+                raise RateLimitError("Alpha Vantage rate limited.")
             response.raise_for_status()
             data = response.json()
             if not isinstance(data, dict):
-                raise ProviderError("Response Alpha Vantage bukan JSON object.")
+                raise ProviderError("Alpha Vantage response is not a JSON object.")
             message = data.get("Note") or data.get("Information")
             if message:
-                raise RateLimitError(f"Alpha Vantage membatasi request: {message}")
+                raise RateLimitError(f"Alpha Vantage rate limited: {message}")
             if "Error Message" in data:
-                raise ProviderError(f"Alpha Vantage gagal: {data['Error Message']}")
+                raise ProviderError(f"Alpha Vantage failed: {data['Error Message']}")
             return data
         except httpx.TimeoutException as exc:
             raise ProviderError("Alpha Vantage timeout.") from exc
         except httpx.HTTPStatusError as exc:
-            raise ProviderError(f"Alpha Vantage gagal: HTTP {exc.response.status_code}.") from exc
+            raise ProviderError(f"Alpha Vantage failed: HTTP {exc.response.status_code}.") from exc
         except ValueError as exc:
-            raise ProviderError("Response Alpha Vantage bukan JSON valid.") from exc
+            raise ProviderError("Alpha Vantage response is not valid JSON.") from exc
         finally:
             if close_client:
                 await client.aclose()

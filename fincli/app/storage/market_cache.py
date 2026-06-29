@@ -33,7 +33,7 @@ class MarketCache:
             payload = json.loads(str(row["payload"]))
         except json.JSONDecodeError as exc:
             self.delete(namespace, cache_key)
-            raise StorageError("Payload cache market rusak dan sudah dihapus.") from exc
+            raise StorageError("Market cache payload corrupted and has been removed.") from exc
 
         if isinstance(payload, (dict, list)):
             return payload

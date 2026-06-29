@@ -43,18 +43,18 @@ class TestBrokerKeyEncryption:
 
     def test_encrypt_empty_plaintext_raises(self):
         """Empty plaintext should raise ValueError."""
-        with pytest.raises(ValueError, match="Plaintext tidak boleh kosong"):
+        with pytest.raises(ValueError, match="Plaintext must not be empty"):
             encrypt_broker_key("", "password")
 
     def test_encrypt_empty_password_raises(self):
         """Empty password should raise ValueError."""
-        with pytest.raises(ValueError, match="Master password tidak boleh kosong"):
+        with pytest.raises(ValueError, match="Master password must not be empty"):
             encrypt_broker_key("test-key", "")
 
     def test_decrypt_wrong_password_raises(self):
         """Wrong password should raise ValueError."""
         encrypted = encrypt_broker_key("test-key", "correct-password")
-        with pytest.raises(ValueError, match="Decryption gagal"):
+        with pytest.raises(ValueError, match="Decryption failed"):
             decrypt_broker_key(encrypted, "wrong-password")
 
     def test_decrypt_corrupted_data_raises(self):
@@ -64,14 +64,14 @@ class TestBrokerKeyEncryption:
 
     def test_decrypt_empty_data_raises(self):
         """Empty encrypted data should raise ValueError."""
-        with pytest.raises(ValueError, match="Encrypted data tidak boleh kosong"):
+        with pytest.raises(ValueError, match="Encrypted data must not be empty"):
             decrypt_broker_key("", "password")
 
     def test_decrypt_short_data_raises(self):
         """Data shorter than salt+hmac should raise ValueError."""
         import base64
         short_data = base64.b64encode(b"short").decode("ascii")
-        with pytest.raises(ValueError, match="terlalu pendek"):
+        with pytest.raises(ValueError, match="too short"):
             decrypt_broker_key(short_data, "password")
 
     def test_encrypt_long_key(self):

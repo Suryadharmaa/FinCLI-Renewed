@@ -211,7 +211,7 @@ class NewsConnectorManager:
     async def fetch(self, slug: str, symbol: str, limit: int = 10) -> list[NewsItem]:
         spec = self.catalog.get(slug)
         if spec is None:
-            raise ProviderError(f"News connector tidak dikenal: {slug}")
+            raise ProviderError(f"Unknown news connector: {slug}")
         normalized = symbol.upper()
         if spec.access == "public-rss":
             return await self._fetch_rss(spec, normalized, limit)
@@ -228,8 +228,8 @@ class NewsConnectorManager:
         if spec.slug == "custom_news":
             return await self._fetch_custom(normalized, limit)
         raise ProviderError(
-            f"Adapter aktif untuk {spec.slug} belum tersedia.",
-            "Gunakan /news_model list untuk melihat connector aktif atau taruh provider ini di fallback bawah.",
+            f"Active adapter for {spec.slug} not yet available.",
+            "Use /news_model list to see active connectors or place this provider at the bottom of fallback.",
         )
 
     async def _fetch_rss(self, spec: NewsConnectorSpec, symbol: str, limit: int) -> list[NewsItem]:
@@ -280,7 +280,7 @@ class NewsConnectorManager:
     async def _fetch_custom(self, symbol: str, limit: int) -> list[NewsItem]:
         base_url = os.getenv("CUSTOM_NEWS_BASE_URL") or os.getenv("NEWS_DATA_BASE_URL")
         if not base_url:
-            raise ProviderError("CUSTOM_NEWS_BASE_URL belum diatur untuk custom_news.")
+            raise ProviderError("CUSTOM_NEWS_BASE_URL not set for custom_news.")
         key = os.getenv("CUSTOM_NEWS_API_KEY") or os.getenv("NEWS_DATA_API_KEY")
         headers = {"Authorization": f"Bearer {key}"} if key else {}
         response = await self._get(f"{base_url.rstrip('/')}/news/{quote_plus(symbol)}", params={"limit": limit}, headers=headers)
@@ -306,12 +306,12 @@ def news_connector_secret_key(slug: str) -> str | None:
 def _required_key(slug: str) -> str:
     env_key = news_connector_secret_key(slug)
     if not env_key:
-        raise ProviderError(f"Connector {slug} tidak membutuhkan API key.")
+        raise ProviderError(f"Connector {slug} does not require an API key.")
     value = os.getenv(env_key)
     if not value:
         raise ProviderError(
-            f"API key untuk news connector {slug} belum diatur.",
-            f"Gunakan /news_model key {slug} <api_key>.",
+            f"API key for news connector {slug} not set.",
+            f"Use /news_model key {slug} <api_key>.",
         )
     return value
 
@@ -320,7 +320,7 @@ def _parse_rss(xml_text: str, source: str, limit: int) -> list[NewsItem]:
     try:
         root = ET.fromstring(xml_text)
     except ET.ParseError as exc:
-        raise ProviderError(f"RSS dari {source} tidak valid.") from exc
+        raise ProviderError(f"RSS from {source} is not valid.") from exc
     items: list[NewsItem] = []
     for item in root.findall(".//item")[:limit]:
         title = _clean_text(_xml_text(item, "title"))
