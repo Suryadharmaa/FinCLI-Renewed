@@ -206,6 +206,7 @@ def run_backtest(
     include_monte_carlo: bool = False,
     monte_carlo_sims: int = 1000,
     walk_forward: bool = False,
+    strategy_params: dict[str, Any] | None = None,
 ) -> BacktestResult:
     """Run a professional backtest with fees, slippage, and position sizing."""
     if len(candles) < 30:
@@ -216,9 +217,9 @@ def run_backtest(
     normalized = strategy.lower().strip()
 
     if walk_forward:
-        return _run_walk_forward(symbol, candles, normalized, interval, fee_profile, sizer, initial_equity, include_monte_carlo, monte_carlo_sims, asset_class)
+        return _run_walk_forward(symbol, candles, normalized, interval, fee_profile, sizer, initial_equity, include_monte_carlo, monte_carlo_sims, asset_class, strategy_params)
 
-    trades = _run_strategy(normalized, candles, fee_profile, sizer, initial_equity)
+    trades = _run_strategy(normalized, candles, fee_profile, sizer, initial_equity, strategy_params)
     result = _build_result(symbol, normalized, interval, candles, trades, fee_profile, sizer, initial_equity)
 
     if include_monte_carlo and trades:
@@ -239,18 +240,34 @@ def _run_strategy(
     fee_profile: FeeProfile,
     sizer: PositionSizer,
     initial_equity: float,
+    params: dict[str, Any] | None = None,
 ) -> list[BacktestTrade]:
+    p = params or {}
     if strategy in {"sma", "sma_cross", "ma_cross"}:
-        return _sma_cross_trades(candles, fee_profile, sizer, initial_equity)
+        return _sma_cross_trades(candles, fee_profile, sizer, initial_equity,
+            fast=int(p.get("fast_period", 10)), slow=int(p.get("slow_period", 30)))
     if strategy in {"rsi", "rsi_reversion", "mean_reversion"}:
-        return _rsi_reversion_trades(candles, fee_profile, sizer, initial_equity)
+        return _rsi_reversion_trades(candles, fee_profile, sizer, initial_equity,
+            buy_level=float(p.get("oversold", 30)), sell_level=float(p.get("overbought", 55)))
     if strategy in {"momentum", "mom"}:
         return _momentum_trades(candles, fee_profile, sizer, initial_equity)
-    if strategy in {"bollinger", "bollinger_breakout", "bb"}:
-        return _bollinger_trades(candles, fee_profile, sizer, initial_equity)
+    if strategy in {"bollinger", "bollinger_breakout", "bollinger_squeeze", "bb"}:
+        return _bollinger_trades(candles, fee_profile, sizer, initial_equity,
+            period=int(p.get("period", 20)), num_std=float(p.get("num_std", 2.0)))
+    if strategy in {"macd_divergence", "macd"}:
+        return _macd_divergence_trades(candles, fee_profile, sizer, initial_equity)
+    if strategy in {"volume_breakout", "volume"}:
+        return _volume_breakout_trades(candles, fee_profile, sizer, initial_equity,
+            volume_mult=float(p.get("volume_multiplier", 2.0)), lookback=int(p.get("lookback", 20)))
+    if strategy in {"zscore", "z_score", "mean_reversion_zscore"}:
+        return _zscore_trades(candles, fee_profile, sizer, initial_equity,
+            lookback=int(p.get("lookback", 30)), threshold=float(p.get("z_threshold", 2.0)))
     if strategy in {"multi_factor", "multifactor", "combo"}:
         return _multi_factor_trades(candles, fee_profile, sizer, initial_equity)
-    raise ValueError(f"Unknown strategy: {strategy}. Use sma_cross, rsi_reversion, momentum, bollinger, or multi_factor.")
+    raise ValueError(
+        f"Unknown strategy: {strategy}. Use: sma_cross, rsi_reversion, momentum, bollinger_squeeze, "
+        "macd_divergence, volume_breakout, mean_reversion_zscore, or multi_factor."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -567,6 +584,156 @@ def _multi_factor_trades(
 
 
 # ---------------------------------------------------------------------------
+# MACD Divergence strategy
+# ---------------------------------------------------------------------------
+
+
+def _macd_divergence_trades(
+    candles: list[Candle],
+    fee_profile: FeeProfile,
+    sizer: PositionSizer,
+    initial_equity: float,
+) -> list[BacktestTrade]:
+    """Buy when MACD histogram turns positive, sell when negative."""
+    closes = [float(c.close) for c in candles]
+    position_entry: tuple[int, float, float] | None = None
+    trades: list[BacktestTrade] = []
+    equity = initial_equity
+    win_rate, avg_win, avg_loss = _running_stats(trades)
+
+    for index in range(35, len(closes)):
+        macd, signal = _macd(closes[: index + 1])
+        prev_macd, prev_signal = _macd(closes[:index])
+        if None in {macd, signal, prev_macd, prev_signal}:
+            continue
+
+        histogram = macd - signal
+        prev_histogram = prev_macd - prev_signal
+
+        # Buy: histogram crosses above zero
+        bullish = prev_histogram <= 0 and histogram > 0 and macd > 0
+        # Sell: histogram crosses below zero
+        bearish = prev_histogram >= 0 and histogram < 0 and macd < 0
+
+        if position_entry is None and bullish:
+            qty = sizer.size(equity, win_rate, avg_win, avg_loss, closes[index])
+            if qty > 0:
+                position_entry = (index, closes[index], qty)
+        elif position_entry is not None and bearish:
+            entry_idx, entry_price, qty = position_entry
+            trade = _make_trade(entry_idx, index, entry_price, closes[index], qty, fee_profile, "MACD histogram negative")
+            trades.append(trade)
+            equity += trade.pnl_absolute
+            position_entry = None
+            win_rate, avg_win, avg_loss = _running_stats(trades)
+
+    if position_entry is not None:
+        entry_idx, entry_price, qty = position_entry
+        trade = _make_trade(entry_idx, len(closes) - 1, entry_price, closes[-1], qty, fee_profile, "end of test")
+        trades.append(trade)
+    return trades
+
+
+# ---------------------------------------------------------------------------
+# Volume Breakout strategy
+# ---------------------------------------------------------------------------
+
+
+def _volume_breakout_trades(
+    candles: list[Candle],
+    fee_profile: FeeProfile,
+    sizer: PositionSizer,
+    initial_equity: float,
+    volume_mult: float = 2.0,
+    lookback: int = 20,
+) -> list[BacktestTrade]:
+    """Buy on volume spike + price breakout above resistance, sell on volume spike + breakdown below support."""
+    closes = [float(c.close) for c in candles]
+    volumes = [float(c.volume) for c in candles]
+    position_entry: tuple[int, float, float] | None = None
+    trades: list[BacktestTrade] = []
+    equity = initial_equity
+    win_rate, avg_win, avg_loss = _running_stats(trades)
+
+    for index in range(lookback, len(closes)):
+        avg_vol = sum(volumes[index - lookback : index]) / lookback
+        vol_ratio = volumes[index] / avg_vol if avg_vol > 0 else 0
+        is_spike = vol_ratio > volume_mult
+
+        # Simple resistance/support: highest/lowest in lookback
+        resistance = max(closes[index - lookback : index])
+        support = min(closes[index - lookback : index])
+
+        if position_entry is None and is_spike and closes[index] > resistance:
+            qty = sizer.size(equity, win_rate, avg_win, avg_loss, closes[index])
+            if qty > 0:
+                position_entry = (index, closes[index], qty)
+        elif position_entry is not None and is_spike and closes[index] < support:
+            entry_idx, entry_price, qty = position_entry
+            trade = _make_trade(entry_idx, index, entry_price, closes[index], qty, fee_profile, "volume breakdown")
+            trades.append(trade)
+            equity += trade.pnl_absolute
+            position_entry = None
+            win_rate, avg_win, avg_loss = _running_stats(trades)
+
+    if position_entry is not None:
+        entry_idx, entry_price, qty = position_entry
+        trade = _make_trade(entry_idx, len(closes) - 1, entry_price, closes[-1], qty, fee_profile, "end of test")
+        trades.append(trade)
+    return trades
+
+
+# ---------------------------------------------------------------------------
+# Z-Score Mean Reversion strategy
+# ---------------------------------------------------------------------------
+
+
+def _zscore_trades(
+    candles: list[Candle],
+    fee_profile: FeeProfile,
+    sizer: PositionSizer,
+    initial_equity: float,
+    lookback: int = 30,
+    threshold: float = 2.0,
+) -> list[BacktestTrade]:
+    """Buy when Z-score < -threshold, sell when Z-score > threshold."""
+    closes = [float(c.close) for c in candles]
+    position_entry: tuple[int, float, float] | None = None
+    trades: list[BacktestTrade] = []
+    equity = initial_equity
+    win_rate, avg_win, avg_loss = _running_stats(trades)
+
+    for index in range(lookback, len(closes)):
+        window = closes[index - lookback : index]
+        mean = sum(window) / lookback
+        variance = sum((x - mean) ** 2 for x in window) / lookback
+        std = variance ** 0.5
+
+        if std == 0:
+            continue
+
+        z_score = (closes[index] - mean) / std
+
+        if position_entry is None and z_score < -threshold:
+            qty = sizer.size(equity, win_rate, avg_win, avg_loss, closes[index])
+            if qty > 0:
+                position_entry = (index, closes[index], qty)
+        elif position_entry is not None and z_score > threshold:
+            entry_idx, entry_price, qty = position_entry
+            trade = _make_trade(entry_idx, index, entry_price, closes[index], qty, fee_profile, "Z-score overbought")
+            trades.append(trade)
+            equity += trade.pnl_absolute
+            position_entry = None
+            win_rate, avg_win, avg_loss = _running_stats(trades)
+
+    if position_entry is not None:
+        entry_idx, entry_price, qty = position_entry
+        trade = _make_trade(entry_idx, len(closes) - 1, entry_price, closes[-1], qty, fee_profile, "end of test")
+        trades.append(trade)
+    return trades
+
+
+# ---------------------------------------------------------------------------
 # Trade construction with fees/slippage
 # ---------------------------------------------------------------------------
 
@@ -626,15 +793,16 @@ def _run_walk_forward(
     include_mc: bool,
     mc_sims: int,
     asset_class: str,
+    strategy_params: dict[str, Any] | None = None,
 ) -> BacktestResult:
     split = int(len(candles) * 0.7)
     in_sample_candles = candles[:split]
     out_sample_candles = candles[split:]
 
-    in_trades = _run_strategy(strategy, in_sample_candles, fee_profile, sizer, initial_equity)
+    in_trades = _run_strategy(strategy, in_sample_candles, fee_profile, sizer, initial_equity, strategy_params)
     in_result = _build_result(symbol, strategy, interval, in_sample_candles, in_trades, fee_profile, sizer, initial_equity)
 
-    out_trades = _run_strategy(strategy, out_sample_candles, fee_profile, sizer, initial_equity)
+    out_trades = _run_strategy(strategy, out_sample_candles, fee_profile, sizer, initial_equity, strategy_params)
     out_result = _build_result(symbol, strategy, interval, out_sample_candles, out_trades, fee_profile, sizer, initial_equity)
 
     overfit = 0.0
@@ -644,7 +812,7 @@ def _run_walk_forward(
     wf = WalkForwardResult(in_sample=in_result, out_of_sample=out_result, overfit_ratio=overfit)
 
     # Build combined result using all candles
-    all_trades = _run_strategy(strategy, candles, fee_profile, sizer, initial_equity)
+    all_trades = _run_strategy(strategy, candles, fee_profile, sizer, initial_equity, strategy_params)
     result = _build_result(symbol, strategy, interval, candles, all_trades, fee_profile, sizer, initial_equity)
     result = _replace_walk_forward(result, wf)
 

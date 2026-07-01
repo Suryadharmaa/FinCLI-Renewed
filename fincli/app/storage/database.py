@@ -42,6 +42,12 @@ class FinCLIDatabase:
                             created_at TEXT DEFAULT CURRENT_TIMESTAMP
                         );
 
+                        CREATE TABLE IF NOT EXISTS favourites (
+                            symbol TEXT PRIMARY KEY,
+                            last_used TEXT DEFAULT CURRENT_TIMESTAMP,
+                            use_count INTEGER DEFAULT 1
+                        );
+
                         CREATE TABLE IF NOT EXISTS portfolios (
                             name TEXT PRIMARY KEY,
                             description TEXT DEFAULT '',

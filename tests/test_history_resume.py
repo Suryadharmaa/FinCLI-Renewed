@@ -137,7 +137,7 @@ def test_history_resume_no_other_session(tmp_path: Path) -> None:
     console = Console(file=io.StringIO(), force_terminal=False, width=80)
     console.print(result.renderable)
     output = console.file.getvalue()
-    assert "Belum ada session lain" in output
+    assert "No other sessions yet" in output
 
 
 def test_history_resume_by_id(tmp_path: Path) -> None:
@@ -166,7 +166,7 @@ def test_history_resume_current_session_error(tmp_path: Path) -> None:
     console = Console(file=io.StringIO(), force_terminal=False, width=80)
     console.print(result.renderable)
     output = console.file.getvalue()
-    assert "Sedang di session ini" in output
+    assert "Already in this session" in output
 
 
 def test_history_resume_invalid_id(tmp_path: Path) -> None:

@@ -68,7 +68,7 @@ def test_research_report_exports_markdown(tmp_path: Path) -> None:
 
     output = render_text(result.renderable)
     text = target.read_text(encoding="utf-8")
-    assert "Research export selesai" in output
+    assert "Research export complete" in output
     assert "# FinCLI Research Report: AAPL" in text
     assert "Signal:" in text
     assert "Source Quality:" in text

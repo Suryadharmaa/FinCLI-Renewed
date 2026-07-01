@@ -193,8 +193,6 @@ def _smoke_commands(router: CommandRouter, export_dir: Path) -> dict[str, str]:
         "/security scan": "/security scan",
         "/security lockdown": "/security lockdown",
         "/security purge": "/security purge",
-        "/security encrypt-key": "/security encrypt-key alpaca",
-        "/security decrypt-key": "/security decrypt-key alpaca",
         "/security session": "/security session",
         # Cache
         "/cache stats": "/cache stats",
@@ -247,8 +245,6 @@ def _smoke_commands(router: CommandRouter, export_dir: Path) -> dict[str, str]:
         "/trading broker use": "/trading broker use Alpaca",
         "/trading broker status": "/trading broker status",
         "/trading stream": "/trading stream",
-        "/trading algo list": "/trading algo list",
-        "/trading algo run": "/trading algo run sma_cross AAPL 1d",
         "/trading live status": "/trading live status",
         "/trading live connect": "/trading live connect alpaca paper",
         "/trading live disconnect": "/trading live disconnect",
@@ -307,9 +303,6 @@ EXPECTED_ERRORS: set[str] = {
     "/trading live account",
     "/trading live buy",
     "/trading live sell",
-    # Security commands require API keys
-    "/security encrypt-key",
-    "/security decrypt-key",
     # Export broker requires broker connection
     "/export broker",
     # Notification commands require arguments
@@ -350,10 +343,6 @@ def _setup_preconditions(router: CommandRouter, name: str) -> None:
     # Portfolio whatif/benchmark/snapshot need positions.
     if name in {"/portfolio whatif", "/portfolio benchmark", "/portfolio snapshot"}:
         router.route("/portfolio add AAPL 10 100")
-
-    # Trading algo run needs market provider with history.
-    if name == "/trading algo run":
-        router.market_provider = SmokeMarketProvider()
 
 
 # ---------------------------------------------------------------------------

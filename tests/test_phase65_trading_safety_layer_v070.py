@@ -457,26 +457,6 @@ def test_trading_cancel_command(tmp_path: Path) -> None:
     assert "cancel" in cancel_output.lower()
 
 
-def test_trading_algo_list_command(tmp_path: Path) -> None:
-    router = CommandRouter(config=ConfigManager(tmp_path / "config.json"), db=FinCLIDatabase(tmp_path / "fincli.db"))
-
-    output = render_text(router.route("/trading algo list").renderable)
-
-    assert "Deprecated" in output or "algo" in output.lower()
-
-
-def test_trading_algo_run_command(tmp_path: Path) -> None:
-    router = CommandRouter(
-        config=ConfigManager(tmp_path / "config.json"),
-        db=FinCLIDatabase(tmp_path / "fincli.db"),
-        market_provider=AlgoMarketProvider(),
-    )
-
-    output = render_text(router.route("/trading algo run sma_cross AAPL 1d").renderable)
-
-    assert "Deprecated" in output or "algo" in output.lower()
-
-
 def test_trading_stream_command(tmp_path: Path) -> None:
     router = CommandRouter(config=ConfigManager(tmp_path / "config.json"), db=FinCLIDatabase(tmp_path / "fincli.db"))
 

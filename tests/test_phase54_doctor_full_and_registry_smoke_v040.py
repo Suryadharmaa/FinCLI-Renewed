@@ -194,8 +194,6 @@ def _smoke_commands(router: CommandRouter, export_dir: Path) -> dict[str, str]:
         "/trading broker use": "/trading broker use Alpaca",
         "/trading broker status": "/trading broker status",
         "/trading stream": "/trading stream",
-        "/trading algo list": "/trading algo list",
-        "/trading algo run": "/trading algo run sma_cross AAPL 1d",
         "/yahoo": "/yahoo AAPL statistics",
         "/web": "/web sources market risk",
         "/ai": "/ai ringkas risiko AAPL",

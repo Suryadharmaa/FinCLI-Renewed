@@ -1,4 +1,4 @@
-# FinCLI v1.7.0
+# FinCLI v1.8.0
 
 [![npm version](https://img.shields.io/npm/v/@drico2008/fincli)](https://www.npmjs.com/package/@drico2008/fincli)
 [![npm downloads](https://img.shields.io/npm/dm/@drico2008/fincli?label=downloads%2Fmonth)](https://www.npmjs.com/package/@drico2008/fincli)
@@ -70,7 +70,9 @@ Research Engine v3 returns: Snapshot → Signal → Risk → Context (sector + m
 /portfolio                          # Overview
 /portfolio add AAPL 10 185          # Add position
 /portfolio update AAPL 5 160        # DCA update
-/portfolio risk                     # Exposure, concentration, drawdown, PnL, health score
+/portfolio risk                     # Exposure, concentration, drawdown, PnL, health score, VaR
+/portfolio correlation              # Pairwise correlation matrix between holdings
+/portfolio tax                      # Realized PnL summary for tax reporting
 /portfolio benchmark SPY            # Benchmark comparison
 /portfolio rebalance                # Equal-weight suggestions
 /portfolio create crypto            # Multiple named portfolios
@@ -79,7 +81,7 @@ Research Engine v3 returns: Snapshot → Signal → Risk → Context (sector + m
 /portfolio history                  # Snapshot history
 ```
 
-Portfolio Risk v3 calculates: asset class exposure, currency exposure, concentration risk, drawdown estimate, risk budget, realized/unrealized PnL, portfolio health score.
+Portfolio Risk v3 calculates: asset class exposure, currency exposure, concentration risk, drawdown estimate, risk budget, realized/unrealized PnL, portfolio health score, VaR (historical + parametric).
 
 ---
 
@@ -121,6 +123,27 @@ Filters: `rsi<30`, `sma_cross`, `sma_death`, `above_support`, `below_resistance`
 
 ---
 
+### Favourites & Quick Access
+```text
+/favourites                         # Show most-used symbols
+/favourites add AAPL                # Add to favourites
+/favourites remove AAPL             # Remove from favourites
+```
+
+Favourites are tracked by usage count — most-used symbols appear first.
+
+---
+
+### Command Aliases
+```text
+/p  → /portfolio    /t  → /technical    /r  → /research
+/b  → /backtest     /w  → /watchlist    /j  → /journal
+/m  → /market       /n  → /news         /a  → /alert
+/s  → /scan
+```
+
+---
+
 ### AI Assistant
 ```text
 /ai What is RSI?
@@ -137,6 +160,8 @@ Supported AI providers: OpenRouter, OpenAI, Groq, Together, HuggingFace, Gemini,
 ### Backtesting & Journal
 ```text
 /backtest AAPL sma_cross 1y        # Backtest a strategy
+/backtest AAPL sma_cross 1y --fast 10 --slow 30  # Custom parameters
+/backtest compare AAPL sma_cross,rsi_reversion,macd_divergence  # Compare strategies
 /journal add AAPL bullish "setup"  # Log a trade idea
 /journal stats
 /journal review
@@ -146,6 +171,7 @@ Supported AI providers: OpenRouter, OpenAI, Groq, Together, HuggingFace, Gemini,
 ```
 
 Backtesting includes: fees/slippage, walk-forward, position sizing, Monte Carlo, ASCII equity curve, export.
+Strategies: sma_cross, rsi_reversion, momentum, bollinger_squeeze, macd_divergence, volume_breakout, mean_reversion, multi_factor.
 
 ---
 
@@ -158,6 +184,7 @@ Backtesting includes: fees/slippage, walk-forward, position sizing, Monte Carlo,
 /provider key status
 /provider key rotate <provider>
 /provider test AAPL
+/provider compare AAPL              # Compare all providers for same symbol
 /news_model                         # Interactive market/news provider picker
 ```
 
@@ -259,6 +286,21 @@ fincli
 ---
 
 ## Changelog
+
+### v1.8.0
+- **Strategy Backtesting v2**: 4 new strategies (bollinger_squeeze, macd_divergence, volume_breakout, mean_reversion)
+- Custom strategy parameters: `/backtest AAPL sma_cross 1y --fast 10 --slow 30`
+- `/backtest compare` — compare multiple strategies on same symbol
+- **Portfolio Analytics v2**: VaR (Value at Risk) with historical + parametric methods
+- `/portfolio correlation` — pairwise correlation matrix between holdings
+- `/portfolio tax` — realized PnL summary for tax reporting
+- **New providers**: Polygon.io and IEX Cloud market data providers
+- `/provider compare` — test same symbol across all providers, show latency/quality
+- **Command aliases**: `/p`, `/t`, `/r`, `/b`, `/w`, `/j`, `/m`, `/n`, `/a`, `/s`
+- `/favourites` — quick access to most-used symbols (tracked by usage count)
+- Remove deprecated commands: `/security encrypt-key`, `/security decrypt-key`, `/trading algo`, `/provider insider`, `/provider ipo`
+- Code quality: ruff and mypy configuration added
+- Fix remaining Indonesian strings in router (~30 strings)
 
 ### v1.7.0
 - Complete Indonesian → English translation (250+ strings across 20+ files)

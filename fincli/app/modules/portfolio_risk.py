@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import sqrt
 
 from fincli.app.modules.user_profile import UserProfile
 
@@ -58,6 +59,16 @@ class RiskBudget:
 
 
 @dataclass(frozen=True, slots=True)
+class ValueAtRisk:
+    """Value at Risk estimate."""
+    historical_var_95: float  # 95% confidence VaR
+    historical_var_99: float  # 99% confidence VaR
+    parametric_var_95: float  # Parametric (Gaussian) VaR at 95%
+    parametric_var_99: float  # Parametric (Gaussian) VaR at 99%
+    note: str
+
+
+@dataclass(frozen=True, slots=True)
 class PortfolioRiskReport:
     total_cost_basis: float
     total_market_value: float
@@ -71,6 +82,7 @@ class PortfolioRiskReport:
     drawdown_estimate: float
     asset_class_warnings: tuple[AssetClassWarning, ...]
     risk_budget: RiskBudget
+    value_at_risk: ValueAtRisk | None = None
 
 
 def build_portfolio_risk(
@@ -148,6 +160,7 @@ def build_portfolio_risk(
         drawdown_estimate=drawdown_estimate,
         warning_count=len(warnings),
     )
+    var = calculate_var(market_values, total_market_value)
     return PortfolioRiskReport(
         total_cost_basis=total_cost_basis,
         total_market_value=total_market_value,
@@ -161,6 +174,7 @@ def build_portfolio_risk(
         drawdown_estimate=drawdown_estimate,
         asset_class_warnings=warnings,
         risk_budget=risk_budget,
+        value_at_risk=var,
     )
 
 
@@ -303,3 +317,141 @@ def _risk_budget(profile: UserProfile | None) -> RiskBudget:
         max_portfolio_risk=profile.equity * max_portfolio_pct / 100,
         note=f"{per_trade_pct:.2f}% per trade, {max_portfolio_pct:.2f}% max portfolio risk budget.",
     )
+
+
+def calculate_var(
+    market_values: dict[str, tuple[float | None, float | None, float | None]],
+    total_market_value: float,
+    daily_returns: list[float] | None = None,
+) -> ValueAtRisk:
+    """Calculate Value at Risk (VaR) using historical and parametric methods.
+
+    Args:
+        market_values: Dict of symbol -> (current_price, pnl, pnl_percent)
+        total_market_value: Total portfolio market value
+        daily_returns: Optional list of daily returns. If None, estimates from position PnL.
+
+    Returns:
+        ValueAtRisk with historical and parametric estimates at 95% and 99% confidence.
+    """
+    if total_market_value <= 0:
+        return ValueAtRisk(0.0, 0.0, 0.0, 0.0, "No market value for VaR calculation.")
+
+    # Estimate returns from position PnL if daily returns not provided
+    if daily_returns is None:
+        returns = []
+        for _symbol, (_price, pnl, pnl_pct) in market_values.items():
+            if pnl_pct is not None:
+                returns.append(pnl_pct / 100)
+        if not returns:
+            return ValueAtRisk(0.0, 0.0, 0.0, 0.0, "No return data for VaR calculation.")
+    else:
+        returns = daily_returns
+
+    # Sort returns for historical VaR
+    sorted_returns = sorted(returns)
+    n = len(sorted_returns)
+
+    # Historical VaR (percentile method)
+    var_95_idx = max(0, int(n * 0.05) - 1)
+    var_99_idx = max(0, int(n * 0.01) - 1)
+    hist_var_95 = abs(sorted_returns[var_95_idx]) * total_market_value
+    hist_var_99 = abs(sorted_returns[var_99_idx]) * total_market_value
+
+    # Parametric VaR (Gaussian assumption)
+    mean_return = sum(returns) / n
+    variance = sum((r - mean_return) ** 2 for r in returns) / n
+    std_return = sqrt(variance)
+
+    # Z-scores for confidence levels
+    z_95 = 1.645  # 95% confidence
+    z_99 = 2.326  # 99% confidence
+
+    param_var_95 = (z_95 * std_return - mean_return) * total_market_value
+    param_var_99 = (z_99 * std_return - mean_return) * total_market_value
+
+    # Ensure non-negative
+    param_var_95 = max(0.0, param_var_95)
+    param_var_99 = max(0.0, param_var_99)
+
+    note = f"Based on {n} position(s). Historical uses percentile method; parametric assumes normal distribution."
+
+    return ValueAtRisk(
+        historical_var_95=hist_var_95,
+        historical_var_99=hist_var_99,
+        parametric_var_95=param_var_95,
+        parametric_var_99=param_var_99,
+        note=note,
+    )
+
+
+def calculate_correlation_matrix(
+    symbols: list[str],
+    price_history: dict[str, list[float]],
+) -> dict[str, dict[str, float]]:
+    """Calculate pairwise correlation matrix between symbols.
+
+    Args:
+        symbols: List of symbol names
+        price_history: Dict of symbol -> list of historical prices
+
+    Returns:
+        Nested dict: correlation_matrix[symbol_a][symbol_b] = correlation coefficient
+    """
+    returns: dict[str, list[float]] = {}
+    for symbol in symbols:
+        prices = price_history.get(symbol, [])
+        if len(prices) < 2:
+            returns[symbol] = []
+            continue
+        symbol_returns = []
+        for i in range(1, len(prices)):
+            if prices[i - 1] > 0:
+                symbol_returns.append((prices[i] - prices[i - 1]) / prices[i - 1])
+        returns[symbol] = symbol_returns
+
+    # Find minimum length for alignment
+    min_len = min((len(r) for r in returns.values() if r), default=0)
+    if min_len < 2:
+        return {s1: {s2: 0.0 for s2 in symbols} for s1 in symbols}
+
+    # Truncate all returns to same length
+    for symbol in symbols:
+        if returns[symbol]:
+            returns[symbol] = returns[symbol][:min_len]
+
+    # Calculate correlations
+    result: dict[str, dict[str, float]] = {}
+    for s1 in symbols:
+        result[s1] = {}
+        for s2 in symbols:
+            if s1 == s2:
+                result[s1][s2] = 1.0
+            elif not returns[s1] or not returns[s2]:
+                result[s1][s2] = 0.0
+            else:
+                result[s1][s2] = _pearson_correlation(returns[s1], returns[s2])
+
+    return result
+
+
+def _pearson_correlation(x: list[float], y: list[float]) -> float:
+    """Calculate Pearson correlation coefficient between two lists."""
+    n = min(len(x), len(y))
+    if n < 2:
+        return 0.0
+
+    x = x[:n]
+    y = y[:n]
+
+    mean_x = sum(x) / n
+    mean_y = sum(y) / n
+
+    numerator = sum((xi - mean_x) * (yi - mean_y) for xi, yi in zip(x, y))
+    denom_x = sqrt(sum((xi - mean_x) ** 2 for xi in x))
+    denom_y = sqrt(sum((yi - mean_y) ** 2 for yi in y))
+
+    if denom_x == 0 or denom_y == 0:
+        return 0.0
+
+    return numerator / (denom_x * denom_y)

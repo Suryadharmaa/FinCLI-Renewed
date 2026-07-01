@@ -79,7 +79,7 @@ def test_news_rejects_lookback_above_30_days(tmp_path: Path) -> None:
     result = router.route("/news TSLA 31d")
 
     assert result.status == "error"
-    assert "maksimal 30d" in render_text(result.renderable)
+    assert "max 30d" in render_text(result.renderable)
 
 
 def test_calendar_country_filter_keeps_fallback_calendar_when_provider_fails(tmp_path: Path, monkeypatch) -> None:

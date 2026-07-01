@@ -79,7 +79,6 @@ def test_trading_command_routes_without_live_execution(tmp_path: Path) -> None:
     orders = render_text(router.route("/trading paper orders").renderable)
     risk = render_text(router.route("/trading risk").renderable)
     positions = render_text(router.route("/trading positions").renderable)
-    algo_list = render_text(router.route("/trading algo list").renderable)
     audit = render_text(router.route("/trading audit").renderable)
     command_names = {command.name for command in CommandRegistry().all()}
 
@@ -91,7 +90,6 @@ def test_trading_command_routes_without_live_execution(tmp_path: Path) -> None:
     assert paper.status == "ready"
     assert "AAPL" in orders
     assert "Kill Switch" in risk
-    assert "Deprecated" in algo_list or "algo" in algo_list.lower()
     assert "Audit" in audit or "audit" in audit.lower()
     assert "Position" in positions
 
@@ -100,6 +98,6 @@ def test_version_bumped_to_040() -> None:
     pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
     package = json.loads(Path("package.json").read_text(encoding="utf-8"))
 
-    assert fincli.__version__ == "1.7.0"
-    assert pyproject["project"]["version"] == "1.7.0"
-    assert package["version"] == "1.7.0"
+    assert fincli.__version__ == "1.8.0"
+    assert pyproject["project"]["version"] == "1.8.0"
+    assert package["version"] == "1.8.0"
