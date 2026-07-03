@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime, timezone
-from email.utils import parsedate_to_datetime
-from html import unescape
 import os
 import re
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
+from html import unescape
 from typing import Any
 from urllib.parse import quote_plus
-import defusedxml.ElementTree as ET
 
+import defusedxml.ElementTree as ET  # noqa: N817
 import httpx
 
 from fincli.app.providers.market.base import NewsItem
@@ -273,7 +273,7 @@ class NewsConnectorManager:
         key = _required_key("finnhub_news")
         response = await self._get(
             "https://finnhub.io/api/v1/company-news",
-            params={"symbol": symbol, "from": "2020-01-01", "to": datetime.now(timezone.utc).date().isoformat(), "token": key},
+            params={"symbol": symbol, "from": "2020-01-01", "to": datetime.now(UTC).date().isoformat(), "token": key},
         )
         return _parse_article_list(response.json(), "Finnhub", limit)
 
@@ -390,12 +390,12 @@ def _parse_datetime(value: str) -> datetime | None:
     # YYYYMMDD format must be checked BEFORE Unix timestamp (8-digit numbers like 20240101)
     if len(text) == 8 and text.isdigit():
         try:
-            return datetime.strptime(text, "%Y%m%d").replace(tzinfo=timezone.utc)
+            return datetime.strptime(text, "%Y%m%d").replace(tzinfo=UTC)
         except ValueError:
             return None
     if text.isdigit():
         try:
-            return datetime.fromtimestamp(int(text), tz=timezone.utc)
+            return datetime.fromtimestamp(int(text), tz=UTC)
         except (OSError, ValueError):
             return None
     try:

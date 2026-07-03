@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import date, datetime, timedelta
 import html as html_lib
 import re
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta
 from typing import Any
-import defusedxml.ElementTree as ET
 
+import defusedxml.ElementTree as ET  # noqa: N817
 import httpx
 
 from fincli.app.utils.errors import ProviderError, RateLimitError

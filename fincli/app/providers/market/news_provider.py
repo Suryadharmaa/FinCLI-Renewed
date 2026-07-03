@@ -1,6 +1,14 @@
 """Base news-only provider adapter."""
 
-from fincli.app.providers.market.base import BaseMarketProvider, Candle, FundamentalSnapshot, NewsItem, ProviderCapability, ProviderStatus, Quote
+from fincli.app.providers.market.base import (
+    BaseMarketProvider,
+    Candle,
+    FundamentalSnapshot,
+    NewsItem,
+    ProviderCapability,
+    ProviderStatus,
+    Quote,
+)
 from fincli.app.utils.errors import ProviderError
 
 

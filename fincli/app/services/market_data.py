@@ -3,15 +3,22 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
-import threading
 from dataclasses import asdict
 from datetime import datetime
 from time import monotonic, perf_counter
-from typing import Any, Awaitable
+from typing import TYPE_CHECKING, Any
 
-from fincli.app.providers.market.base import BaseMarketProvider, Candle, FundamentalSnapshot, NewsItem, ProviderStatus, Quote
+from fincli.app.providers.market.base import (
+    BaseMarketProvider,
+    Candle,
+    FundamentalSnapshot,
+    NewsItem,
+    ProviderStatus,
+    Quote,
+)
 from fincli.app.providers.market.symbols import SymbolResolver
 from fincli.app.providers.reliability import (
     STATUS_CIRCUIT_OPEN,
@@ -23,8 +30,12 @@ from fincli.app.providers.reliability import (
     classify_provider_error,
     score_quality,
 )
-from fincli.app.storage.market_cache import MarketCache
 from fincli.app.utils.errors import ProviderError
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable
+
+    from fincli.app.storage.market_cache import MarketCache
 
 
 class MarketDataService:
@@ -181,7 +192,7 @@ class MarketDataService:
                     degraded_response = response
                 errors.append(f"{provider_name}: {response.message}")
                 continue
-            except TimeoutError as exc:
+            except TimeoutError:
                 latency_ms = (perf_counter() - started) * 1000
                 message = f"{provider_name}: {method_name} timeout after {self.provider_timeout_seconds:.1f}s"
                 errors.append(message)
@@ -293,7 +304,7 @@ class MarketDataService:
         if self.metrics_store is not None:
             self.metrics_store.record(provider, operation=operation, success=success, latency_ms=latency_ms, fallback=fallback)
 
-    def provider_metrics_snapshot(self) -> dict[str, "ProviderRuntimeMetrics"]:
+    def provider_metrics_snapshot(self) -> dict[str, ProviderRuntimeMetrics]:
         return {provider: metric.copy() for provider, metric in self.provider_metrics.items()}
 
     def check_provider_health(self, latency_threshold_ms: float = 1500.0, error_rate_threshold: float = 20.0) -> list[dict[str, Any]]:
@@ -303,7 +314,7 @@ class MarketDataService:
             List of health status dicts, one per provider with warnings.
         """
         results: list[dict[str, Any]] = []
-        for provider_name, metric in self.provider_metrics.items():
+        for _provider_name, metric in self.provider_metrics.items():
             health = metric.health_status(latency_threshold_ms, error_rate_threshold)
             if health["warnings"]:
                 results.append(health)
@@ -470,7 +481,7 @@ class ProviderRuntimeMetrics:
         if fallback:
             self.fallbacks += 1
 
-    def copy(self) -> "ProviderRuntimeMetrics":
+    def copy(self) -> ProviderRuntimeMetrics:
         duplicate = ProviderRuntimeMetrics(self.provider)
         duplicate.calls = self.calls
         duplicate.successes = self.successes

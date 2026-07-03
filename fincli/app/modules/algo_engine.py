@@ -7,13 +7,14 @@ paper trading engine for automated order placement.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fincli.app.analysis.indicators import summarize_technical_indicators
-from fincli.app.providers.market.base import Candle
-from fincli.app.services.market_data import MarketDataService
 from fincli.app.utils.errors import CommandError
 
+if TYPE_CHECKING:
+    from fincli.app.providers.market.base import Candle
+    from fincli.app.services.market_data import MarketDataService
 
 # ---------------------------------------------------------------------------
 # Models

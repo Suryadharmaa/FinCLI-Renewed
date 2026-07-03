@@ -8,12 +8,11 @@ from __future__ import annotations
 import re
 import time
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from fincli.app.utils.errors import CommandError, FinCLIError, SecurityError
-
+from fincli.app.utils.errors import CommandError, SecurityError
 
 # ---------------------------------------------------------------------------
 # Secret patterns for redaction

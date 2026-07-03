@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-from fincli.app.providers.market.base import Candle
+if TYPE_CHECKING:
+    from fincli.app.providers.market.base import Candle
 
 
 @dataclass(frozen=True, slots=True)

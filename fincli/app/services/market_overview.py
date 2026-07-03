@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from fincli.app.analysis.indicators import TechnicalSummary, summarize_technical_indicators
 from fincli.app.analysis.market_structure import MarketStructureSummary, analyze_market_structure
-from fincli.app.providers.market.base import Candle, FundamentalSnapshot, NewsItem, Quote
 from fincli.app.providers.reliability import STATUS_OK, STATUS_PARTIAL_DATA, STATUS_UNAVAILABLE
 from fincli.app.services.data_quality import DataQualityReport
-from fincli.app.services.market_data import MarketDataService
 from fincli.app.services.source_quality import SourceQualityScore, score_source_quality
 from fincli.app.utils.errors import FinCLIError
 
+if TYPE_CHECKING:
+    from fincli.app.providers.market.base import Candle, FundamentalSnapshot, NewsItem, Quote
+    from fincli.app.services.market_data import MarketDataService
 
 DataQuality = DataQualityReport
 

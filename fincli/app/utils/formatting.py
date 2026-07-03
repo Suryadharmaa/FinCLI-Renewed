@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
-from rich.console import Console, ConsoleOptions, RenderResult
+from typing import TYPE_CHECKING
+
 from rich.markdown import Markdown
 from rich.text import Text
 
-from fincli.app.providers.ai.base import AIResponse
+if TYPE_CHECKING:
+    from rich.console import Console, ConsoleOptions, RenderResult
+
+    from fincli.app.providers.ai.base import AIResponse
 
 
 def mask_secret(value: str | None) -> str:

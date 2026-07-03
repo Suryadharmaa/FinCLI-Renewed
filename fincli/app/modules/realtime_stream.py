@@ -17,9 +17,10 @@ import asyncio
 import json
 import logging
 import random
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Awaitable, Callable
+from datetime import UTC, datetime
+from typing import Any
 
 from fincli.app.utils.errors import ProviderError
 
@@ -38,7 +39,7 @@ class StreamEvent:
     event_type: str  # ticker, trade, ohlc, l2_book, mid, error, connected, disconnected
     symbol: str
     data: dict[str, Any]
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     source: str = ""
 
 
@@ -108,9 +109,8 @@ class KrakenWebSocketAdapter:
         self._callbacks.append(callback)
 
     async def connect(self) -> None:
-        try:
-            import websockets
-        except ImportError:
+        import importlib.util
+        if importlib.util.find_spec("websockets") is None:
             raise ProviderError(
                 "websockets library not installed.",
                 "Install with: pip install websockets",
@@ -195,8 +195,8 @@ class KrakenWebSocketAdapter:
                 timeout = self._reconnect_config.heartbeat_timeout
                 try:
                     message = await asyncio.wait_for(self._ws.recv(), timeout=timeout)
-                except asyncio.TimeoutError:
-                    raise ConnectionError(f"Heartbeat timeout after {timeout}s")
+                except TimeoutError:
+                    raise ConnectionError(f"Heartbeat timeout after {timeout}s") from None
 
                 self._last_message_time = asyncio.get_running_loop().time()
                 try:
@@ -273,9 +273,8 @@ class HyperLiquidWebSocketAdapter:
         self._callbacks.append(callback)
 
     async def connect(self) -> None:
-        try:
-            import websockets
-        except ImportError:
+        import importlib.util
+        if importlib.util.find_spec("websockets") is None:
             raise ProviderError(
                 "websockets library not installed.",
                 "Install with: pip install websockets",
@@ -353,8 +352,8 @@ class HyperLiquidWebSocketAdapter:
                 timeout = self._reconnect_config.heartbeat_timeout
                 try:
                     message = await asyncio.wait_for(self._ws.recv(), timeout=timeout)
-                except asyncio.TimeoutError:
-                    raise ConnectionError(f"Heartbeat timeout after {timeout}s")
+                except TimeoutError:
+                    raise ConnectionError(f"Heartbeat timeout after {timeout}s") from None
 
                 self._last_message_time = asyncio.get_running_loop().time()
                 try:

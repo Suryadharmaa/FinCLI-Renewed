@@ -1,6 +1,6 @@
 {
   "name": "@drico2008/fincli",
-  "version": "1.8.0",
+  "version": "1.8.3",
   "description": "Modern financial CLI/TUI terminal for market monitoring and analysis.",
   "license": "MIT",
   "bin": {

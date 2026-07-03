@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import date
-import math
+from typing import TYPE_CHECKING
 
-from fincli.app.storage.database import FinCLIDatabase
+if TYPE_CHECKING:
+    from fincli.app.brokers.base import BaseBroker
+    from fincli.app.storage.database import FinCLIDatabase
+
 from fincli.app.utils.errors import CommandError
 from fincli.app.utils.formatting import normalize_symbol
-
 
 # ---------------------------------------------------------------------------
 # Catalog models
@@ -530,7 +533,7 @@ class LiveTradingEngine:
         self._mode: str = "paper"
 
     @property
-    def broker(self) -> "BaseBroker | None":
+    def broker(self) -> BaseBroker | None:
         return self._broker
 
     @property

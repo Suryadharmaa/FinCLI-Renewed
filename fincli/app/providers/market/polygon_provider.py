@@ -11,7 +11,7 @@ Endpoints:
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
 
@@ -47,7 +47,7 @@ class PolygonProvider:
                 price=float(price),
                 currency="USD",
                 provider=self.name,
-                timestamp=datetime.fromtimestamp(result.get("t", 0) / 1000, tz=timezone.utc),
+                timestamp=datetime.fromtimestamp(result.get("t", 0) / 1000, tz=UTC),
                 status="delayed",
             )
         except ProviderError:
@@ -73,7 +73,7 @@ class PolygonProvider:
 
             candles = [
                 Candle(
-                    timestamp=datetime.fromtimestamp(item["t"] / 1000, tz=timezone.utc),
+                    timestamp=datetime.fromtimestamp(item["t"] / 1000, tz=UTC),
                     open=float(item["o"]),
                     high=float(item["h"]),
                     low=float(item["l"]),

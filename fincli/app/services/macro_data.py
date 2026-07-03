@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
+import asyncio
+import os
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import date
-import os
-from typing import Any, Awaitable
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
 from fincli.app.utils.errors import ProviderError, RateLimitError
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable
 
 
 @dataclass(frozen=True, slots=True)

@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import os
+from dataclasses import dataclass
 
-from fincli.app.providers.market.base import BaseMarketProvider, ProviderEntitlement
 from fincli.app.providers.market.alphavantage_provider import AlphaVantageProvider
+from fincli.app.providers.market.base import BaseMarketProvider, ProviderEntitlement
 from fincli.app.providers.market.custom_provider import CustomMarketProvider
 from fincli.app.providers.market.finnhub_provider import FinnhubProvider
 from fincli.app.providers.market.twelvedata_provider import TwelveDataProvider

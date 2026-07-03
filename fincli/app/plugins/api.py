@@ -7,7 +7,7 @@ filesystem or internal modules. This provides a security boundary.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any
 
 
 class PluginAPIError(Exception):

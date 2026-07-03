@@ -6,10 +6,10 @@ Immutable audit trail for security-relevant events.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
-from fincli.app.storage.database import FinCLIDatabase
-
+if TYPE_CHECKING:
+    from fincli.app.storage.database import FinCLIDatabase
 
 # ---------------------------------------------------------------------------
 # Audit event model

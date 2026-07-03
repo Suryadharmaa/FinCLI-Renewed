@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 from time import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from fincli.app.storage.database import FinCLIDatabase
 from fincli.app.utils.errors import StorageError
+
+if TYPE_CHECKING:
+    from fincli.app.storage.database import FinCLIDatabase
 
 
 class MarketCache:

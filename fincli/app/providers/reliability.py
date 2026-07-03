@@ -90,7 +90,7 @@ def score_quality(operation: str, payload: Any, missing_fields: tuple[str, ...])
         "fundamentals": 20,
     }.get(operation, 15)
 
-    for field_name in missing_fields:
+    for _ in missing_fields:
         base -= deduction_per_field
 
     # Operation-specific checks
@@ -285,7 +285,6 @@ def build_enhanced_response(
 
     Adds staleness_score and anomaly_flags.
     """
-    from datetime import datetime as dt
 
     # Detect staleness
     staleness = detect_staleness(data_freshness)

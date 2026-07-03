@@ -3,19 +3,20 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
-from datetime import datetime, timezone
 import inspect
 import logging
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from threading import Event, RLock, Thread, current_thread
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-logger = logging.getLogger(__name__)
-
-from fincli.app.storage.database import FinCLIDatabase
 from fincli.app.utils.errors import CommandError
 from fincli.app.utils.formatting import normalize_symbol
 
+if TYPE_CHECKING:
+    from fincli.app.storage.database import FinCLIDatabase
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Alert check result
@@ -74,7 +75,7 @@ CONDITIONAL_TYPES = {
 class AlertDaemon:
     """Background alert checking daemon."""
 
-    def __init__(self, alert_service: "AlertService", market_service: Any = None, check_interval: float = 60.0) -> None:
+    def __init__(self, alert_service: AlertService, market_service: Any = None, check_interval: float = 60.0) -> None:
         self.alert_service = alert_service
         self.market_service = market_service
         self.check_interval = check_interval
@@ -150,7 +151,7 @@ class AlertDaemon:
                     except Exception as exc:  # noqa: BLE001 - callbacks must not stop alert checks
                         logger.warning("Alert callback failed: %s", exc)
             results.append(result)
-        self._last_check = datetime.now(timezone.utc)
+        self._last_check = datetime.now(UTC)
         return results
 
     def _run(self) -> None:

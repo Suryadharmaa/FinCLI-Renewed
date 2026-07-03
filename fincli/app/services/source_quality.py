@@ -10,10 +10,13 @@ are right now.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
-from fincli.app.providers.market.base import Candle, FundamentalSnapshot, NewsItem, Quote
 from fincli.app.providers.reliability import STATUS_DELAYED, STATUS_OK
+
+if TYPE_CHECKING:
+    from fincli.app.providers.market.base import Candle, FundamentalSnapshot, NewsItem, Quote
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,11 +38,11 @@ def _news_age_hours(news: list[NewsItem]) -> float | None:
     timestamps = [item.published_at for item in news if item.published_at is not None]
     if not timestamps:
         return None
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     ages: list[float] = []
     for published in timestamps:
         if published.tzinfo is None:
-            published = published.replace(tzinfo=timezone.utc)
+            published = published.replace(tzinfo=UTC)
         ages.append((now - published).total_seconds() / 3600.0)
     return min(ages)
 

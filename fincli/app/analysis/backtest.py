@@ -15,9 +15,10 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass, field
 from math import sqrt
+from typing import TYPE_CHECKING, Any
 
-from fincli.app.providers.market.base import Candle
-
+if TYPE_CHECKING:
+    from fincli.app.providers.market.base import Candle
 
 # ---------------------------------------------------------------------------
 # Fee/slippage profiles per asset class
@@ -1011,7 +1012,7 @@ def _rsi(values: list[float], window: int) -> float | None:
         return None
     gains: list[float] = []
     losses: list[float] = []
-    for prev, cur in zip(values[-window - 1 : -1], values[-window:]):
+    for prev, cur in zip(values[-window - 1 : -1], values[-window:], strict=False):
         delta = cur - prev
         gains.append(max(delta, 0.0))
         losses.append(abs(min(delta, 0.0)))

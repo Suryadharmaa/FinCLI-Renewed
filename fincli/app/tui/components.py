@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 import time
+from typing import TYPE_CHECKING
 
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
-from textual.timer import Timer
 from textual.widgets import RichLog, Static
 
-from fincli.app.cli.commands import CommandSpec
+if TYPE_CHECKING:
+    from textual.timer import Timer
 
+    from fincli.app.cli.commands import CommandSpec
 
 # Cycling glyphs for the working animation (Claude-CLI style).
 GLYPHS = ("✻", "✽", "✶", "✴")

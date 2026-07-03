@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING
 
 import httpx
 
 from fincli.app.providers.ai.base import AIRequest, AIResponse, AIUsage, BaseAIProvider
 from fincli.app.utils.errors import ProviderError, RateLimitError
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 
 class OpenAICompatibleProvider(BaseAIProvider):

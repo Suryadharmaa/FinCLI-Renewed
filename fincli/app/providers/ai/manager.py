@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import os
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-from fincli.app.providers.ai.base import BaseAIProvider
 from fincli.app.providers.ai.http_provider import AnthropicProviderHTTP, GeminiProviderHTTP, OpenAICompatibleProvider
+
+if TYPE_CHECKING:
+    from fincli.app.providers.ai.base import BaseAIProvider
 
 
 @dataclass(frozen=True, slots=True)

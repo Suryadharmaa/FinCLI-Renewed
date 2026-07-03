@@ -17,7 +17,6 @@ from fincli.app.brokers.base import (
 )
 from fincli.app.utils.errors import ProviderError
 
-
 # Alpaca API endpoints
 ALPACA_PAPER_URL = "https://paper-api.alpaca.markets"
 ALPACA_LIVE_URL = "https://api.alpaca.markets"

@@ -7,10 +7,8 @@ import hmac
 import logging
 import os
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from urllib.parse import urlencode
-
-logger = logging.getLogger(__name__)
 
 import httpx
 
@@ -23,6 +21,7 @@ from fincli.app.brokers.base import (
 )
 from fincli.app.utils.errors import ProviderError
 
+logger = logging.getLogger(__name__)
 
 # Binance API endpoints
 BINANCE_BASE_URL = "https://api.binance.com"
@@ -48,8 +47,8 @@ def _parse_binance_order(data: dict, symbol: str, broker: str = "binance") -> Br
 
     created_ts = data.get("time", 0)
     updated_ts = data.get("updateTime", created_ts)
-    created_at = datetime.fromtimestamp(created_ts / 1000, tz=timezone.utc) if created_ts else datetime.now(timezone.utc)
-    updated_at = datetime.fromtimestamp(updated_ts / 1000, tz=timezone.utc) if updated_ts else created_at
+    created_at = datetime.fromtimestamp(created_ts / 1000, tz=UTC) if created_ts else datetime.now(UTC)
+    updated_at = datetime.fromtimestamp(updated_ts / 1000, tz=UTC) if updated_ts else created_at
 
     return BrokerOrder(
         broker_order_id=str(data.get("orderId", "")),

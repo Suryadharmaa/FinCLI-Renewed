@@ -7,12 +7,12 @@ Uses SHA-256 hash of prompt + model as cache key.
 from __future__ import annotations
 
 import hashlib
-import json
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
-from fincli.app.storage.database import FinCLIDatabase
+if TYPE_CHECKING:
+    from fincli.app.storage.database import FinCLIDatabase
 
 
 @dataclass(frozen=True, slots=True)

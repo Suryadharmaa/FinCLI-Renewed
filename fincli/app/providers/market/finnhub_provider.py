@@ -13,14 +13,24 @@ from __future__ import annotations
 
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, datetime, timedelta, timezone
-from typing import Any, Awaitable
+from datetime import UTC, date, datetime, timedelta
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from fincli.app.providers.market.base import Candle, FundamentalSnapshot, NewsItem, ProviderCapability, ProviderStatus, Quote
+from fincli.app.providers.market.base import (
+    Candle,
+    FundamentalSnapshot,
+    NewsItem,
+    ProviderCapability,
+    ProviderStatus,
+    Quote,
+)
 from fincli.app.providers.market.symbols import resolve_finnhub_symbol
 from fincli.app.utils.errors import ProviderError, RateLimitError
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable
 
 
 class FinnhubProvider:
@@ -126,7 +136,7 @@ class FinnhubProvider:
                 if not isinstance(item, dict):
                     continue
                 timestamp = item.get("datetime")
-                published_at = datetime.fromtimestamp(timestamp, tz=timezone.utc) if isinstance(timestamp, (int, float)) else None
+                published_at = datetime.fromtimestamp(timestamp, tz=UTC) if isinstance(timestamp, (int, float)) else None
                 items.append(
                     NewsItem(
                         title=str(item.get("headline") or item.get("title") or "Untitled"),

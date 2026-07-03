@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from fincli.app.analysis.indicators import TechnicalSummary, summarize_technical_indicators
 from fincli.app.analysis.market_structure import MarketStructureSummary, analyze_market_structure
-from fincli.app.providers.market.base import Candle
+
+if TYPE_CHECKING:
+    from fincli.app.providers.market.base import Candle
 
 
 class HistoryProvider(Protocol):

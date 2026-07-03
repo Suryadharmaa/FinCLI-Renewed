@@ -13,8 +13,10 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
-from fincli.app.plugins.loader import PluginManifest
+if TYPE_CHECKING:
+    from fincli.app.plugins.loader import PluginManifest
 
 logger = logging.getLogger(__name__)
 

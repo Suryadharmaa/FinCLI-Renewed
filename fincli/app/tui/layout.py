@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterable
+import io
 from threading import Lock
+from typing import TYPE_CHECKING
 
+from rich.console import Console
 from textual.app import App, ComposeResult, SystemCommand
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.css.query import NoMatches, QueryError
-from textual.screen import Screen
-from textual.worker import Worker, WorkerState
 from textual.widgets import Input, RichLog, Static
+from textual.worker import Worker, WorkerState
 
 from fincli import __version__
 from fincli.app.cli.autocomplete import SlashAutocomplete
@@ -19,14 +20,26 @@ from fincli.app.cli.commands import CommandRegistry
 from fincli.app.cli.router import CommandResult, CommandRouter
 from fincli.app.providers.ai.base import AIRequest
 from fincli.app.providers.ai.manager import AIProviderManager
-from fincli.app.tui.components import CommandPalette, WorkingIndicator, TokenCounter, StreamingOutput, working_verb
-from fincli.app.utils.errors import ProviderError
-from fincli.app.tui.components import format_user_message, write_output_entry
+from fincli.app.storage.session_state import SessionStateManager
+from fincli.app.tui.components import (
+    CommandPalette,
+    StreamingOutput,
+    TokenCounter,
+    WorkingIndicator,
+    format_user_message,
+    working_verb,
+    write_output_entry,
+)
 from fincli.app.tui.market_provider_selector import MarketProviderSelectorScreen
 from fincli.app.tui.model_selector import AIModelSelectorScreen
 from fincli.app.tui.theme import APP_CSS, build_theme_css
 from fincli.app.tui.themes import get_theme
-from fincli.app.storage.session_state import SessionStateManager
+from fincli.app.utils.errors import ProviderError
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+    from textual.screen import Screen
 
 
 class FinCLIApp(App[None]):
@@ -55,10 +68,9 @@ class FinCLIApp(App[None]):
         self._session_state = SessionStateManager(self.router.db)
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="workspace"):
-            with Vertical(id="output_frame"):
-                yield StreamingOutput(id="stream_output", wrap=True, markup=True, highlight=True)
-                yield RichLog(id="output", wrap=True, markup=True, highlight=True)
+        with Vertical(id="workspace"), Vertical(id="output_frame"):
+            yield StreamingOutput(id="stream_output", wrap=True, markup=True, highlight=True)
+            yield RichLog(id="output", wrap=True, markup=True, highlight=True)
         yield WorkingIndicator(id="working")
         yield TokenCounter(id="token_counter")
         yield Static("ready | /research AAPL --quick | /analyze XAUUSD | /provider status", id="status_bar")

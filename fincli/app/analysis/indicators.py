@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-from fincli.app.providers.market.base import Candle
+if TYPE_CHECKING:
+    from fincli.app.providers.market.base import Candle
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,7 +99,7 @@ def _rsi(values: list[float], window: int) -> float | None:
         return None
     gains: list[float] = []
     losses: list[float] = []
-    for previous, current in zip(values[-window - 1 : -1], values[-window:]):
+    for previous, current in zip(values[-window - 1 : -1], values[-window:], strict=False):
         delta = current - previous
         gains.append(max(delta, 0.0))
         losses.append(abs(min(delta, 0.0)))

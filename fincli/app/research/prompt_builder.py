@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from fincli.app.research.models import ResearchBrief
+from typing import TYPE_CHECKING
 
+if TYPE_CHECKING:
+    from fincli.app.research.models import ResearchBrief
 
 RESEARCH_WORKSPACE_PROMPT = """
 You are FinCLI Research Workspace, operating as Research Engine v3.

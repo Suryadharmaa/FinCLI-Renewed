@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-from fincli.app.modules.user_profile import UserProfile
+if TYPE_CHECKING:
+    from fincli.app.modules.user_profile import UserProfile
 
 
 @dataclass(frozen=True, slots=True)

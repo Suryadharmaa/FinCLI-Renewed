@@ -1,4 +1,4 @@
-# FinCLI v1.8.0
+# FinCLI v1.8.3
 
 [![npm version](https://img.shields.io/npm/v/@drico2008/fincli)](https://www.npmjs.com/package/@drico2008/fincli)
 [![npm downloads](https://img.shields.io/npm/dm/@drico2008/fincli?label=downloads%2Fmonth)](https://www.npmjs.com/package/@drico2008/fincli)
@@ -286,6 +286,34 @@ fincli
 ---
 
 ## Changelog
+
+### v1.8.3
+- Full codebase lint cleanup: 255 ruff errors → 0 across 80+ files
+- Fix 6 critical undefined names (`Any`, `BaseBroker`, `Console`, `io`) that would crash at runtime
+- Move 92 typing-only imports behind `TYPE_CHECKING` guard for faster startup
+- Add `strict=False` to 7 `zip()` calls for explicit behavior
+- Add `from None` to re-raises for proper exception chaining
+- Fix `APP_DIR` import path in `database.py` (was importing from wrong module)
+- Move `logger` assignments after imports in 3 files (PEP8 compliance)
+- Replace `websockets` availability check with `importlib.util.find_spec`
+- Remove unused variables and imports across codebase
+- Update all test version assertions
+
+### v1.8.2
+- **Update notification**: npm users now see a banner when a new version is available
+- Checks npm registry once per day (24h cache in `~/.fincli/.update-check`)
+- Non-blocking — never delays app startup
+- Silent on network errors or CI environments
+- Zero new dependencies (uses Node.js built-in `https` module)
+
+### v1.8.1
+- Fix `sqlite3` not imported in `router.py` (3 locations would crash on DB error)
+- Fix `t` loop variable shadowing `t()` translation function in 2 locations
+- Remove 10 unused imports in `router.py` (ThemePreset, CrashContext, MODEL_CATALOG, etc.)
+- Add `from None` to 4 re-raises in except blocks
+- Add `strict=False` to `zip()` call in backtest compare
+- Split 7 semicolon-oneline statements into proper multi-line
+- Run `ruff --fix` for import sorting
 
 ### v1.8.0
 - **Strategy Backtesting v2**: 4 new strategies (bollinger_squeeze, macd_divergence, volume_breakout, mean_reversion)

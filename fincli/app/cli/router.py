@@ -3,42 +3,53 @@
 from __future__ import annotations
 
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
-from datetime import date
 import getpass
 import io
 import logging
 import os
-from pathlib import Path
 import shlex
+import sqlite3
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from datetime import UTC, date
+from pathlib import Path
 from typing import Any
 
-from rich.console import Console
-from rich.console import Group
+import httpx
+from rich.console import Console, Group
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
 from fincli import __version__
-from fincli.app.cli.commands import CommandRegistry
-from fincli.app.analysis.analyzer import build_market_analysis_prompt, build_technical_ai_summary
-from fincli.app.analysis.backtest import BacktestResult, run_backtest
-from fincli.app.analysis.gameplay_plan import format_gameplay_context
 from fincli.app.agents.registry import Agent, AgentRegistry
+from fincli.app.analysis.analyzer import build_market_analysis_prompt, build_technical_ai_summary
 from fincli.app.analysis.assistant_context import (
-    build_web_research_answer_prompt,
     build_fincli_assistant_prompt,
+    build_web_research_answer_prompt,
     coding_refusal,
     extract_market_symbols,
     get_conversation_history,
     is_coding_request,
 )
+from fincli.app.analysis.backtest import BacktestResult, run_backtest
+from fincli.app.analysis.gameplay_plan import format_gameplay_context
 from fincli.app.analysis.indicators import TechnicalSummary, summarize_technical_indicators
 from fincli.app.analysis.market_structure import MarketStructureSummary, analyze_market_structure
 from fincli.app.analysis.multi_timeframe import MultiTimeframeAnalysis, analyze_multi_timeframe
 from fincli.app.analysis.technical_debate import TechnicalDebate, format_debate, run_technical_debate
 from fincli.app.analysis.technical_signal import TechnicalSignal, format_signal
+from fincli.app.cli.commands import CommandRegistry
+from fincli.app.connectors.catalog import Connector, ConnectorCatalog
+from fincli.app.connectors.news_connectors import (
+    NewsConnectorCatalog,
+    NewsConnectorManager,
+    NewsConnectorSpec,
+    news_connector_secret_key,
+)
+from fincli.app.diagnostics.capabilities import capability_rows, capability_summary
+from fincli.app.diagnostics.runtime import check_runtime_environment
+from fincli.app.modules.alerts import AlertCheckResult, AlertService, evaluate_alert
 from fincli.app.modules.economic_calendar import (
     EconomicCalendarService,
     EconomicEvent,
@@ -49,17 +60,14 @@ from fincli.app.modules.economic_calendar import (
     fallback_events,
     filter_events,
 )
-from fincli.app.modules.alerts import AlertCheckResult, AlertService, evaluate_alert
 from fincli.app.modules.exporter import export_rows
-from fincli.app.modules.journal_analytics import JournalStats, build_journal_review_prompt, calculate_journal_stats
 from fincli.app.modules.journal import JournalService
+from fincli.app.modules.journal_analytics import JournalStats, build_journal_review_prompt, calculate_journal_stats
 from fincli.app.modules.portfolio import PortfolioService
 from fincli.app.modules.portfolio_risk import PortfolioRiskReport, build_portfolio_risk
+from fincli.app.modules.reports import write_market_report
 from fincli.app.modules.scanner import ScanResult, scan_symbols
 from fincli.app.modules.session_history import SessionHistoryService, relative_time
-from fincli.app.storage.session_state import SessionStateManager
-from fincli.app.storage.ai_cache import AICache
-from fincli.app.modules.transactions import TransactionService
 from fincli.app.modules.trading import (
     BrokerCatalog,
     BrokerIntegration,
@@ -68,18 +76,10 @@ from fincli.app.modules.trading import (
     RealtimeConnector,
     RealtimeConnectorCatalog,
 )
+from fincli.app.modules.transactions import TransactionService
 from fincli.app.modules.user_profile import UserProfile, UserProfileService
 from fincli.app.modules.watchlist import WatchlistService
-from fincli.app.connectors.catalog import Connector, ConnectorCatalog
-from fincli.app.connectors.news_connectors import (
-    NewsConnectorCatalog,
-    NewsConnectorManager,
-    NewsConnectorSpec,
-    news_connector_secret_key,
-)
-from fincli.app.diagnostics.capabilities import capability_rows, capability_summary
-from fincli.app.diagnostics.runtime import check_runtime_environment
-from fincli.app.modules.reports import write_market_report
+from fincli.app.plugins.loader import PluginLoader, PluginManifest
 from fincli.app.providers.ai.base import AIRequest, AIResponse, BaseAIProvider
 from fincli.app.providers.ai.manager import AIProviderManager
 from fincli.app.providers.market.base import (
@@ -99,12 +99,12 @@ from fincli.app.providers.reliability import (
     STATUS_SCHEDULE_ONLY,
     STATUS_UNAVAILABLE,
 )
-from fincli.app.plugins.loader import PluginLoader, PluginManifest
-from fincli.app.services.market_data import MarketDataService
-from fincli.app.services.market_overview import MarketOverview, build_market_overview
+from fincli.app.research import ResearchEngine, format_research_brief, write_research_report
 from fincli.app.services.data_quality import DataQualityReport
 from fincli.app.services.data_trust import build_data_trust_gate
 from fincli.app.services.macro_data import MacroDataService, MacroIndicator
+from fincli.app.services.market_data import MarketDataService
+from fincli.app.services.market_overview import MarketOverview, build_market_overview
 from fincli.app.services.news_aggregator import NewsAggregator, NewsDesk
 from fincli.app.services.web_research import (
     WebResearchService,
@@ -112,18 +112,19 @@ from fincli.app.services.web_research import (
     build_web_research_context,
     should_use_web_research,
 )
-from fincli.app.research import ResearchEngine, format_research_brief, write_research_report
+from fincli.app.storage.ai_cache import AICache
+from fincli.app.storage.audit_log import EVENT_SECURITY_VIOLATION, SecurityAuditLog
 from fincli.app.storage.cache import TTLCache
 from fincli.app.storage.config import ConfigManager
 from fincli.app.storage.database import FinCLIDatabase
 from fincli.app.storage.market_cache import MarketCache
 from fincli.app.storage.provider_metrics import ProviderMetricsStore
 from fincli.app.storage.secrets import clear_secrets, read_secrets, save_secret
-from fincli.app.storage.audit_log import SecurityAuditLog, EVENT_SECRET_SAVE, EVENT_SECRET_CLEAR, EVENT_PRIVACY_PURGE, EVENT_EXPORT_DATA, EVENT_SECURITY_VIOLATION
-from fincli.app.utils.security import SecurityValidator, SecretRedactor, RateLimiter
-from fincli.app.utils.errors import CommandError, FinCLIError, SecurityError
+from fincli.app.storage.session_state import SessionStateManager
+from fincli.app.utils.errors import CommandError, FinCLIError, ProviderError
 from fincli.app.utils.formatting import AIResponseView, MarkdownBlock, semantic_text
-from fincli.app.utils.i18n import set_language, get_language, t
+from fincli.app.utils.i18n import get_language, set_language, t
+from fincli.app.utils.security import RateLimiter, SecretRedactor, SecurityValidator
 
 logger = logging.getLogger(__name__)
 
@@ -522,7 +523,7 @@ class CommandRouter:
             unclean = self.session_state.get_last_unclean_state()
             if not unclean:
                 return CommandResult(Panel("No unclean session found to restore.", title="Session", border_style="yellow"))
-            restored = self.session_state.restore_state(unclean)
+            self.session_state.restore_state(unclean)
             summary = self.session_state.get_recovery_summary(unclean)
             return CommandResult(Panel(
                 f"Session restored:\n{summary}",
@@ -685,7 +686,15 @@ class CommandRouter:
         )
 
     def _theme(self, args: list[str]) -> CommandResult:
-        from fincli.app.tui.themes import THEMES, ThemePreset, get_theme, list_themes, load_custom_theme, save_custom_theme, register_custom_theme
+        from fincli.app.tui.themes import (
+            THEMES,
+            ThemePreset,
+            get_theme,
+            list_themes,
+            load_custom_theme,
+            register_custom_theme,
+            save_custom_theme,
+        )
         if not args:
             current = getattr(self.config.settings, "theme", "midnight")
             t = get_theme(current)
@@ -761,8 +770,6 @@ class CommandRouter:
         return Panel("\n".join(lines), title="Active Config", border_style="cyan")
 
     def _ai_model(self, args: list[str]) -> CommandResult:
-        from fincli.app.tui.model_selector import MODEL_CATALOG
-
         con = Console()
         manager = AIProviderManager()
         current = self.config.settings
@@ -1025,7 +1032,7 @@ class CommandRouter:
             return CommandResult(_format_provider_key_status(self.market_manager))
         if args and args[0].lower() == "key" and len(args) >= 3 and args[1].lower() == "rotate":
             provider = args[2].lower()
-            from fincli.app.storage.secrets import read_secrets, save_secret
+            from fincli.app.storage.secrets import read_secrets
             secret_keys = {
                 "finnhub": "FINNHUB_API_KEY",
                 "twelvedata": "TWELVE_DATA_API_KEY",
@@ -1309,7 +1316,6 @@ class CommandRouter:
     def _doctor_report(self) -> CommandResult:
         import platform
         import sys
-        from fincli.app.utils.errors import CrashContext
         lines = [
             "=== FinCLI Diagnostic Report ===",
             "",
@@ -1435,7 +1441,7 @@ class CommandRouter:
             if secrets.get(key_name):
                 table.add_row(key_name, "ok", "***configured***")
             else:
-                table.add_row(key_name, "missing", f"Run /ai_model key or /news_model key")
+                table.add_row(key_name, "missing", "Run /ai_model key or /news_model key")
 
         # Theme
         theme = getattr(self.config.settings, "theme", "midnight")
@@ -1494,9 +1500,9 @@ class CommandRouter:
         themes = list_themes()
         current = getattr(self.config.settings, "theme", "midnight")
         lines = [f"Current: [bold]{current}[/]", "", "Available themes:"]
-        for t in themes:
-            marker = " [green]<-- current[/]" if t.name == current else ""
-            lines.append(f"  /theme {t.name} — {t.description}{marker}")
+        for theme in themes:
+            marker = " [green]<-- current[/]" if theme.name == current else ""
+            lines.append(f"  /theme {theme.name} — {theme.description}{marker}")
         lines.append("\nRun: /theme <name> to change.")
         return CommandResult(Panel("\n".join(lines), title="Theme Setup", border_style="cyan"))
 
@@ -1549,7 +1555,7 @@ class CommandRouter:
         raise CommandError("Format: /secrets status, /secrets clear, /secrets age, /secrets rotate <KEY>")
 
     def _rotate_secret(self, env_key: str) -> CommandResult:
-        from fincli.app.storage.secrets import rotate_secret, secret_age_days
+        from fincli.app.storage.secrets import rotate_secret
         key = env_key.strip().upper()
         if not key or not all(c.isalnum() or c == "_" for c in key):
             raise CommandError(f"Invalid key name: {env_key}")
@@ -2032,17 +2038,23 @@ class CommandRouter:
         i = 2
         while i < len(args):
             if args[i] == "--exit_reason" and i + 1 < len(args):
-                exit_reason = args[i + 1]; i += 2
+                exit_reason = args[i + 1]
+                i += 2
             elif args[i] == "--result" and i + 1 < len(args):
-                result = args[i + 1]; i += 2
+                result = args[i + 1]
+                i += 2
             elif args[i] == "--emotion" and i + 1 < len(args):
-                emotion = args[i + 1]; i += 2
+                emotion = args[i + 1]
+                i += 2
             elif args[i] == "--lesson" and i + 1 < len(args):
-                lesson = args[i + 1]; i += 2
+                lesson = args[i + 1]
+                i += 2
             elif args[i] == "--tags" and i + 1 < len(args):
-                tags = args[i + 1]; i += 2
+                tags = args[i + 1]
+                i += 2
             else:
-                entry_reason = args[i]; i += 1
+                entry_reason = args[i]
+                i += 1
         self.journal.add(instrument, bias=bias, entry_reason=entry_reason, exit_reason=exit_reason, result=result, emotion=emotion, lesson=lesson, tags=tags)
         return CommandResult(Panel(f"Journal entry for {instrument.upper()} added.", title="Journal"))
 
@@ -2052,13 +2064,14 @@ class CommandRouter:
         try:
             entry_id = int(args[0])
         except ValueError:
-            raise CommandError("ID must be a number.")
+            raise CommandError("ID must be a number.") from None
         fields: dict[str, str] = {}
         i = 1
         while i < len(args):
             key = args[i].lstrip("-")
             if key in {"bias", "entry_reason", "exit_reason", "result", "emotion", "lesson", "tags"} and i + 1 < len(args):
-                fields[key] = args[i + 1]; i += 2
+                fields[key] = args[i + 1]
+                i += 2
             else:
                 i += 1
         if not fields:
@@ -2075,7 +2088,7 @@ class CommandRouter:
         try:
             entry_id = int(args[0])
         except ValueError:
-            raise CommandError("ID must be a number.")
+            raise CommandError("ID must be a number.") from None
         entry = self.journal.get(entry_id)
         if not entry:
             raise CommandError(f"Journal entry #{entry_id} not found.")
@@ -2086,7 +2099,7 @@ class CommandRouter:
         try:
             entry_id = int(id_str)
         except ValueError:
-            raise CommandError("ID must be a number.")
+            raise CommandError("ID must be a number.") from None
         entry = self.journal.get(entry_id)
         if not entry:
             raise CommandError(f"Journal entry #{entry_id} not found.")
@@ -2312,13 +2325,13 @@ class CommandRouter:
         if not candles:
             raise CommandError(f"No candle data for {symbol}.")
 
-        from fincli.app.analysis.backtest import BacktestResult, run_backtest
+        from fincli.app.analysis.backtest import run_backtest
         results: list[BacktestResult] = []
         for strategy in strategies:
             try:
                 result = run_backtest(symbol, candles, strategy=strategy, interval=interval)
                 results.append(result)
-            except Exception as exc:
+            except Exception:  # noqa: BLE001
                 results.append(None)  # type: ignore
 
         return CommandResult(_format_backtest_compare(symbol, interval, strategies, results))
@@ -2678,7 +2691,7 @@ class CommandRouter:
         remaining_args = list(args[1:])
         for i, arg in enumerate(remaining_args):
             if arg == "--limit" and i + 1 < len(remaining_args):
-                try:
+                try:  # noqa: SIM105
                     limit = int(remaining_args[i + 1])
                 except ValueError:
                     pass
@@ -2798,7 +2811,7 @@ class CommandRouter:
                 return future.result(timeout=timeout)
             except TimeoutError:
                 future.cancel()
-                raise FinCLIError("Provider timeout — try again or reduce query load.")
+                raise FinCLIError("Provider timeout — try again or reduce query load.") from None
 
     def shutdown(self) -> None:
         """Stop managed background services before the TUI event loop exits."""
@@ -3014,7 +3027,6 @@ class CommandRouter:
         trades = []
         for pos in positions:
             diff_value = target_value - pos["market_value"]
-            diff_pct = (diff_value / total_value) * 100
             if abs(diff_value) > 1.0:  # Only suggest if difference > $1
                 side = "buy" if diff_value > 0 else "sell"
                 qty = abs(diff_value) / pos["current_price"]
@@ -3374,7 +3386,6 @@ class CommandRouter:
 
 
 def _format_theme_current(current: object, all_themes: list[object]) -> Table:
-    from fincli.app.tui.themes import ThemePreset
     table = Table(title="FinCLI Theme", expand=True, show_lines=False)
     table.add_column("Current", style="white", no_wrap=True)
     table.add_column("Description", style="dim")
@@ -3384,15 +3395,14 @@ def _format_theme_current(current: object, all_themes: list[object]) -> Table:
 
 
 def _format_theme_list(themes: list[object]) -> Table:
-    from fincli.app.tui.themes import ThemePreset
     table = Table(title="Available Themes", expand=True, show_lines=False)
     table.add_column("#", justify="right", width=3, style="dim")
     table.add_column("Name", style="cyan", no_wrap=True)
     table.add_column("Preview", style="white")
     table.add_column("Description", style="dim")
-    for idx, t in enumerate(themes, 1):
-        preview = f"[{t.accent}]███[/{t.accent}]"
-        table.add_row(str(idx), t.name, preview, t.description)
+    for idx, theme in enumerate(themes, 1):
+        preview = f"[{theme.accent}]███[/{theme.accent}]"
+        table.add_row(str(idx), theme.name, preview, theme.description)
     table.caption = "/theme <name> to change theme"
     return table
 
@@ -3919,7 +3929,7 @@ def _format_backtest_compare(symbol: str, interval: str, strategies: list[str], 
     table.add_column("Trades", justify="right")
     table.add_column("Profit Factor", justify="right")
 
-    for strategy, result in zip(strategies, results):
+    for strategy, result in zip(strategies, results, strict=False):
         if result is None:
             table.add_row(strategy, "error", "-", "-", "-", "-", "-")
         else:
@@ -4558,7 +4568,7 @@ def _format_security_scan(secrets: dict[str, str]) -> Table:
         table.add_row("Local Secrets", "ok", "None stored")
 
     # 2. Encryption check
-    from fincli.app.storage.secrets import SECRETS_FILE, _MAGIC
+    from fincli.app.storage.secrets import _MAGIC, SECRETS_FILE
     if SECRETS_FILE.exists():
         header = SECRETS_FILE.read_bytes()[:len(_MAGIC)]
         if header == _MAGIC:
@@ -5338,7 +5348,6 @@ def _format_plugins(plugins: list[PluginManifest], status_only: bool = False) ->
 
 
 def _format_plugin_validation(results: list[tuple[PluginManifest, list]]) -> Table:
-    from fincli.app.plugins.loader import PluginValidationError
     table = Table(title="Plugin Validation", expand=True)
     table.add_column("Plugin", style="cyan", no_wrap=True)
     table.add_column("Status", no_wrap=True)
@@ -5454,12 +5463,11 @@ def _news_age_days(item: NewsItem) -> int:
         return 999
     published = item.published_at
     if published.tzinfo is None:
-        from datetime import timezone
 
-        published = published.replace(tzinfo=timezone.utc)
-    from datetime import datetime, timezone
+        published = published.replace(tzinfo=UTC)
+    from datetime import datetime
 
-    return max((datetime.now(timezone.utc) - published).days, 0)
+    return max((datetime.now(UTC) - published).days, 0)
 
 
 def _news_data_quality(desk: NewsDesk) -> DataQualityReport:

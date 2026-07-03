@@ -11,7 +11,6 @@ import base64
 import hashlib
 import hmac
 import logging
-import os
 import secrets
 
 logger = logging.getLogger(__name__)
@@ -68,7 +67,7 @@ def encrypt_broker_key(plaintext: str, master_password: str) -> str:
     # Generate keystream and encrypt
     plaintext_bytes = plaintext.encode("utf-8")
     keystream = _generate_keystream(key, len(plaintext_bytes))
-    ciphertext = bytes(a ^ b for a, b in zip(plaintext_bytes, keystream))
+    ciphertext = bytes(a ^ b for a, b in zip(plaintext_bytes, keystream, strict=False))
 
     # Compute HMAC for integrity
     mac = hmac.new(key, salt + ciphertext, hashlib.sha256).digest()
@@ -114,7 +113,7 @@ def decrypt_broker_key(encrypted_b64: str, master_password: str) -> str:
 
     # Decrypt
     keystream = _generate_keystream(key, len(ciphertext))
-    plaintext_bytes = bytes(a ^ b for a, b in zip(ciphertext, keystream))
+    plaintext_bytes = bytes(a ^ b for a, b in zip(ciphertext, keystream, strict=False))
 
     try:
         return plaintext_bytes.decode("utf-8")

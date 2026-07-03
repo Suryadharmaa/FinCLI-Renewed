@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
-from fincli.app.storage.database import FinCLIDatabase
+from typing import TYPE_CHECKING
+
 from fincli.app.utils.formatting import normalize_symbol
+
+if TYPE_CHECKING:
+    from fincli.app.storage.database import FinCLIDatabase
 
 
 class PortfolioService:

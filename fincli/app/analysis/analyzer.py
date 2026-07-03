@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from fincli.app.analysis.ai_prompts import MARKET_ANALYSIS_PROMPT
-from fincli.app.analysis.indicators import TechnicalSummary
-from fincli.app.analysis.market_structure import MarketStructureSummary
 from fincli.app.analysis.technical_debate import format_debate, run_technical_debate
 from fincli.app.analysis.technical_signal import format_signal
 from fincli.app.analysis.trading_methods import analyze_trading_methods, format_trading_methods_context
-from fincli.app.providers.market.base import Candle
+
+if TYPE_CHECKING:
+    from fincli.app.analysis.indicators import TechnicalSummary
+    from fincli.app.analysis.market_structure import MarketStructureSummary
+    from fincli.app.providers.market.base import Candle
 
 
 def market_analysis_prompt() -> str:

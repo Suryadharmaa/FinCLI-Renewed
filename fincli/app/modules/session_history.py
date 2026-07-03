@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import re
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from fincli.app.storage.database import FinCLIDatabase
-
+if TYPE_CHECKING:
+    from fincli.app.storage.database import FinCLIDatabase
 
 _AI_NEWS_KEY_PATTERN = re.compile(r"^/(ai_model|news_model)\s+key\s+(\S+)\s+(.+)$", re.IGNORECASE)
 _PROVIDER_KEY_PATTERN = re.compile(r"^/provider\s+key\s+(\S+)\s+(.+)$", re.IGNORECASE)
@@ -194,7 +195,7 @@ def sanitize_history_text(value: str) -> str:
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def relative_time(iso_str: str) -> str:
@@ -202,8 +203,8 @@ def relative_time(iso_str: str) -> str:
     try:
         ts = datetime.fromisoformat(str(iso_str))
         if ts.tzinfo is None:
-            ts = ts.replace(tzinfo=timezone.utc)
-        now = datetime.now(timezone.utc)
+            ts = ts.replace(tzinfo=UTC)
+        now = datetime.now(UTC)
         delta = now - ts
         seconds = int(delta.total_seconds())
         if seconds < 60:

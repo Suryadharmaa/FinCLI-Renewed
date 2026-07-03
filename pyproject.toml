@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fincli"
-version = "1.8.0"
+version = "1.8.3"
 description = "Modern financial CLI/TUI terminal for market monitoring and analysis."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -59,7 +59,11 @@ select = [
 ignore = [
     "E501",   # line too long (handled by formatter)
     "B008",   # do not perform function calls in argument defaults
+    "SIM102", # collapsible-if (nested ifs sometimes more readable)
+    "SIM105", # contextlib.suppress (try-except-pass sometimes clearer)
     "SIM108", # use ternary operator (sometimes less readable)
+    "UP036",  # outdated version block (may be intentional)
+    "UP042",  # replace str enum (existing code works fine)
 ]
 
 [tool.mypy]

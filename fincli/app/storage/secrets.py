@@ -6,10 +6,14 @@ import base64
 import hashlib
 import json
 import os
-from pathlib import Path
+from datetime import UTC
+from typing import TYPE_CHECKING
 
 from fincli.app.storage.config_paths import APP_DIR
 from fincli.app.utils.errors import ConfigError
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 try:
     import keyring as _keyring
@@ -51,7 +55,7 @@ def save_secret(env_key: str, value: str, path: Path | None = None) -> None:
 
 def secret_age_days(env_key: str, path: Path | None = None) -> int | None:
     """Return the age of a secret in days, or None if not tracked."""
-    from datetime import datetime, timezone
+    from datetime import datetime
     metadata = _read_metadata(path)
     key = _validate_env_key(env_key)
     saved_at = metadata.get(key)
@@ -60,8 +64,8 @@ def secret_age_days(env_key: str, path: Path | None = None) -> int | None:
     try:
         saved_dt = datetime.fromisoformat(saved_at)
         if saved_dt.tzinfo is None:
-            saved_dt = saved_dt.replace(tzinfo=timezone.utc)
-        delta = datetime.now(timezone.utc) - saved_dt
+            saved_dt = saved_dt.replace(tzinfo=UTC)
+        delta = datetime.now(UTC) - saved_dt
         return max(0, delta.days)
     except (ValueError, TypeError):
         return None
@@ -248,12 +252,12 @@ def _read_metadata(path: Path | None = None) -> dict[str, str]:
 
 def _update_metadata(env_key: str, path: Path | None = None) -> None:
     """Update the creation timestamp for a secret."""
-    from datetime import datetime, timezone
     import json as _json
+    from datetime import datetime
     meta_path = _METADATA_FILE
     metadata = _read_metadata(path)
     key = _validate_env_key(env_key)
-    metadata[key] = datetime.now(timezone.utc).isoformat()
+    metadata[key] = datetime.now(UTC).isoformat()
     try:
         meta_path.write_text(_json.dumps(metadata, indent=2), encoding="utf-8")
     except OSError:

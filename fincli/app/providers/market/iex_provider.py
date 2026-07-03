@@ -11,7 +11,7 @@ Endpoints:
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime
 
 import httpx
 
@@ -45,7 +45,7 @@ class IEXProvider:
                 price=float(price),
                 currency=data.get("currency", "USD").upper(),
                 provider=self.name,
-                timestamp=datetime.fromtimestamp(data.get("latestUpdate", 0) / 1000, tz=timezone.utc),
+                timestamp=datetime.fromtimestamp(data.get("latestUpdate", 0) / 1000, tz=UTC),
                 status="realtime" if data.get("isUSMarketOpen") else "delayed",
             )
         except ProviderError:
@@ -68,7 +68,7 @@ class IEXProvider:
                 if close is None:
                     continue
                 candles.append(Candle(
-                    timestamp=datetime.strptime(item["date"], "%Y-%m-%d").replace(tzinfo=timezone.utc),
+                    timestamp=datetime.strptime(item["date"], "%Y-%m-%d").replace(tzinfo=UTC),
                     open=float(item.get("open", close)),
                     high=float(item.get("high", close)),
                     low=float(item.get("low", close)),

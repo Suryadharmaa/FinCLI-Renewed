@@ -3,22 +3,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-from rich.console import Console
 from rich.panel import Panel
-from rich.table import Table
-from rich.text import Text
 
 from fincli.app.analysis.indicators import (
-    _atr,
-    _bollinger,
     _ema_series,
     _macd,
     _rsi,
-    _sma,
 )
-from fincli.app.providers.market.base import Candle
 
+if TYPE_CHECKING:
+    from fincli.app.providers.market.base import Candle
 
 # ---------------------------------------------------------------------------
 # Chart configuration
@@ -64,7 +60,6 @@ def render_candlestick_chart(
     # Calculate price range
     highs = [c.high for c in candles]
     lows = [c.low for c in candles]
-    closes = [c.close for c in candles]
     volumes = [c.volume for c in candles]
 
     price_min = min(lows)
@@ -131,7 +126,7 @@ def render_candlestick_chart(
         vol_height = 4
         vol_grid: list[list[str]] = [[" " for _ in range(chart_w)] for _ in range(vol_height)]
 
-        for col, (vol, candle) in enumerate(zip(volumes[-chart_w:], display_candles)):
+        for col, (vol, candle) in enumerate(zip(volumes[-chart_w:], display_candles, strict=False)):
             if col >= chart_w:
                 break
             bar_h = max(1, int(vol / vol_max * vol_height))
@@ -230,7 +225,6 @@ def render_macd_overlay(candles: list[Candle], width: int = 80) -> Panel:
         return Panel("[dim]Need at least 27 candles for MACD.[/dim]", title="MACD")
 
     closes = [c.close for c in candles]
-    display = closes[-width:] if len(closes) > width else closes
 
     ema12 = _ema_series(closes, 12)
     ema26 = _ema_series(closes, 26)

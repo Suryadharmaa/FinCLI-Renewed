@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from fincli.app.research.models import ResearchBrief
 from fincli.app.utils.errors import CommandError
+
+if TYPE_CHECKING:
+    from fincli.app.research.models import ResearchBrief
 
 
 def write_research_report(brief: ResearchBrief, fmt: str, target: str | Path) -> Path:

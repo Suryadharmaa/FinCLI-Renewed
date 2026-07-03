@@ -6,7 +6,6 @@ from dataclasses import dataclass
 
 from fincli.app.providers.market.base import SymbolSearchResult
 
-
 FOREX_CURRENCIES = {
     "AUD",
     "CAD",

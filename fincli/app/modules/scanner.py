@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
 import re
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from fincli.app.analysis.indicators import TechnicalSummary, summarize_technical_indicators
-from fincli.app.providers.market.base import BaseMarketProvider, Candle
 from fincli.app.utils.errors import CommandError
 
+if TYPE_CHECKING:
+    from fincli.app.providers.market.base import BaseMarketProvider
 
 # ---------------------------------------------------------------------------
 # Predefined stock universes
@@ -240,7 +242,7 @@ def _parse_threshold(expression: str, prefix: str) -> float:
     try:
         return float(expression.replace(prefix, "", 1).strip())
     except ValueError:
-        raise CommandError(f"Invalid threshold in '{expression}'. Must be a number.")
+        raise CommandError(f"Invalid threshold in '{expression}'. Must be a number.") from None
 
 
 def _fmt(value: float | None) -> str:

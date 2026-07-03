@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fincli.app.providers.reliability import STATUS_OK, STATUS_PARTIAL_DATA, STATUS_UNAVAILABLE
-from fincli.app.services.data_quality import DataQualityReport
+
+if TYPE_CHECKING:
+    from fincli.app.services.data_quality import DataQualityReport
 
 
 @dataclass(frozen=True, slots=True)

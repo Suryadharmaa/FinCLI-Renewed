@@ -9,11 +9,11 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 
-from fincli.app.storage.database import FinCLIDatabase
+if TYPE_CHECKING:
+    from fincli.app.storage.database import FinCLIDatabase
 
 
 @dataclass
@@ -76,7 +76,7 @@ class SessionStateManager:
             entry = {
                 "text": text[:500],  # Truncate long outputs
                 "command": command,
-                "time": datetime.now(timezone.utc).isoformat(),
+                "time": datetime.now(UTC).isoformat(),
             }
             self._current_state.output_entries.append(entry)
             # Keep only last N entries
@@ -156,7 +156,7 @@ class SessionStateManager:
         """Generate a human-readable summary of recoverable state."""
         lines = [
             f"Session ID: {state.session_id}",
-            f"Last saved: {datetime.fromtimestamp(state.timestamp, tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}",
+            f"Last saved: {datetime.fromtimestamp(state.timestamp, tz=UTC).strftime('%Y-%m-%d %H:%M:%S UTC')}",
         ]
         if state.command_buffer:
             lines.append(f"Command buffer: {state.command_buffer}")

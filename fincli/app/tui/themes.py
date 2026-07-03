@@ -7,8 +7,11 @@ Supports true color (24-bit hex) and optional gradient backgrounds.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, asdict
-from pathlib import Path
+from dataclasses import asdict, dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @dataclass(frozen=True, slots=True)

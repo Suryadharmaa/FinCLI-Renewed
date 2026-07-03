@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-from contextlib import closing
 import sqlite3
-from typing import Iterable
+from contextlib import closing
+from typing import TYPE_CHECKING
 
-from fincli.app.storage.config import APP_DIR
+from fincli.app.storage.config_paths import APP_DIR
 from fincli.app.utils.errors import StorageError
 
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+    from pathlib import Path
 
 DB_FILE = APP_DIR / "fincli.db"
 
@@ -31,10 +33,9 @@ class FinCLIDatabase:
 
     def initialize(self) -> None:
         try:
-            with closing(self.connect()) as db:
-                with db:
-                    db.executescript(
-                        """
+            with closing(self.connect()) as db, db:
+                db.executescript(
+                    """
                         CREATE TABLE IF NOT EXISTS watchlist (
                             symbol TEXT PRIMARY KEY,
                             group_name TEXT DEFAULT 'default',
@@ -218,19 +219,18 @@ class FinCLIDatabase:
                             created_at TEXT DEFAULT CURRENT_TIMESTAMP
                         );
                         """
-                    )
-                    _migrate_user_profile_schema(db)
-                    _migrate_paper_orders_schema(db)
-                    _migrate_watchlist_notes(db)
-                    _migrate_portfolio_schema(db)
+                )
+                _migrate_user_profile_schema(db)
+                _migrate_paper_orders_schema(db)
+                _migrate_watchlist_notes(db)
+                _migrate_portfolio_schema(db)
         except sqlite3.Error as exc:
             raise StorageError("Local database failed to initialize.") from exc
 
     def execute(self, sql: str, params: Iterable[object] = ()) -> int | None:
         try:
-            with closing(self.connect()) as db:
-                with db:
-                    return db.execute(sql, tuple(params)).lastrowid
+            with closing(self.connect()) as db, db:
+                return db.execute(sql, tuple(params)).lastrowid
         except sqlite3.Error as exc:
             raise StorageError("Database operation failed.") from exc
 

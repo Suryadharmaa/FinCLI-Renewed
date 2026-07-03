@@ -7,7 +7,14 @@ from typing import Any
 
 import httpx
 
-from fincli.app.providers.market.base import Candle, FundamentalSnapshot, NewsItem, ProviderCapability, ProviderStatus, Quote
+from fincli.app.providers.market.base import (
+    Candle,
+    FundamentalSnapshot,
+    NewsItem,
+    ProviderCapability,
+    ProviderStatus,
+    Quote,
+)
 from fincli.app.providers.market.symbols import resolve_twelvedata_symbol
 from fincli.app.utils.errors import ProviderError, RateLimitError
 

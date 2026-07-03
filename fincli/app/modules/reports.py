@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from fincli.app.services.market_overview import MarketOverview
 from fincli.app.utils.errors import CommandError
+
+if TYPE_CHECKING:
+    from fincli.app.services.market_overview import MarketOverview
 
 
 def write_market_report(overview: MarketOverview, fmt: str, target: str | Path) -> Path:

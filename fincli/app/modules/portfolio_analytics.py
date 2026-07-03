@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import datetime
 from math import sqrt
+from typing import TYPE_CHECKING
 
-from fincli.app.storage.database import FinCLIDatabase
-
+if TYPE_CHECKING:
+    from fincli.app.storage.database import FinCLIDatabase
 
 # ---------------------------------------------------------------------------
 # Snapshot model
@@ -283,7 +284,7 @@ class PortfolioAnalytics:
         # Beta = cov(port, bench) / var(bench)
         bench_mean = sum(bench_ret) / len(bench_ret)
         port_mean = sum(port_ret) / len(port_ret)
-        cov = sum((p - port_mean) * (b - bench_mean) for p, b in zip(port_ret, bench_ret)) / len(bench_ret)
+        cov = sum((p - port_mean) * (b - bench_mean) for p, b in zip(port_ret, bench_ret, strict=False)) / len(bench_ret)
         var_bench = sum((b - bench_mean) ** 2 for b in bench_ret) / len(bench_ret)
         beta = cov / var_bench if var_bench > 0 else 0
 

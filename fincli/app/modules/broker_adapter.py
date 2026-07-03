@@ -14,7 +14,6 @@ import httpx
 
 from fincli.app.utils.errors import ProviderError
 
-
 # ---------------------------------------------------------------------------
 # Standardized broker models
 # ---------------------------------------------------------------------------

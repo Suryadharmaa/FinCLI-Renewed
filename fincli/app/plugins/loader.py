@@ -8,13 +8,15 @@ surface useful without creating a security footgun.
 from __future__ import annotations
 
 import ast
-from dataclasses import dataclass
 import json
-from pathlib import Path
-from typing import Iterable
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from fincli.app.storage import config_paths
 
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+    from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Plugin Security: Import Whitelist (v1.2.0)

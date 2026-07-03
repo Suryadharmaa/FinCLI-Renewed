@@ -6,15 +6,12 @@ in a local JSON config file under ~/.fincli by default.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
 import difflib
 import json
 import logging
 import os
-
-logger = logging.getLogger(__name__)
-from pathlib import Path
-from typing import Any
+from dataclasses import asdict, dataclass, field
+from typing import TYPE_CHECKING, Any
 
 try:
     from dotenv import dotenv_values, load_dotenv
@@ -22,11 +19,15 @@ except ImportError:  # pragma: no cover - dependency exists in normal install
     load_dotenv = None  # type: ignore[assignment]
     dotenv_values = None  # type: ignore[assignment]
 
+from fincli.app.storage.config_paths import CONFIG_FILE
+from fincli.app.storage.secrets import load_local_secrets
 from fincli.app.utils.errors import ConfigError
 from fincli.app.utils.formatting import mask_secret
-from fincli.app.storage.config_paths import APP_DIR, CONFIG_FILE
-from fincli.app.storage.secrets import load_local_secrets
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # Valid provider names for "did you mean?" suggestions
 VALID_AI_PROVIDERS = {"openrouter", "gemini", "anthropic", "openai", "together", "huggingface", "groq"}

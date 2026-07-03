@@ -6,7 +6,6 @@ import re
 
 from fincli import __version__
 
-
 FINCLI_ASSISTANT_SYSTEM_PROMPT = f"""
 You are FinCLI AI Assistance, the embedded assistant inside FinCLI v{__version__}.
 

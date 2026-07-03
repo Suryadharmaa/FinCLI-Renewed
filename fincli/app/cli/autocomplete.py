@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from fincli.app.cli.commands import CommandRegistry, CommandSpec
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from fincli.app.cli.commands import CommandRegistry, CommandSpec
 
 
 class SlashAutocomplete:

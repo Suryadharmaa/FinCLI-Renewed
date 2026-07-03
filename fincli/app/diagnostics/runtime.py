@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import platform
+import sys
 from dataclasses import dataclass
 from importlib import metadata, util
 from pathlib import Path
-import platform
-import sys
 
 from fincli import __version__
 

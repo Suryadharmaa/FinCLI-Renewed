@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
 from fincli.app.connectors.news_connectors import NewsConnectorManager
-from fincli.app.providers.market.base import NewsItem
 from fincli.app.providers.reliability import STATUS_OK, STATUS_PARTIAL_DATA, STATUS_UNAVAILABLE, classify_provider_error
-from fincli.app.services.market_data import MarketDataService
+
+if TYPE_CHECKING:
+    from fincli.app.providers.market.base import NewsItem
+    from fincli.app.services.market_data import MarketDataService
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,7 +61,7 @@ class NewsAggregator:
             if len(items) >= limit:
                 break
 
-        _min_dt = datetime.min.replace(tzinfo=timezone.utc)
+        _min_dt = datetime.min.replace(tzinfo=UTC)
         items.sort(key=lambda x: x.published_at if x.published_at and x.published_at.tzinfo else _min_dt, reverse=True)
 
         note = "Provider-backed news. Realtime/delayed status depends on provider entitlement."
@@ -94,6 +97,6 @@ def _within_lookback(item: NewsItem, lookback_days: int) -> bool:
         return False
     published = item.published_at
     if published.tzinfo is None:
-        published = published.replace(tzinfo=timezone.utc)
-    cutoff = datetime.now(timezone.utc) - timedelta(days=lookback_days)
+        published = published.replace(tzinfo=UTC)
+    cutoff = datetime.now(UTC) - timedelta(days=lookback_days)
     return published >= cutoff

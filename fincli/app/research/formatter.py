@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from rich.table import Table
 
-from fincli.app.research.models import ResearchBrief
 from fincli.app.utils.formatting import semantic_text
+
+if TYPE_CHECKING:
+    from fincli.app.research.models import ResearchBrief
 
 
 def format_research_brief(brief: ResearchBrief) -> Table:

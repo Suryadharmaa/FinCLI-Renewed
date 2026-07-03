@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from fincli.app.utils.logger import configure_logging
 from fincli.app.diagnostics.runtime import startup_dependency_error
+from fincli.app.utils.logger import configure_logging
 
 
 def main() -> None:

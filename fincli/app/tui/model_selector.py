@@ -2,21 +2,26 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import os
-from typing import Callable
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from rich.text import Text
-from textual.app import ComposeResult
 from textual.containers import Vertical, VerticalScroll
-from textual.events import Key
 from textual.screen import ModalScreen
 from textual.widgets import Input, Static
 
 from fincli.app.providers.ai.manager import AIProviderManager
-from fincli.app.storage.config import ConfigManager
 from fincli.app.storage.secrets import save_secret
 from fincli.app.utils.formatting import mask_secret
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from textual.app import ComposeResult
+    from textual.events import Key
+
+    from fincli.app.storage.config import ConfigManager
 
 
 @dataclass(frozen=True, slots=True)

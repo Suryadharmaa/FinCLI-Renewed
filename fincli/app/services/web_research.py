@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from dataclasses import dataclass
 from html import unescape
 from html.parser import HTMLParser
-import re
 from urllib.parse import parse_qs, quote_plus, unquote, urlparse
-import defusedxml.ElementTree as ElementTree
 
+import defusedxml.ElementTree as ElementTree
 import httpx
 
 from fincli.app.utils.errors import ProviderError

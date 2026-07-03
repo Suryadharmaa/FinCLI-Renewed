@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from fincli.app.brokers.alpaca import AlpacaBroker
-from fincli.app.brokers.base import BaseBroker, BrokerConnectionStatus
+
+if TYPE_CHECKING:
+    from fincli.app.brokers.base import BaseBroker, BrokerConnectionStatus
 
 
 @dataclass(frozen=True, slots=True)

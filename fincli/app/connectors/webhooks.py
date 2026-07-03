@@ -2,18 +2,14 @@
 
 from __future__ import annotations
 
-import json
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from enum import Enum
-from typing import Any
 
 import httpx
 
 from fincli.app.storage.config import ConfigManager
 from fincli.app.storage.secrets import read_secrets, save_secret
-from fincli.app.utils.errors import CommandError
-
 
 # ---------------------------------------------------------------------------
 # Webhook types
@@ -43,7 +39,7 @@ class NotificationMessage:
 
     def __post_init__(self) -> None:
         if not self.timestamp:
-            object.__setattr__(self, "timestamp", datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"))
+            object.__setattr__(self, "timestamp", datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"))
 
 
 # ---------------------------------------------------------------------------

@@ -47,10 +47,10 @@ def build_journal_review_prompt(entries: list[dict[str, object]], stats: Journal
     recent_lines = []
     for entry in entries[:20]:
         recent_lines.append(
-            (
+
                 f"- {entry.get('instrument')} | bias={entry.get('bias')} | result={entry.get('result')} | "
                 f"emotion={entry.get('emotion')} | reason={entry.get('entry_reason')} | lesson={entry.get('lesson')}"
-            )
+
         )
     return (
         "You are FinCLI's trading journal review assistant.\n"

@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import TYPE_CHECKING
 
 from fincli.app.providers.ai.base import AIRequest, BaseAIProvider
 from fincli.app.research.models import ResearchBrief, ResearchSource
 from fincli.app.research.prompt_builder import build_research_prompt
 from fincli.app.services.data_trust import build_data_trust_gate
-from fincli.app.services.macro_data import MacroDataService, MacroIndicator
-from fincli.app.services.market_data import MarketDataService
 from fincli.app.services.market_overview import MarketOverview, build_market_overview
+
+if TYPE_CHECKING:
+    from fincli.app.services.macro_data import MacroDataService, MacroIndicator
+    from fincli.app.services.market_data import MarketDataService
 
 # Modes that pull current public web context when provider news is missing.
 _WEB_FALLBACK_MODES = {"deep", "report"}

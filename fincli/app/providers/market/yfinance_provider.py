@@ -2,7 +2,7 @@
 
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from fincli.app.providers.market.base import (
@@ -156,7 +156,7 @@ class YFinanceProvider(BaseMarketProvider):
                 published_at = None
                 timestamp = content.get("pubDate") or item.get("providerPublishTime")
                 if isinstance(timestamp, int):
-                    published_at = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+                    published_at = datetime.fromtimestamp(timestamp, tz=UTC)
                 elif isinstance(timestamp, str):
                     published_at = _parse_datetime(timestamp)
                 summary = str(content.get("summary") or "")
