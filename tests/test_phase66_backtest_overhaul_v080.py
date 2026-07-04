@@ -4,10 +4,7 @@ from datetime import datetime
 
 from fincli.app.analysis.backtest import (
     BacktestResult,
-    FeeProfile,
-    MonteCarloResult,
     PositionSizer,
-    WalkForwardResult,
     get_fee_profile,
     run_backtest,
 )

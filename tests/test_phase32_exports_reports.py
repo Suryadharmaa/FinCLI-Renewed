@@ -1,13 +1,16 @@
 from __future__ import annotations
 
-from datetime import datetime
 import json
-from pathlib import Path
+from datetime import datetime
+from typing import TYPE_CHECKING
 
 from fincli.app.cli.router import CommandRouter
 from fincli.app.providers.market.base import Candle, FundamentalSnapshot, NewsItem, ProviderStatus, Quote
 from fincli.app.storage.config import ConfigManager
 from fincli.app.storage.database import FinCLIDatabase
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def make_candles() -> list[Candle]:

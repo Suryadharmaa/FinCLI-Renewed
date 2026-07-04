@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from fincli.app.cli.router import CommandRouter
 from fincli.app.modules.economic_calendar import EconomicEvent, calendar_summary, economic_event_rows
 from fincli.app.storage.config import ConfigManager
 from fincli.app.storage.database import FinCLIDatabase
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def test_calendar_summary_and_rows() -> None:

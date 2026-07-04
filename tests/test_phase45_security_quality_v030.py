@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from rich.console import Console
 
@@ -11,6 +11,9 @@ from fincli.app.services.market_overview import build_market_overview
 from fincli.app.storage.config import ConfigManager
 from fincli.app.storage.database import FinCLIDatabase
 from fincli.app.storage.secrets import read_secrets, save_secret
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def render_text(renderable) -> str:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from rich.console import Console
 
@@ -10,6 +10,9 @@ from fincli.app.modules.portfolio_risk import build_portfolio_risk
 from fincli.app.providers.market.base import ProviderStatus, Quote
 from fincli.app.storage.config import ConfigManager
 from fincli.app.storage.database import FinCLIDatabase
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class PortfolioRiskProvider:

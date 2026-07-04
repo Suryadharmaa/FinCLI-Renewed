@@ -1,15 +1,18 @@
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from rich.console import Console
 
 from fincli.app.cli.router import CommandRouter
-from fincli.app.modules.alerts import AlertDaemon, AlertService, CONDITIONAL_TYPES, normalize_condition
-from fincli.app.modules.exporter import export_all, export_backtest, export_rows
+from fincli.app.modules.alerts import CONDITIONAL_TYPES, AlertDaemon, AlertService, normalize_condition
+from fincli.app.modules.exporter import export_all, export_rows
 from fincli.app.storage.config import ConfigManager
 from fincli.app.storage.database import FinCLIDatabase
 from fincli.app.utils.errors import CommandError
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def render_text(renderable: object) -> str:
@@ -40,7 +43,7 @@ def test_normalize_condition_accepts_conditional() -> None:
 def test_normalize_condition_rejects_unknown() -> None:
     try:
         normalize_condition("unknown_condition")
-        assert False, "Should have raised"
+        raise AssertionError("Should have raised")
     except CommandError:
         pass
 
@@ -187,6 +190,6 @@ def test_export_alerts_command(tmp_path: Path) -> None:
     target = tmp_path / "alerts.json"
 
     result = router.route(f"/export alerts json {target}")
-    output = render_text(result.renderable)
+    render_text(result.renderable)
 
     assert result.status == "ready"

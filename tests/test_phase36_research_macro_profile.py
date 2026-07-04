@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from rich.console import Console
 
@@ -12,6 +12,9 @@ from fincli.app.providers.ai.base import AIRequest, AIResponse
 from fincli.app.providers.market.base import Candle, FundamentalSnapshot, NewsItem, Quote
 from fincli.app.storage.config import ConfigManager
 from fincli.app.storage.database import FinCLIDatabase
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class CapturingAIProvider:
@@ -110,7 +113,7 @@ def make_router(tmp_path: Path) -> tuple[CommandRouter, CapturingAIProvider]:
 
 
 def test_package_metadata_is_v031() -> None:
-    assert fincli.__version__ == "1.8.3"
+    assert fincli.__version__ == "1.8.4"
 
 
 def test_registry_promotes_research_macro_profile_and_documents_advanced_aliases() -> None:

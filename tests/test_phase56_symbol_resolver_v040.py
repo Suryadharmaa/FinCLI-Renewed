@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from fincli.app.cli.router import CommandRouter
 from fincli.app.providers.market.base import Candle, FundamentalSnapshot, NewsItem, ProviderStatus, Quote
@@ -10,6 +10,9 @@ from fincli.app.services.market_data import MarketDataService
 from fincli.app.storage.config import ConfigManager
 from fincli.app.storage.database import FinCLIDatabase
 from fincli.app.utils.errors import ProviderError
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def test_symbol_resolver_maps_global_aliases() -> None:

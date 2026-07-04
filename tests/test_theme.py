@@ -1,7 +1,7 @@
 """Tests for theme system."""
 
-from fincli.app.tui.themes import THEMES, DEFAULT_THEME, get_theme, list_themes, ThemePreset
-from fincli.app.tui.theme import build_theme_css, APP_CSS
+from fincli.app.tui.theme import APP_CSS, build_theme_css
+from fincli.app.tui.themes import DEFAULT_THEME, THEMES, get_theme, list_themes
 
 
 def test_themes_has_default() -> None:
@@ -33,7 +33,7 @@ def test_theme_preset_frozen() -> None:
     t = get_theme("midnight")
     try:
         t.bg = "#fff"  # type: ignore[misc]
-        assert False, "Should be frozen"
+        raise AssertionError("Should be frozen")
     except AttributeError:
         pass
 

@@ -1,8 +1,8 @@
 from datetime import datetime
 from pathlib import Path
 
-from fincli.app.cli.router import CommandRouter
 from fincli.app.analysis.assistant_context import extract_market_symbols
+from fincli.app.cli.router import CommandRouter
 from fincli.app.providers.ai.base import AIRequest, AIResponse
 from fincli.app.providers.market.base import Candle, FundamentalSnapshot, NewsItem, Quote
 from fincli.app.storage.config import ConfigManager

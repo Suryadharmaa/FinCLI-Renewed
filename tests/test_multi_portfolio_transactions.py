@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from fincli.app.modules.portfolio import PortfolioService
 from fincli.app.modules.transactions import TransactionService
 from fincli.app.storage.database import FinCLIDatabase
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _setup(tmp_path: Path) -> tuple[FinCLIDatabase, PortfolioService, TransactionService]:
@@ -57,7 +60,7 @@ def test_transaction_cannot_sell_from_wrong_portfolio(tmp_path: Path) -> None:
     portfolio.set_portfolio("crypto")
     try:
         transactions.add("sell", "AAPL", 5, 160.0)
-        assert False, "Should have raised CommandError"
+        raise AssertionError("Should have raised CommandError")
     except Exception as exc:
         assert "No position" in str(exc)
 

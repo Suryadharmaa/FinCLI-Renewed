@@ -3,10 +3,10 @@ import asyncio
 import httpx
 import pytest
 
+from fincli.app.cli.router import CommandRouter
 from fincli.app.providers.ai.base import AIRequest
 from fincli.app.providers.ai.http_provider import OpenAICompatibleProvider
 from fincli.app.providers.ai.manager import AIProviderManager
-from fincli.app.cli.router import CommandRouter
 from fincli.app.storage.config import ConfigManager
 from fincli.app.storage.database import FinCLIDatabase
 from fincli.app.utils.errors import ProviderError

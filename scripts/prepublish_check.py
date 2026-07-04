@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import re
 import shutil
 import subprocess
@@ -10,10 +12,23 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-
 BLOCKED_FILE_NAMES = {".env", "secrets.env"}
 BLOCKED_SUFFIXES = {".db", ".sqlite", ".sqlite3", ".log"}
-BLOCKED_PARTS = {".git", ".venv", "venv", ".npm-python", "__pycache__", ".pytest_cache", "dist", "build"}
+BLOCKED_PARTS = {
+    ".claude",
+    ".git",
+    ".mypy_cache",
+    ".npm-python",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".tmp-npm-cache",
+    ".tmp-pytest",
+    ".venv",
+    "__pycache__",
+    "build",
+    "dist",
+    "venv",
+}
 SECRET_PATTERNS = (
     re.compile(r"(?m)^[ \t]*([A-Z0-9_]*(?:API|TOKEN|SECRET|KEY)[A-Z0-9_]*)[ \t]*=[ \t]*([^\s#\"']{12,})[ \t]*$"),
     re.compile(r"\bsk-[A-Za-z0-9_-]{16,}"),
@@ -72,9 +87,9 @@ def npm_pack_file_list(root: Path) -> list[str]:
         cwd=root,
         check=True,
         capture_output=True,
+        env={**os.environ, "npm_config_cache": str(root / ".tmp-npm-cache")},
         text=True,
     )
-    import json
 
     payload = json.loads(completed.stdout)
     if not payload:
@@ -161,9 +176,7 @@ def _is_blocked_path(path: Path) -> bool:
         return True
     if path.name in BLOCKED_FILE_NAMES:
         return True
-    if path.suffix.lower() in BLOCKED_SUFFIXES:
-        return True
-    return False
+    return path.suffix.lower() in BLOCKED_SUFFIXES
 
 
 def _redact(value: str) -> str:

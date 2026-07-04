@@ -1,13 +1,16 @@
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from rich.console import Console
 
 from fincli.app.cli.router import CommandRouter
-from fincli.app.modules.portfolio_analytics import PortfolioAnalytics, RiskRatios
+from fincli.app.modules.portfolio_analytics import PortfolioAnalytics
 from fincli.app.storage.config import ConfigManager
 from fincli.app.storage.database import FinCLIDatabase
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def render_text(renderable: object) -> str:
@@ -237,7 +240,7 @@ def test_portfolio_benchmark_command(tmp_path: Path) -> None:
     router.route("/portfolio snapshot")
 
     result = router.route("/portfolio benchmark SPY")
-    output = render_text(result.renderable)
+    render_text(result.renderable)
 
     # Should either show benchmark or say insufficient data
     assert result.status == "ready"

@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import sqlite3
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from rich.console import Console
 
+from fincli.app.cli.commands import CommandRegistry
 from fincli.app.cli.router import CommandRouter
 from fincli.app.modules.user_profile import UserProfileService
-from fincli.app.cli.commands import CommandRegistry
 from fincli.app.storage.config import ConfigManager
 from fincli.app.storage.database import FinCLIDatabase
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def render_text(renderable: object) -> str:

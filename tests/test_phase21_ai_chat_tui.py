@@ -1,14 +1,13 @@
+import pytest
+from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
-from rich.console import Console
 
 from fincli.app.providers.ai.base import AIRequest, AIResponse
 from fincli.app.tui.components import format_ai_message, format_thinking_message, format_user_message
-from fincli.app.utils.formatting import AIResponseView
 from fincli.app.tui.layout import FinCLIApp
-
-import pytest
+from fincli.app.utils.formatting import AIResponseView
 
 
 class FakeAIProvider:

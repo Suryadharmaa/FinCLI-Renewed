@@ -1026,6 +1026,8 @@ class CommandRouter:
             return CommandResult(_format_provider_entitlements(self.market_manager.entitlements()))
         if args and args[0].lower() == "metrics":
             return CommandResult(_format_provider_metrics(self.market_service))
+        if args and args[0].lower() == "trust":
+            return CommandResult(_format_provider_trust(self.market_service))
         if args and args[0].lower() in {"capabilities", "capability", "matrix"}:
             return CommandResult(_format_provider_capabilities(self.market_service.providers))
         if args and args[0].lower() == "key" and len(args) >= 2 and args[1].lower() == "status":
@@ -1105,7 +1107,7 @@ class CommandRouter:
                 raise CommandError("Format: /provider compare <symbol>")
             return self._provider_compare(args[1])
         raise CommandError(
-            "Format: /provider status, /provider list, /provider capabilities, /provider entitlement, /provider key status, "
+            "Format: /provider status, /provider trust, /provider list, /provider capabilities, /provider entitlement, /provider key status, "
             "/provider use <provider>, /provider priority finnhub,yfinance, /provider reset <provider>, "
             "/provider test [provider] <symbol>, /provider compare <symbol>"
         )
@@ -4745,6 +4747,181 @@ def _format_provider_metrics(service: MarketDataService) -> Table:
             table = Group(table, op_table)  # type: ignore[assignment]
 
     return table
+
+
+def _format_provider_trust(service: MarketDataService) -> Table:
+    summary = _provider_trust_summary(service)
+    metrics = service.provider_metrics_snapshot()
+    last_result = service.last_result
+    provider_chain = ", ".join(provider.name for provider in service.providers)
+
+    table = Table(title="Provider Trust", expand=True)
+    table.add_column("Area", style="cyan", no_wrap=True)
+    table.add_column("Label", no_wrap=True)
+    table.add_column("Detail", overflow="fold")
+
+    table.add_row("Trust Level", summary["level"], summary["message"])
+    table.add_row("AI Confidence Limit", f"{summary['confidence_cap']}%", summary["ai_action"])
+    table.add_row("Provider Chain", "active", provider_chain or "no providers configured")
+    table.add_row("Cache", "enabled" if service.cache is not None else "runtime only", f"TTL {service.cache_ttl_seconds}s")
+
+    if last_result is None:
+        table.add_row(
+            "Last Result",
+            "not enough data",
+            "No provider calls recorded yet. Run /provider test AAPL or a market command to populate trust evidence.",
+        )
+    else:
+        missing = ", ".join(last_result.missing_fields) if last_result.missing_fields else "none"
+        table.add_row(
+            "Last Result",
+            _trust_status_label(last_result.status),
+            (
+                f"{last_result.provider}/{last_result.operation}; status={last_result.status}; "
+                f"quality={last_result.data_quality}; realtime={last_result.realtime_label}; missing={missing}"
+            ),
+        )
+
+    recent_errors = "; ".join(service.last_errors[-3:]) if service.last_errors else "none"
+    table.add_row("Recent Errors", "clear" if recent_errors == "none" else "review", recent_errors)
+
+    for provider in service.providers:
+        name = provider.name
+        metric = metrics.get(name)
+        table.add_row(f"Provider: {name}", _metric_trust_label(metric), _format_provider_metric_detail(metric))
+
+    reasons = "; ".join(summary["reasons"]) if summary["reasons"] else "No reliability warnings from current session metrics."
+    table.add_row("Quality Notes", summary["level"], reasons)
+    table.add_row("Suggested Action", summary["level"], summary["suggested_action"])
+    table.caption = (
+        "Trust summarizes provider runtime health, fallback/circuit state, and data completeness. "
+        "It limits AI confidence; it is not investment advice."
+    )
+    return table
+
+
+def _provider_trust_summary(service: MarketDataService) -> dict[str, Any]:
+    metrics = service.provider_metrics_snapshot()
+    last_result = service.last_result
+    reasons: list[str] = []
+
+    circuit_open = [name for name, metric in metrics.items() if metric.circuit_open]
+    if circuit_open:
+        reasons.append(f"circuit open: {', '.join(circuit_open)}")
+
+    if last_result is None:
+        reasons.append("no provider call evidence recorded in this session")
+        return {
+            "level": "Limited",
+            "confidence_cap": 45,
+            "ai_action": "caution-first analysis only until a quote/history check succeeds",
+            "message": "Not enough data to prove provider reliability yet.",
+            "suggested_action": "Run /provider test AAPL, then retry /provider trust.",
+            "reasons": reasons,
+        }
+
+    critical_missing = {"quote", "ohlcv", "price"}
+    if circuit_open or last_result.status == STATUS_UNAVAILABLE or critical_missing.intersection(last_result.missing_fields):
+        if critical_missing.intersection(last_result.missing_fields):
+            reasons.append(f"critical field missing: {', '.join(last_result.missing_fields)}")
+        if last_result.status == STATUS_UNAVAILABLE:
+            reasons.append("last provider result is unavailable")
+        return {
+            "level": "Blocked",
+            "confidence_cap": 20,
+            "ai_action": "no directional signal; show caution and require verification",
+            "message": "Critical market data is unavailable or the provider chain is blocked.",
+            "suggested_action": "Reset the circuit if appropriate, rotate/check API keys, or switch provider before relying on output.",
+            "reasons": reasons,
+        }
+
+    weak_metric_reasons = _provider_metric_reasons(metrics)
+    reasons.extend(weak_metric_reasons)
+    if last_result.status in {STATUS_PARTIAL_DATA, STATUS_SCHEDULE_ONLY}:
+        reasons.append(f"last result status is {last_result.status}")
+
+    total_calls = sum(metric.calls for metric in metrics.values())
+    total_errors = sum(metric.errors for metric in metrics.values())
+    total_fallbacks = sum(metric.fallbacks for metric in metrics.values())
+    healthy_primary = total_calls > 0 and total_errors == 0 and total_fallbacks == 0 and last_result.status == STATUS_OK
+
+    if healthy_primary and not weak_metric_reasons:
+        return {
+            "level": "Strong",
+            "confidence_cap": 80,
+            "ai_action": "normal scenario analysis allowed with normal verification",
+            "message": "Provider chain is healthy for the latest recorded market call.",
+            "suggested_action": "Proceed, but keep normal risk and source checks.",
+            "reasons": reasons,
+        }
+
+    if last_result.status == STATUS_OK and len(weak_metric_reasons) <= 1:
+        return {
+            "level": "Usable",
+            "confidence_cap": 60,
+            "ai_action": "moderated scenario analysis; avoid overconfident conclusions",
+            "message": "Latest data is usable, with minor reliability caveats.",
+            "suggested_action": "Use output as a watchlist bias and confirm with a second source for decisions.",
+            "reasons": reasons,
+        }
+
+    return {
+        "level": "Limited",
+        "confidence_cap": 45,
+        "ai_action": "caution-first analysis; wait for confirmation before decisions",
+        "message": "Provider reliability or data completeness is below the preferred release threshold.",
+        "suggested_action": "Compare providers, check keys/entitlements, or retry after fallback health improves.",
+        "reasons": reasons or ("provider data quality below preferred threshold",),
+    }
+
+
+def _provider_metric_reasons(metrics: dict[str, Any]) -> list[str]:
+    reasons: list[str] = []
+    for name, metric in metrics.items():
+        if metric.calls <= 0:
+            continue
+        if metric.errors >= 2:
+            reasons.append(f"{name} returned {metric.errors} error(s)")
+        if metric.fallbacks >= 2:
+            reasons.append(f"{name} required {metric.fallbacks} fallback(s)")
+        if metric.calls >= 2 and metric.success_rate < 50:
+            reasons.append(f"{name} success rate is weak ({metric.success_rate:.1f}%)")
+        if metric.consecutive_failures:
+            reasons.append(f"{name} has {metric.consecutive_failures} consecutive failure(s)")
+    return reasons
+
+
+def _trust_status_label(status: str) -> str:
+    if status == STATUS_OK:
+        return "Strong"
+    if status in {STATUS_PARTIAL_DATA, STATUS_SCHEDULE_ONLY}:
+        return "Limited"
+    if status == STATUS_UNAVAILABLE:
+        return "Blocked"
+    return "Usable"
+
+
+def _metric_trust_label(metric: Any | None) -> str:
+    if metric is None or metric.calls <= 0:
+        return "not called"
+    if metric.circuit_open:
+        return "Blocked"
+    if metric.errors >= 2 or metric.success_rate < 50:
+        return "Limited"
+    if metric.fallbacks > 0 or metric.errors > 0:
+        return "Usable"
+    return "Strong"
+
+
+def _format_provider_metric_detail(metric: Any | None) -> str:
+    if metric is None or metric.calls <= 0:
+        return "No calls recorded yet."
+    circuit = "open" if metric.circuit_open else "closed"
+    return (
+        f"calls={metric.calls}; success={metric.success_rate:.1f}%; "
+        f"fallbacks={metric.fallbacks}; errors={metric.errors}; "
+        f"latency={metric.avg_latency_ms:.1f}ms; circuit={circuit}; last={metric.last_status}"
+    )
 
 
 def _format_symbol_search(query: str, results: list[SymbolSearchResult]) -> Table:

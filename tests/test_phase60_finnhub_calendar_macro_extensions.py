@@ -1,18 +1,21 @@
 from __future__ import annotations
 
 from datetime import date
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import httpx
 from rich.console import Console
 
+from fincli.app.cli.commands import CommandRegistry
 from fincli.app.cli.router import CommandRouter
 from fincli.app.modules.economic_calendar import EconomicEvent, _parse_event
 from fincli.app.providers.market.finnhub_provider import FinnhubProvider
 from fincli.app.services.macro_data import AlphaVantageEconomicService
 from fincli.app.storage.config import ConfigManager
 from fincli.app.storage.database import FinCLIDatabase
-from fincli.app.cli.commands import CommandRegistry
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def render_text(renderable: object) -> str:

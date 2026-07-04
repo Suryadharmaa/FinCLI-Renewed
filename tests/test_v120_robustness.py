@@ -3,24 +3,22 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
-import pytest
-
-from fincli.app.storage.database import FinCLIDatabase
-from fincli.app.storage.session_state import SessionState, SessionStateManager
-from fincli.app.storage.ai_cache import AICache
 from fincli.app.providers.reliability import (
     ProviderResponse,
-    detect_staleness,
+    build_enhanced_response,
     detect_price_anomaly,
     detect_quote_anomaly,
-    detect_history_anomaly,
-    detect_fundamental_anomaly,
-    build_enhanced_response,
+    detect_staleness,
 )
+from fincli.app.storage.ai_cache import AICache
+from fincli.app.storage.database import FinCLIDatabase
+from fincli.app.storage.session_state import SessionState, SessionStateManager
 
+if TYPE_CHECKING:
+    from pathlib import Path
 
 # --- Session State Tests ---
 
@@ -188,15 +186,15 @@ class TestAICache:
 
 class TestSoftErrorDetection:
     def test_detect_staleness_fresh(self):
-        freshness = datetime.now(timezone.utc)
+        freshness = datetime.now(UTC)
         assert detect_staleness(freshness) == 0.0
 
     def test_detect_staleness_slightly_stale(self):
-        freshness = datetime.now(timezone.utc) - timedelta(seconds=400)
+        freshness = datetime.now(UTC) - timedelta(seconds=400)
         assert detect_staleness(freshness, max_age_seconds=300) == 0.5
 
     def test_detect_staleness_very_stale(self):
-        freshness = datetime.now(timezone.utc) - timedelta(seconds=1000)
+        freshness = datetime.now(UTC) - timedelta(seconds=1000)
         assert detect_staleness(freshness, max_age_seconds=300) == 1.0
 
     def test_detect_staleness_unknown(self):
@@ -248,7 +246,7 @@ class TestSoftErrorDetection:
         )
         enhanced = build_enhanced_response(
             response,
-            data_freshness=datetime.now(timezone.utc),
+            data_freshness=datetime.now(UTC),
         )
         assert enhanced.staleness_score == 0.0
         assert enhanced.anomaly_flags == ()

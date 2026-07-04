@@ -9,7 +9,11 @@ from fincli.app.cli.router import CommandRouter
 from fincli.app.providers.market.base import Candle
 from fincli.app.providers.market.finnhub_provider import FinnhubProvider
 from fincli.app.providers.market.manager import MarketProviderManager
-from fincli.app.providers.market.symbols import resolve_finnhub_symbol, resolve_twelvedata_symbol, resolve_yfinance_symbol
+from fincli.app.providers.market.symbols import (
+    resolve_finnhub_symbol,
+    resolve_twelvedata_symbol,
+    resolve_yfinance_symbol,
+)
 from fincli.app.providers.market.twelvedata_provider import TwelveDataProvider
 from fincli.app.storage.config import ConfigManager
 from fincli.app.storage.database import FinCLIDatabase

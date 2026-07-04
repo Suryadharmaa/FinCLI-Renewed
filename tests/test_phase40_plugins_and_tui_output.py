@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from fincli.app.tui.theme import APP_CSS
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class FakeLog:
@@ -42,9 +45,9 @@ def test_plugin_loader_discovers_manifest_files(tmp_path: Path) -> None:
 
 def test_plugin_command_routes_list_and_status(tmp_path: Path, monkeypatch) -> None:
     from fincli.app.cli.router import CommandRouter
+    from fincli.app.storage import config_paths
     from fincli.app.storage.config import ConfigManager
     from fincli.app.storage.database import FinCLIDatabase
-    from fincli.app.storage import config_paths
 
     plugin_dir = tmp_path / "plugins" / "news-kit"
     plugin_dir.mkdir(parents=True)

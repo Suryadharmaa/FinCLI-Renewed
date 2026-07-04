@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
 from rich.console import Console
 
@@ -16,6 +16,9 @@ from fincli.app.providers.reliability import (
 from fincli.app.services.source_quality import score_source_quality
 from fincli.app.storage.config import ConfigManager
 from fincli.app.storage.database import FinCLIDatabase
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class ReliabilityProvider:
@@ -54,7 +57,7 @@ def test_delayed_and_fallback_statuses_are_registered() -> None:
 
 
 def test_source_quality_scores_realtime_fresh_data_higher_than_stale() -> None:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     realtime_quote = Quote("AAPL", 150.0, "USD", "live", now, "realtime")
     candles = [Candle(now, 100, 102, 99, 101, 1_000) for _ in range(150)]
     fresh_news = [NewsItem("Fresh headline", "Wire", "https://example.com", now - timedelta(hours=2), "ctx")]

@@ -12,7 +12,7 @@ const pythonBin = process.platform === "win32"
   ? path.join(venvDir, "Scripts", "python.exe")
   : path.join(venvDir, "bin", "python");
 
-// ── Update notifier ──────────────────────────────────────────────────────────
+// -- Update notifier ---------------------------------------------------------
 
 const UPDATE_CHECK_TTL = 86400000; // 24 hours
 const REGISTRY_URL = `https://registry.npmjs.org/${packageJson.name}/latest`;
@@ -42,7 +42,7 @@ function writeUpdateCache(latestVersion) {
       latestVersion,
     }), "utf8");
   } catch {
-    // ignore write errors
+    // Ignore cache write errors; update checks must never block startup.
   }
 }
 
@@ -60,12 +60,23 @@ function isNewer(current, latest) {
   return false;
 }
 
+function shouldShowUpdate(currentVersion, latestVersion) {
+  const currentParsed = parseSemver(currentVersion);
+  const latestParsed = parseSemver(latestVersion);
+  return Boolean(currentParsed && latestParsed && isNewer(currentParsed, latestParsed));
+}
+
+function padRight(str, width) {
+  return str + " ".repeat(Math.max(0, width - str.length));
+}
+
 function showUpdateBanner(currentVersion, latestVersion) {
-  const msg = `Update available: ${currentVersion} → ${latestVersion}`;
+  const msg = `Update available: ${currentVersion} -> ${latestVersion}`;
   const cmd = `npm i -g ${packageJson.name}`;
-  const line = "═".repeat(msg.length + 4);
+  const width = Math.max(msg.length, `Run: ${cmd}`.length) + 2;
+  const line = "-".repeat(width);
   process.stderr.write(
-    `\n╔${line}╗\n║  ${msg}  ║\n║  Run: ${cmd}${" ".repeat(Math.max(0, msg.length - cmd.length - 6))}  ║\n╚${line}╝\n\n`
+    `\n+${line}+\n| ${padRight(msg, width - 2)} |\n| ${padRight(`Run: ${cmd}`, width - 2)} |\n+${line}+\n\n`
   );
 }
 
@@ -93,37 +104,33 @@ function fetchLatestVersion() {
 }
 
 async function checkForUpdate() {
-  // Skip in CI environments
+  // Skip in CI environments.
   if (process.env.CI || process.env.GITHUB_ACTIONS) return;
 
   const currentVersion = packageJson.version;
-  const currentParsed = parseSemver(currentVersion);
-  if (!currentParsed) return;
+  if (!parseSemver(currentVersion)) return;
 
   const cache = readUpdateCache();
 
-  // If cache is fresh and version hasn't changed, just show banner if needed
+  // If cache is fresh, avoid a registry call and show cached update if needed.
   if (cache && cache.lastCheck && (Date.now() - cache.lastCheck) < UPDATE_CHECK_TTL) {
-    const cachedParsed = parseSemver(cache.latestVersion);
-    if (cachedParsed && isNewer(currentParsed, cachedParsed)) {
+    if (shouldShowUpdate(currentVersion, cache.latestVersion)) {
       showUpdateBanner(currentVersion, cache.latestVersion);
     }
     return;
   }
 
-  // Fetch from registry
   const latestVersion = await fetchLatestVersion();
   if (!latestVersion) return;
 
   writeUpdateCache(latestVersion);
 
-  const latestParsed = parseSemver(latestVersion);
-  if (latestParsed && isNewer(currentParsed, latestParsed)) {
+  if (shouldShowUpdate(currentVersion, latestVersion)) {
     showUpdateBanner(currentVersion, latestVersion);
   }
 }
 
-// ── Main ─────────────────────────────────────────────────────────────────────
+// -- Main --------------------------------------------------------------------
 
 function run() {
   const args = process.argv.slice(2);
@@ -133,13 +140,13 @@ function run() {
     return;
   }
 
-  // Handle setup command
+  // Handle setup command.
   if (args.includes("setup") || args.includes("--setup")) {
     runSetup();
     return;
   }
 
-  // Check if venv exists
+  // Check if venv exists.
   if (!fs.existsSync(pythonBin)) {
     console.error("FinCLI Python runtime not found.");
     console.error("Run: fincli setup");
@@ -149,7 +156,7 @@ function run() {
 
   ensurePythonRuntime();
 
-  // Check for updates (non-blocking, result shown before app renders)
+  // Check for updates in the background; banner may appear during startup.
   checkForUpdate().catch(() => {});
 
   const child = spawn(pythonBin, ["-m", "fincli.app.main", ...args], {
@@ -200,4 +207,14 @@ function ensurePythonRuntime() {
   }
 }
 
-run();
+if (require.main === module) {
+  run();
+}
+
+module.exports = {
+  parseSemver,
+  isNewer,
+  shouldShowUpdate,
+  showUpdateBanner,
+  checkForUpdate,
+};

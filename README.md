@@ -1,11 +1,11 @@
-# FinCLI v1.8.3
+# FinCLI v1.8.4
 
 [![npm version](https://img.shields.io/npm/v/@drico2008/fincli)](https://www.npmjs.com/package/@drico2008/fincli)
 [![npm downloads](https://img.shields.io/npm/dm/@drico2008/fincli?label=downloads%2Fmonth)](https://www.npmjs.com/package/@drico2008/fincli)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 ![Python](https://img.shields.io/badge/Python-3.11+-blue)
 ![Node](https://img.shields.io/badge/Node.js-18+-green)
-[![Socket Badge](https://badge.socket.dev/npm/package/@drico2008/fincli/1.0.5)](https://badge.socket.dev/npm/package/@drico2008/fincli/1.0.5)
+[![Socket Badge](https://badge.socket.dev/npm/package/@drico2008/fincli)](https://badge.socket.dev/npm/package/@drico2008/fincli)
 
 **A terminal-native financial workstation. Research, trade, and analyze markets without leaving your shell.**
 
@@ -153,7 +153,7 @@ Favourites are tracked by usage count — most-used symbols appear first.
 
 Context-aware with token-based sliding window (4k tokens). Grounded in provider data quality, reliability scores, and missing data — so it won't confidently cite stale or unavailable data. Response caching (30-min TTL). Refuses programming questions by design.
 
-Supported AI providers: OpenRouter, OpenAI, Groq, Together, HuggingFace, Gemini, Anthropic.
+Supported AI providers: OpenRouter, OpenAI, Groq, Together, HuggingFace, Gemini, Anthropic, Ollama.
 
 ---
 
@@ -179,6 +179,7 @@ Strategies: sma_cross, rsi_reversion, momentum, bollinger_squeeze, macd_divergen
 ```text
 /provider status                    # Provider health overview
 /provider metrics                   # Per-operation breakdown
+/provider trust                     # Trust level, fallback state, and AI confidence limit
 /provider capabilities              # Formal capability declarations
 /provider reset <provider>          # Manual circuit breaker reset
 /provider key status
@@ -202,7 +203,7 @@ Free API keys: [Groq](https://console.groq.com/) · [OpenRouter](https://openrou
 /doctor report                      # Diagnostic dump (no secrets)
 /security status
 /security scan                      # Token pattern scan
-/security encrypt-key alpaca        # Encrypt broker key (PBKDF2-SHA256)
+/secrets rotate ALPACA_API_KEY      # Rotate stored API key
 /security lockdown                  # Emergency secret wipe
 /security purge                     # Clear secrets, history, cache
 /theme list
@@ -273,7 +274,7 @@ sudo apt install nodejs -y
 <summary>Install from source (developers)</summary>
 
 ```bash
-git clone https://github.com/your-username/FinCLI-Renewed.git
+git clone https://github.com/Suryadharmaa/FinCLI-Renewed.git
 cd fincli
 python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
@@ -286,6 +287,12 @@ fincli
 ---
 
 ## Changelog
+
+### v1.8.4
+- **Trust & Reliability**: add `/provider trust` to summarize provider health, fallback behavior, data completeness, and AI confidence limits
+- Clear trust labels: `Strong`, `Usable`, `Limited`, and `Blocked`
+- Release-readiness cleanup: lint and smoke-test blockers fixed before feature work
+- Keep the release focused: no schema changes, new dependencies, or provider contract changes
 
 ### v1.8.3
 - Full codebase lint cleanup: 255 ruff errors → 0 across 80+ files

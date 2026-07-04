@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import httpx
 import pytest
@@ -16,6 +16,9 @@ from fincli.app.providers.market.symbols import (
 from fincli.app.storage.config import ConfigManager
 from fincli.app.storage.database import FinCLIDatabase
 from fincli.app.utils.errors import ProviderError
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def make_router(tmp_path: Path) -> CommandRouter:

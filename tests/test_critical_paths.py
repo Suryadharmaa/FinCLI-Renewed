@@ -7,9 +7,10 @@ import json
 import os
 import sqlite3
 from datetime import UTC, datetime
-from pathlib import Path
 from time import time
+from typing import TYPE_CHECKING
 
+from fincli.app.modules.exporter import export_rows
 from fincli.app.providers.market.base import (
     Candle,
     FundamentalSnapshot,
@@ -22,9 +23,10 @@ from fincli.app.services.market_data import MarketDataService
 from fincli.app.storage.database import FinCLIDatabase
 from fincli.app.storage.market_cache import MarketCache
 from fincli.app.storage.secrets import clear_secrets, read_secrets, save_secret
-from fincli.app.modules.exporter import export_rows
 from fincli.app.utils.errors import ConfigError, ProviderError
 
+if TYPE_CHECKING:
+    from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Stub providers for fallback and circuit breaker tests
@@ -192,7 +194,7 @@ def test_provider_fallback_all_fail_raises_provider_error() -> None:
 
     try:
         service.run(service.quote("AAPL"))
-        assert False, "Should have raised ProviderError"
+        raise AssertionError("Should have raised ProviderError")
     except ProviderError:
         pass
 
@@ -427,7 +429,7 @@ def test_secrets_empty_value_raises_config_error(tmp_path: Path) -> None:
 
     try:
         save_secret("EMPTY_KEY", "   ", path=secrets_file)
-        assert False, "Should have raised ConfigError"
+        raise AssertionError("Should have raised ConfigError")
     except ConfigError:
         pass
 

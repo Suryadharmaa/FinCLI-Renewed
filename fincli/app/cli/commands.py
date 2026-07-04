@@ -142,6 +142,7 @@ COMMANDS: tuple[CommandSpec, ...] = (
     CommandSpec("/calendar export", "Export economic calendar to CSV/JSON.", "/calendar export csv calendar.csv week US high", "Market"),
     CommandSpec("/provider status", "Show active provider status.", "/provider status", "Provider"),
     CommandSpec("/provider metrics", "Show active provider runtime metrics.", "/provider metrics", "Provider"),
+    CommandSpec("/provider trust", "Show provider trust, fallback, and AI confidence limits.", "/provider trust", "Provider"),
     CommandSpec("/provider list", "Show all available market providers.", "/provider list", "Provider"),
     CommandSpec("/provider capabilities", "Show capability matrix per provider and command.", "/provider capabilities", "Provider"),
     CommandSpec("/provider reset", "Reset provider circuit breaker.", "/provider reset finnhub", "Provider"),

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from rich.console import Console
 
@@ -12,6 +12,9 @@ from fincli.app.providers.market.base import Candle, FundamentalSnapshot, NewsIt
 from fincli.app.services.web_research import WebSearchResult
 from fincli.app.storage.config import ConfigManager
 from fincli.app.storage.database import FinCLIDatabase
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class ResearchAI:

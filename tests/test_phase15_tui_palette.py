@@ -13,7 +13,7 @@ async def test_tui_uses_inline_command_palette_without_sidebar() -> None:
         assert len(list(app.query("#sidebar"))) == 0
         assert len(list(app.query("#command_line"))) == 1
         scroll = app.query_one("#command_palette_scroll", VerticalScroll)
-        palette = app.query_one(CommandPalette)
+        app.query_one(CommandPalette)
         assert scroll.styles.display == "none"
 
         await pilot.click("#command_input")

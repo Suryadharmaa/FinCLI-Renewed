@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
 import sys
 import types
-from pathlib import Path
+from datetime import datetime
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
@@ -14,6 +14,9 @@ from fincli.app.providers.market.symbols import resolve_yfinance_symbol
 from fincli.app.providers.market.yfinance_provider import YFinanceProvider
 from fincli.app.storage.config import ConfigManager
 from fincli.app.storage.database import FinCLIDatabase
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class FakeAIProvider:

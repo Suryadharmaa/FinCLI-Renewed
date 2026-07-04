@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import math
-from hypothesis import given, settings, assume, HealthCheck
+from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 
-from fincli.app.utils.crypto import encrypt_broker_key, decrypt_broker_key
+from fincli.app.utils.crypto import decrypt_broker_key, encrypt_broker_key
 from fincli.app.utils.formatting import normalize_symbol
-
 
 # ---------------------------------------------------------------------------
 # crypto.py: encrypt/decrypt roundtrip
@@ -50,7 +48,7 @@ def test_wrong_password_fails(plaintext: str, password: str, wrong_password: str
     encrypted = encrypt_broker_key(plaintext, password)
     try:
         decrypt_broker_key(encrypted, wrong_password)
-        assert False, "Should have raised ValueError"
+        raise AssertionError("Should have raised ValueError")
     except ValueError:
         pass
 

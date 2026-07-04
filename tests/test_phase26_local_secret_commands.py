@@ -1,5 +1,5 @@
-from pathlib import Path
 import os
+from pathlib import Path
 
 from fincli.app.cli.router import CommandRouter
 from fincli.app.providers.ai.manager import AIProviderManager

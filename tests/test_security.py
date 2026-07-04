@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from rich.console import Console
 
@@ -15,8 +15,10 @@ from fincli.app.utils.security import (
     RateLimiter,
     SecretRedactor,
     SecurityValidator,
-    safe_path,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def render_text(renderable: object) -> str:
@@ -39,7 +41,7 @@ def test_validate_symbol_accepts_valid() -> None:
 def test_validate_symbol_rejects_injection() -> None:
     try:
         SecurityValidator.validate_symbol("AAPL; rm -rf /")
-        assert False, "Should have raised"
+        raise AssertionError("Should have raised")
     except CommandError:
         pass
 
@@ -47,7 +49,7 @@ def test_validate_symbol_rejects_injection() -> None:
 def test_validate_symbol_rejects_too_long() -> None:
     try:
         SecurityValidator.validate_symbol("A" * 25)
-        assert False, "Should have raised"
+        raise AssertionError("Should have raised")
     except CommandError:
         pass
 
@@ -55,7 +57,7 @@ def test_validate_symbol_rejects_too_long() -> None:
 def test_validate_path_rejects_traversal() -> None:
     try:
         SecurityValidator.validate_path("../../etc/passwd")
-        assert False, "Should have raised"
+        raise AssertionError("Should have raised")
     except SecurityError:
         pass
 
@@ -63,7 +65,7 @@ def test_validate_path_rejects_traversal() -> None:
 def test_validate_path_rejects_traversal_in_middle() -> None:
     try:
         SecurityValidator.validate_path("data/../../etc/passwd")
-        assert False, "Should have raised"
+        raise AssertionError("Should have raised")
     except SecurityError:
         pass
 
@@ -82,7 +84,7 @@ def test_validate_number_accepts_valid() -> None:
 def test_validate_number_rejects_non_number() -> None:
     try:
         SecurityValidator.validate_number("abc", "price")
-        assert False, "Should have raised"
+        raise AssertionError("Should have raised")
     except CommandError:
         pass
 
@@ -90,7 +92,7 @@ def test_validate_number_rejects_non_number() -> None:
 def test_validate_number_rejects_negative() -> None:
     try:
         SecurityValidator.validate_number("-10", "price", positive=True)
-        assert False, "Should have raised"
+        raise AssertionError("Should have raised")
     except CommandError:
         pass
 
@@ -98,7 +100,7 @@ def test_validate_number_rejects_negative() -> None:
 def test_validate_api_key_rejects_short() -> None:
     try:
         SecurityValidator.validate_api_key("abc")
-        assert False, "Should have raised"
+        raise AssertionError("Should have raised")
     except CommandError:
         pass
 
@@ -106,7 +108,7 @@ def test_validate_api_key_rejects_short() -> None:
 def test_validate_api_key_rejects_placeholder() -> None:
     try:
         SecurityValidator.validate_api_key("test")
-        assert False, "Should have raised"
+        raise AssertionError("Should have raised")
     except CommandError:
         pass
 
@@ -173,7 +175,7 @@ def test_rate_limiter_blocks_exceeded() -> None:
         limiter.check("test")
     try:
         limiter.check("test")
-        assert False, "Should have raised"
+        raise AssertionError("Should have raised")
     except SecurityError:
         pass
 

@@ -9,7 +9,7 @@ Run: ``python -m pytest tests/test_command_smoke.py -q``
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from rich.console import Console
@@ -26,8 +26,11 @@ from fincli.app.providers.market.base import (
     Quote,
 )
 from fincli.app.services.web_research import WebSearchResult
+from fincli.app.storage.config import ConfigManager
 from fincli.app.storage.database import FinCLIDatabase
 
+if TYPE_CHECKING:
+    from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Mock providers
@@ -126,6 +129,7 @@ def make_router(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> CommandRoute
     """Build a CommandRouter with mock providers and isolated storage."""
     monkeypatch.setattr("fincli.app.storage.secrets.SECRETS_FILE", tmp_path / "secrets.env")
     router = CommandRouter(
+        config=ConfigManager(tmp_path / "config.json"),
         db=FinCLIDatabase(tmp_path / "fincli.db"),
         market_provider=SmokeMarketProvider(),
         ai_provider=SmokeAIProvider(),
@@ -162,6 +166,7 @@ def _smoke_commands(router: CommandRouter, export_dir: Path) -> dict[str, str]:
         "/news_model priority": "/news_model priority google_news_rss,yfinance",
         "/provider status": "/provider status",
         "/provider metrics": "/provider metrics",
+        "/provider trust": "/provider trust",
         "/provider list": "/provider list",
         "/provider capabilities": "/provider capabilities",
         "/provider entitlement": "/provider entitlement",

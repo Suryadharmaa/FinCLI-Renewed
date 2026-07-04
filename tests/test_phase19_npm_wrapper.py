@@ -1,6 +1,6 @@
 import json
+import subprocess
 from pathlib import Path
-
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -40,3 +40,54 @@ def test_setup_enforces_minimum_python_version() -> None:
     assert "meetsMinimum" in setup
     # The probe must read the actual interpreter version, not just --version status.
     assert "sys.version_info" in setup
+
+
+def test_update_notifier_helpers_detect_newer_versions() -> None:
+    script = """
+const notifier = require("./npm/bin/fincli.js");
+const result = {
+  parse: notifier.parseSemver("1.8.4"),
+  newerPatch: notifier.shouldShowUpdate("1.8.4", "1.8.5"),
+  newerMinor: notifier.shouldShowUpdate("1.8.4", "1.9.0"),
+  older: notifier.shouldShowUpdate("1.8.4", "1.8.3"),
+  same: notifier.shouldShowUpdate("1.8.4", "1.8.4"),
+  invalid: notifier.shouldShowUpdate("1.8.4", "latest"),
+};
+console.log(JSON.stringify(result));
+"""
+    result = subprocess.run(
+        ["node", "-e", script],
+        cwd=ROOT,
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+
+    payload = json.loads(result.stdout)
+    assert payload == {
+        "parse": [1, 8, 4],
+        "newerPatch": True,
+        "newerMinor": True,
+        "older": False,
+        "same": False,
+        "invalid": False,
+    }
+
+
+def test_update_banner_is_ascii_and_actionable() -> None:
+    script = """
+const notifier = require("./npm/bin/fincli.js");
+notifier.showUpdateBanner("1.8.4", "1.8.5");
+"""
+    result = subprocess.run(
+        ["node", "-e", script],
+        cwd=ROOT,
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.stdout == ""
+    assert "Update available: 1.8.4 -> 1.8.5" in result.stderr
+    assert "Run: npm i -g @drico2008/fincli" in result.stderr
+    assert "â" not in result.stderr

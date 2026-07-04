@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -15,10 +15,12 @@ from fincli.app.brokers.base import (
     BrokerOrder,
     BrokerPosition,
 )
-from fincli.app.brokers.registry import BrokerInfo, BrokerRegistry, BROKER_CATALOG
-from fincli.app.modules.trading import LiveTradingEngine, LiveOrderConfirmation
+from fincli.app.brokers.registry import BROKER_CATALOG, BrokerRegistry
+from fincli.app.modules.trading import LiveOrderConfirmation, LiveTradingEngine
 from fincli.app.storage.database import FinCLIDatabase
 
+if TYPE_CHECKING:
+    from pathlib import Path
 
 # --- Mock Broker ---
 

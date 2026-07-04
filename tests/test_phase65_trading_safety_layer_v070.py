@@ -1,18 +1,37 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from rich.console import Console
 
 from fincli.app.cli.router import CommandRouter
 from fincli.app.modules.algo_engine import BUILTIN_STRATEGIES, StrategyEngine
-from fincli.app.modules.broker_adapter import AlpacaPaperAdapter, BrokerAdapterRegistry, IBKRPaperAdapter, TradierSandboxAdapter
-from fincli.app.modules.realtime_stream import EquityStreamingAdapter, HyperLiquidWebSocketAdapter, KrakenWebSocketAdapter, StreamManager
-from fincli.app.modules.trading import BrokerCatalog, OrderAuditLog, PaperTradingEngine, RealtimeConnectorCatalog, RiskGuard
+from fincli.app.modules.broker_adapter import (
+    AlpacaPaperAdapter,
+    BrokerAdapterRegistry,
+    IBKRPaperAdapter,
+    TradierSandboxAdapter,
+)
+from fincli.app.modules.realtime_stream import (
+    EquityStreamingAdapter,
+    HyperLiquidWebSocketAdapter,
+    KrakenWebSocketAdapter,
+    StreamManager,
+)
+from fincli.app.modules.trading import (
+    BrokerCatalog,
+    OrderAuditLog,
+    PaperTradingEngine,
+    RealtimeConnectorCatalog,
+    RiskGuard,
+)
 from fincli.app.providers.market.base import Candle, FundamentalSnapshot, NewsItem, ProviderStatus, Quote
 from fincli.app.storage.config import ConfigManager
 from fincli.app.storage.database import FinCLIDatabase
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class AlgoMarketProvider:
@@ -266,7 +285,7 @@ def test_ibkr_adapter_raises_setup_instructions() -> None:
 
     try:
         asyncio.run(adapter.place_order("buy", "AAPL", 1, "market"))
-        assert False, "Should have raised"
+        raise AssertionError("Should have raised")
     except Exception as exc:
         assert "IB Gateway" in str(exc)
 

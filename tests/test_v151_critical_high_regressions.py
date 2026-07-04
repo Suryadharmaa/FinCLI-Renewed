@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
-from pathlib import Path
 import time
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -13,10 +13,13 @@ from fincli.app.modules.alerts import AlertDaemon, AlertService
 from fincli.app.modules.trading import LiveTradingEngine, PaperTradingEngine
 from fincli.app.providers.market.base import ProviderStatus, Quote
 from fincli.app.services.market_data import MarketDataService
-from fincli.app.storage.database import FinCLIDatabase
 from fincli.app.storage import secrets as secret_store
+from fincli.app.storage.database import FinCLIDatabase
 from fincli.app.storage.secrets import read_secrets, save_secret
 from fincli.app.utils.errors import CommandError, ConfigError
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class LiveBrokerStub:
@@ -75,7 +78,7 @@ class FakeKeyring:
     def __init__(self) -> None:
         self.values: dict[tuple[str, str], str] = {}
 
-    def get_keyring(self) -> "FakeKeyring":
+    def get_keyring(self) -> FakeKeyring:
         return self
 
     def get_password(self, service: str, account: str) -> str | None:

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from fincli.app.analysis.assistant_context import (
     FINCLI_ASSISTANT_SYSTEM_PROMPT,
     build_command_reference,
@@ -12,13 +10,12 @@ from fincli.app.analysis.assistant_context import (
 )
 from fincli.app.cli.commands import COMMANDS, CommandRegistry
 
-
 # --- System prompt tests ---
 
 
 class TestSystemPrompt:
     def test_version_is_1_0_5(self):
-        assert "v1.8.3" in FINCLI_ASSISTANT_SYSTEM_PROMPT
+        assert "v1.8.4" in FINCLI_ASSISTANT_SYSTEM_PROMPT
 
     def test_contains_command_reference_instruction(self):
         assert "Command Reference" in FINCLI_ASSISTANT_SYSTEM_PROMPT

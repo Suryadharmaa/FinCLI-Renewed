@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fincli.app.providers.market.base import NewsItem
 from fincli.app.services.news_aggregator import _within_lookback
 
-
-UTC = timezone.utc
+UTC = UTC
 NOW = datetime.now(UTC)
 
 

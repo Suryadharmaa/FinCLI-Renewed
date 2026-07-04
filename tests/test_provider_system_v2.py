@@ -2,30 +2,21 @@
 
 from __future__ import annotations
 
-import asyncio
-from datetime import datetime, timezone
-from pathlib import Path
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
-
-import pytest
 
 from fincli.app.providers.market.base import (
     Candle,
     FundamentalSnapshot,
-    NewsItem,
     ProviderCapability,
-    ProviderStatus,
     Quote,
 )
+from fincli.app.providers.market.symbols import SymbolResolver
 from fincli.app.providers.reliability import (
     STATUS_OK,
-    STATUS_PARTIAL_DATA,
     ProviderResponse,
-    ProviderResult,
     score_quality,
 )
-from fincli.app.providers.market.symbols import SymbolResolver
-
 
 # --- ProviderCapability tests ---
 
@@ -60,7 +51,7 @@ class TestProviderResponse:
             price=150.0,
             currency="USD",
             provider="finnhub",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             status="realtime",
         )
         resp = ProviderResponse(
@@ -100,7 +91,7 @@ class TestScoreQuality:
             price=150.0,
             currency="USD",
             provider="finnhub",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             status="realtime",
         )
         score = score_quality("quote", quote, ())
@@ -112,7 +103,7 @@ class TestScoreQuality:
             price=None,
             currency="USD",
             provider="finnhub",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             status="realtime",
         )
         score = score_quality("quote", quote, ("price",))
@@ -134,7 +125,7 @@ class TestScoreQuality:
     def test_perfect_history(self):
         candles = [
             Candle(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 open=100.0,
                 high=105.0,
                 low=99.0,
@@ -209,8 +200,8 @@ class TestCircuitBreakerReset:
 
 class TestPerOperationMetrics:
     def test_record_per_operation(self, tmp_path):
-        from fincli.app.storage.provider_metrics import ProviderMetricsStore
         from fincli.app.storage.database import FinCLIDatabase
+        from fincli.app.storage.provider_metrics import ProviderMetricsStore
 
         db = FinCLIDatabase(tmp_path / "test.db")
         store = ProviderMetricsStore(db)
@@ -231,8 +222,8 @@ class TestPerOperationMetrics:
         assert history_metric.errors == 1
 
     def test_all_operation_snapshots(self, tmp_path):
-        from fincli.app.storage.provider_metrics import ProviderMetricsStore
         from fincli.app.storage.database import FinCLIDatabase
+        from fincli.app.storage.provider_metrics import ProviderMetricsStore
 
         db = FinCLIDatabase(tmp_path / "test.db")
         store = ProviderMetricsStore(db)
@@ -249,6 +240,6 @@ class TestPerOperationMetrics:
 
 
 class TestVersion:
-    def test_version_is_1_0_5(self):
+    def test_version_is_1_8_4(self):
         from fincli import __version__
-        assert __version__ == "1.8.3"
+        assert __version__ == "1.8.4"

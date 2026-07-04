@@ -1,6 +1,6 @@
 # FinCLI Command Reference
 
-Complete command reference for FinCLI v0.8.0. All commands start with `/` and are entered in the TUI input.
+Complete command reference for FinCLI v1.8.4. All commands start with `/` and are entered in the TUI input.
 
 ---
 
@@ -514,6 +514,7 @@ Provider diagnostics, status, key management, and specialized data endpoints.
 ```
 /provider status
 /provider metrics
+/provider trust
 /provider list
 /provider capabilities
 /provider entitlement
@@ -531,6 +532,14 @@ Shows the command capability matrix: which data each command needs from provider
 
 ```
 /provider capabilities
+```
+
+### /provider trust
+
+Shows provider trust level, latest provider result, fallback/circuit state, recent errors, cache status, and the AI confidence limit used for market/AI output.
+
+```
+/provider trust
 ```
 
 ### /provider insider
@@ -642,7 +651,7 @@ Local plugin management.
 /plugin status
 ```
 
-Plugins are manifest-only in v0.8.0. Create `~/.fincli/plugins/<name>/plugin.json` to register.
+Plugins are manifest-first in v1.8.4. Create `~/.fincli/plugins/<name>/plugin.json` to register.
 
 ---
 
@@ -743,7 +752,7 @@ The profile is used by `/analyze` for SL/TP and risk-context wording, and by `/p
 | Journal | `/journal`, `/journal add`, `/journal stats`, `/journal review` |
 | Watchlist | `/watchlist`, `/watchlist add`, `/watchlist remove` |
 | Alert | `/alert`, `/alert add`, `/alert remove`, `/alert check`, `/alert history`, `/alert daemon` |
-| Provider | `/provider`, `/provider status`, `/provider metrics`, `/provider list`, `/provider capabilities`, `/provider entitlement`, `/provider key status`, `/provider test`, `/provider insider`, `/provider ipo`, `/news_model`, `/connector` |
+| Provider | `/provider`, `/provider status`, `/provider metrics`, `/provider trust`, `/provider list`, `/provider capabilities`, `/provider entitlement`, `/provider key status`, `/provider test`, `/provider insider`, `/provider ipo`, `/news_model`, `/connector` |
 | Export | `/report`, `/export` |
 | Web | `/web` |
 | System | `/doctor`, `/cache`, `/history`, `/plugin` |

@@ -1,7 +1,7 @@
 """Tests for /history resume and relative_time helper."""
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from datetime import datetime, timezone, timedelta
 
 from fincli.app.cli.router import CommandRouter
 from fincli.app.modules.session_history import SessionHistoryService, relative_time
@@ -17,37 +17,37 @@ def make_router(tmp_path: Path) -> CommandRouter:
 
 
 def test_relative_time_just_now() -> None:
-    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    now = datetime.now(UTC).isoformat(timespec="seconds")
     assert relative_time(now) == "just now"
 
 
 def test_relative_time_minutes() -> None:
-    ts = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat(timespec="seconds")
+    ts = (datetime.now(UTC) - timedelta(minutes=5)).isoformat(timespec="seconds")
     assert relative_time(ts) == "5m ago"
 
 
 def test_relative_time_hours() -> None:
-    ts = (datetime.now(timezone.utc) - timedelta(hours=3)).isoformat(timespec="seconds")
+    ts = (datetime.now(UTC) - timedelta(hours=3)).isoformat(timespec="seconds")
     assert relative_time(ts) == "3h ago"
 
 
 def test_relative_time_yesterday() -> None:
-    ts = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat(timespec="seconds")
+    ts = (datetime.now(UTC) - timedelta(days=1)).isoformat(timespec="seconds")
     assert relative_time(ts) == "yesterday"
 
 
 def test_relative_time_days() -> None:
-    ts = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat(timespec="seconds")
+    ts = (datetime.now(UTC) - timedelta(days=10)).isoformat(timespec="seconds")
     assert relative_time(ts) == "10d ago"
 
 
 def test_relative_time_months() -> None:
-    ts = (datetime.now(timezone.utc) - timedelta(days=60)).isoformat(timespec="seconds")
+    ts = (datetime.now(UTC) - timedelta(days=60)).isoformat(timespec="seconds")
     assert relative_time(ts) == "2mo ago"
 
 
 def test_relative_time_years() -> None:
-    ts = (datetime.now(timezone.utc) - timedelta(days=400)).isoformat(timespec="seconds")
+    ts = (datetime.now(UTC) - timedelta(days=400)).isoformat(timespec="seconds")
     assert relative_time(ts) == "1y ago"
 
 
@@ -132,8 +132,9 @@ def test_history_resume_no_other_session(tmp_path: Path) -> None:
     router = make_router(tmp_path)
     result = router.route("/history resume")
     assert result.status == "ready"
-    from rich.console import Console
     import io
+
+    from rich.console import Console
     console = Console(file=io.StringIO(), force_terminal=False, width=80)
     console.print(result.renderable)
     output = console.file.getvalue()
@@ -149,8 +150,9 @@ def test_history_resume_by_id(tmp_path: Path) -> None:
 
     result = router.route(f"/history resume {sid2}")
     assert result.status == "ready"
-    from rich.console import Console
     import io
+
+    from rich.console import Console
     console = Console(file=io.StringIO(), force_terminal=False, width=80)
     console.print(result.renderable)
     output = console.file.getvalue()
@@ -161,8 +163,9 @@ def test_history_resume_current_session_error(tmp_path: Path) -> None:
     router = make_router(tmp_path)
     result = router.route(f"/history resume {router.session_id}")
     assert result.status == "error"
-    from rich.console import Console
     import io
+
+    from rich.console import Console
     console = Console(file=io.StringIO(), force_terminal=False, width=80)
     console.print(result.renderable)
     output = console.file.getvalue()

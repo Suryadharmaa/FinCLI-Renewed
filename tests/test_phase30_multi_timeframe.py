@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 from datetime import datetime
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from fincli.app.analysis.multi_timeframe import analyze_multi_timeframe
 from fincli.app.cli.router import CommandRouter
 from fincli.app.providers.market.base import Candle
 from fincli.app.storage.config import ConfigManager
 from fincli.app.storage.database import FinCLIDatabase
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def make_candles(closes: list[float]) -> list[Candle]:

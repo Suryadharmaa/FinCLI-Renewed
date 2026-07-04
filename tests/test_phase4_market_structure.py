@@ -1,8 +1,8 @@
 from datetime import datetime
 from pathlib import Path
 
-from fincli.app.cli.router import CommandRouter
 from fincli.app.analysis.market_structure import analyze_market_structure
+from fincli.app.cli.router import CommandRouter
 from fincli.app.providers.market.base import Candle, Quote
 from fincli.app.storage.config import ConfigManager
 from fincli.app.storage.database import FinCLIDatabase

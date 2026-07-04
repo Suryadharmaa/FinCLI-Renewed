@@ -4,27 +4,22 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
+from fincli.app.plugins.lifecycle import LifecycleEvent, LifecycleManager
+from fincli.app.plugins.loader import (
+    PluginManifest,
+    PluginSandbox,
+    validate_manifest,
+)
 from fincli.app.utils.errors import (
     CommandError,
     ConfigError,
     CrashContext,
-    FinCLIError,
     ProviderError,
     RateLimitError,
     SecurityError,
     StorageError,
     classify_error,
 )
-from fincli.app.plugins.loader import (
-    PluginManifest,
-    PluginSandbox,
-    PluginValidationError,
-    validate_manifest,
-)
-from fincli.app.plugins.lifecycle import LifecycleEvent, LifecycleManager
-
 
 # --- Error classification tests ---
 
@@ -211,4 +206,4 @@ class TestLifecycleManager:
 class TestVersion:
     def test_version_is_1_0_5(self):
         from fincli import __version__
-        assert __version__ == "1.8.3"
+        assert __version__ == "1.8.4"

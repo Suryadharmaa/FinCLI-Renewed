@@ -3,6 +3,8 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.tmp-npm-cache/
+.tmp-pytest/
 .venv/
 .npm-python/
 venv/

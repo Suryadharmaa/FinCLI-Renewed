@@ -6,9 +6,15 @@ from datetime import UTC, datetime
 from rich.console import Console
 
 from fincli.app.cli.router import CommandRouter
-from fincli.app.providers.market.base import BaseMarketProvider, Candle, FundamentalSnapshot, NewsItem, ProviderStatus, Quote
+from fincli.app.providers.market.base import (
+    BaseMarketProvider,
+    Candle,
+    FundamentalSnapshot,
+    NewsItem,
+    ProviderStatus,
+    Quote,
+)
 from fincli.app.services.market_data import MarketDataService
-from fincli.app.utils.errors import ProviderError
 
 
 class SlowProvider(BaseMarketProvider):
@@ -56,8 +62,12 @@ def test_market_service_timeout_budget_falls_back_to_next_provider() -> None:
 
 
 def test_news_and_calendar_outputs_show_standard_data_quality(tmp_path, monkeypatch) -> None:
-    from tests.test_phase54_doctor_full_and_registry_smoke_v040 import SmokeAIProvider, SmokeMarketProvider, SmokeWebResearch
     from fincli.app.storage.database import FinCLIDatabase
+    from tests.test_phase54_doctor_full_and_registry_smoke_v040 import (
+        SmokeAIProvider,
+        SmokeMarketProvider,
+        SmokeWebResearch,
+    )
 
     monkeypatch.setattr("fincli.app.storage.secrets.SECRETS_FILE", tmp_path / "secrets.env")
     router = CommandRouter(db=FinCLIDatabase(tmp_path / "fincli.db"), market_provider=SmokeMarketProvider(), ai_provider=SmokeAIProvider())

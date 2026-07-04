@@ -1,16 +1,26 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from rich.console import Console
 
 from fincli.app.cli.commands import CommandRegistry
 from fincli.app.cli.router import CommandRouter
 from fincli.app.providers.ai.base import AIRequest, AIResponse, BaseAIProvider
-from fincli.app.providers.market.base import BaseMarketProvider, Candle, FundamentalSnapshot, NewsItem, ProviderStatus, Quote
+from fincli.app.providers.market.base import (
+    BaseMarketProvider,
+    Candle,
+    FundamentalSnapshot,
+    NewsItem,
+    ProviderStatus,
+    Quote,
+)
 from fincli.app.services.web_research import WebSearchResult
 from fincli.app.storage.database import FinCLIDatabase
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class SmokeMarketProvider(BaseMarketProvider):

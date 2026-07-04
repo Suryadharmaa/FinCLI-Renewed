@@ -12,7 +12,6 @@ from fincli.app.utils.crypto import (
     verify_master_password,
 )
 
-
 # --- Encryption Tests ---
 
 

@@ -1,6 +1,6 @@
+import asyncio
 from datetime import datetime
 from pathlib import Path
-import asyncio
 
 import pytest
 
@@ -25,7 +25,7 @@ class FakeMarketProvider:
         )
 
     async def history(self, symbol: str, period: str = "6mo", interval: str = "1d") -> list[object]:
-        candle = getattr(pytest.importorskip("fincli.app.providers.market.base"), "Candle")
+        candle = pytest.importorskip("fincli.app.providers.market.base").Candle
         prices = [100, 102, 101, 105, 108, 110, 109, 112, 115, 117, 116, 119, 121, 123, 125]
         return [
             candle(
@@ -73,7 +73,7 @@ def test_technical_command_uses_historical_candles(tmp_path: Path) -> None:
 
 
 def test_indicator_summary_detects_uptrend() -> None:
-    candles = getattr(pytest.importorskip("fincli.app.providers.market.base"), "Candle")
+    candles = pytest.importorskip("fincli.app.providers.market.base").Candle
     data = [
         candles(
             timestamp=datetime(2026, 1, index + 1),

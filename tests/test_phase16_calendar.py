@@ -1,6 +1,6 @@
 import asyncio
-from datetime import date
 import io
+from datetime import date
 from pathlib import Path
 
 import httpx
