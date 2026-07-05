@@ -1,4 +1,4 @@
-# FinCLI v1.8.4
+# FinCLI v1.8.5
 
 [![npm version](https://img.shields.io/npm/v/@drico2008/fincli)](https://www.npmjs.com/package/@drico2008/fincli)
 [![npm downloads](https://img.shields.io/npm/dm/@drico2008/fincli?label=downloads%2Fmonth)](https://www.npmjs.com/package/@drico2008/fincli)
@@ -17,7 +17,7 @@
 
 - **Trade from the terminal** — Live broker integration (Alpaca + Binance) with risk guard, kill switch, and immutable audit log. Not just a data viewer.
 - **AI that knows your data** — The assistant is grounded in your provider's actual data quality, reliability scores, and missing data gaps. No hallucinated prices.
-- **Research Engine v3** — Snapshot, deep analysis, or full report with cited sources, sector/macro/news blending, and trust scoring — all from `/research AAPL`.
+- **Research Engine v4** — Snapshot, deep analysis, or structured report with facts, inferences, scenario matrix, source scoring, and trust-capped citations — all from `/research AAPL`.
 - **Local-first, no cloud lock-in** — SQLite, encrypted secrets at rest, session recovery. Your data stays on your machine.
 
 > ⚠️ AI output is informational only, not financial advice. Data quality depends on your provider and API plan.
@@ -61,7 +61,7 @@ Requires Python 3.11+ and Node.js 18+. See [Prerequisites](#prerequisites) if yo
 /calendar week US high   # Economic calendar
 ```
 
-Research Engine v3 returns: Snapshot → Signal → Risk → Context (sector + macro + news) → Trust Gate → Sources → Summary.
+Research Engine v4 returns: Snapshot → Signal → Risk → Context → Trust Gate → Verified Facts → Inferences → Missing Data → Scenario Matrix → Source Scores → Summary.
 
 ---
 
@@ -189,11 +189,11 @@ Strategies: sma_cross, rsi_reversion, momentum, bollinger_squeeze, macd_divergen
 /news_model                         # Interactive market/news provider picker
 ```
 
-Supported data providers: yfinance (delayed fallback), Finnhub, Twelve Data, Alpha Vantage, custom provider schema.
+Supported data providers: yfinance (delayed fallback), Finnhub, Twelve Data, Alpha Vantage, Polygon.io, IEX Cloud, custom provider schema.
 
-Provider System v2 features: formal capability declarations, `ProviderResponse` envelope with quality scoring (0–100), per-operation metrics, circuit breaker with manual reset, proactive health warnings on latency/error rate spikes.
+Provider System v3 features: formal capability declarations, first-class Polygon/IEX wiring, `ProviderResponse` envelope with quality scoring (0–100), per-operation metrics, circuit breaker with manual reset, proactive health warnings on latency/error rate spikes.
 
-Free API keys: [Groq](https://console.groq.com/) · [OpenRouter](https://openrouter.ai/) · [Finnhub](https://finnhub.io/) · [Twelve Data](https://twelvedata.com/) · [Alpha Vantage](https://www.alphavantage.co/)
+Free API keys: [Groq](https://console.groq.com/) · [OpenRouter](https://openrouter.ai/) · [Finnhub](https://finnhub.io/) · [Twelve Data](https://twelvedata.com/) · [Alpha Vantage](https://www.alphavantage.co/) · [Polygon.io](https://polygon.io/) · [IEX Cloud](https://iexcloud.io/)
 
 ---
 
@@ -287,6 +287,18 @@ fincli
 ---
 
 ## Changelog
+
+### Next Major (validated, unreleased)
+- **Provider System v3**: first-class Polygon.io and IEX Cloud market providers across manager, config, TUI selector, key status, entitlements, and symbol intelligence
+- **Research Engine v4**: `/research --report` now includes verified facts, inferences, missing-data severity, bull/base/bear scenario matrix, citation IDs, and source scoring
+- Preserves deterministic snapshot mode and existing v1.8.5 TUI cockpit behavior
+- Validation passed: Ruff, compileall, 792-test pytest suite, npm wrapper check, prepublish safety check, and npm pack dry-run
+
+### v1.8.5
+- **TUI Financial Cockpit Refresh**: add a top cockpit strip with version, provider, trust, AI model, session state, and shortcut hints
+- Improve inline command palette grouping and first-match highlighting for faster terminal workflows
+- Keep animations subtle and async: low-noise working spinner, streaming token counter, and no blocking UI effects
+- Preserve release safety: no new dependencies, commands, schemas, provider contracts, or broker behavior changes
 
 ### v1.8.4
 - **Trust & Reliability**: add `/provider trust` to summarize provider health, fallback behavior, data completeness, and AI confidence limits

@@ -75,6 +75,7 @@ def test_output_entry_spacing_uses_single_blank_line_without_barriers() -> None:
 
 
 def test_tui_css_has_minimal_claude_style_surface() -> None:
+    assert "#cockpit_header" in APP_CSS
     assert "#output_frame" in APP_CSS
     assert "#command_line" in APP_CSS
     # Coral accent replaces the heavy neon-green financial-terminal chrome.

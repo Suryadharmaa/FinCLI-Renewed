@@ -1,6 +1,6 @@
 # FinCLI Command Reference
 
-Complete command reference for FinCLI v1.8.4. All commands start with `/` and are entered in the TUI input.
+Complete command reference for FinCLI v1.8.5. All commands start with `/` and are entered in the TUI input.
 
 ---
 
@@ -21,13 +21,13 @@ Complete command reference for FinCLI v1.8.4. All commands start with `/` and ar
 
 ### /research
 
-The central research command. Produces a compact, source-aware research brief with signal, risk, context, trust gate, sources, and summary.
+The central research command. Produces a source-aware research brief with signal, risk, context, trust gate, sources, and summary.
 
 **Modes:**
 
-- `--snapshot` (default) -- compact brief from available provider data.
-- `--deep` -- grounded Research Engine v3 prompt sent to the active AI provider, obeying the Data Trust Gate confidence cap.
-- `--report` -- adds report-oriented notes and macro/source sections.
+- `--snapshot` (default) -- compact deterministic brief from available provider data.
+- `--deep` -- grounded Research Engine prompt sent to the active AI provider, obeying the Data Trust Gate confidence cap.
+- `--report` -- structured Research Engine v4 report with verified facts, inferences, missing-data severity, bull/base/bear scenario matrix, citation IDs, source scoring, and trust-capped confidence.
 
 **Export:** `--export md <path>` or `--export json <path>`
 
@@ -509,7 +509,9 @@ Local price alerts with conditional triggers and background daemon.
 
 ### /provider
 
-Provider diagnostics, status, key management, and specialized data endpoints.
+Provider diagnostics, status, key management, fallback priority, and provider comparison.
+
+Supported market providers: yfinance, Finnhub, Twelve Data, Alpha Vantage, Polygon.io, IEX Cloud, and custom REST providers.
 
 ```
 /provider status
@@ -519,11 +521,11 @@ Provider diagnostics, status, key management, and specialized data endpoints.
 /provider capabilities
 /provider entitlement
 /provider key status
+/provider key rotate polygon
 /provider test AAPL
-/provider use finnhub
-/provider priority finnhub,yfinance
-/provider insider AAPL
-/provider ipo week
+/provider use polygon
+/provider priority polygon,yfinance
+/provider compare AAPL
 ```
 
 ### /provider capabilities
@@ -540,23 +542,6 @@ Shows provider trust level, latest provider result, fallback/circuit state, rece
 
 ```
 /provider trust
-```
-
-### /provider insider
-
-Finnhub insider transactions for a symbol (requires Finnhub API key).
-
-```
-/provider insider AAPL
-```
-
-### /provider ipo
-
-Finnhub IPO calendar (requires Finnhub API key).
-
-```
-/provider ipo week
-/provider ipo 2024-01-01 2024-01-31
 ```
 
 ---
@@ -651,7 +636,7 @@ Local plugin management.
 /plugin status
 ```
 
-Plugins are manifest-first in v1.8.4. Create `~/.fincli/plugins/<name>/plugin.json` to register.
+Plugins are manifest-first in v1.8.5. Create `~/.fincli/plugins/<name>/plugin.json` to register.
 
 ---
 
@@ -752,7 +737,7 @@ The profile is used by `/analyze` for SL/TP and risk-context wording, and by `/p
 | Journal | `/journal`, `/journal add`, `/journal stats`, `/journal review` |
 | Watchlist | `/watchlist`, `/watchlist add`, `/watchlist remove` |
 | Alert | `/alert`, `/alert add`, `/alert remove`, `/alert check`, `/alert history`, `/alert daemon` |
-| Provider | `/provider`, `/provider status`, `/provider metrics`, `/provider trust`, `/provider list`, `/provider capabilities`, `/provider entitlement`, `/provider key status`, `/provider test`, `/provider insider`, `/provider ipo`, `/news_model`, `/connector` |
+| Provider | `/provider`, `/provider status`, `/provider metrics`, `/provider trust`, `/provider list`, `/provider capabilities`, `/provider entitlement`, `/provider key status`, `/provider key rotate`, `/provider test`, `/provider compare`, `/news_model`, `/connector` |
 | Export | `/report`, `/export` |
 | Web | `/web` |
 | System | `/doctor`, `/cache`, `/history`, `/plugin` |

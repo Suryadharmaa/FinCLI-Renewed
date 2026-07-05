@@ -15,12 +15,20 @@ from datetime import UTC, datetime
 
 import httpx
 
-from fincli.app.providers.market.base import Candle, FundamentalSnapshot, ProviderStatus, Quote
+from fincli.app.providers.market.base import (
+    Candle,
+    FundamentalSnapshot,
+    NewsItem,
+    ProviderCapability,
+    ProviderStatus,
+    Quote,
+)
 from fincli.app.utils.errors import ProviderError, RateLimitError
 
 
 class IEXProvider:
     name = "iex"
+    realtime = True
 
     def __init__(
         self,
@@ -97,6 +105,39 @@ class IEXProvider:
             )
         except Exception:
             return FundamentalSnapshot(symbol=symbol.upper(), provider=self.name, currency="USD")
+
+    async def news(self, symbol: str, limit: int = 5) -> list[NewsItem]:
+        try:
+            data = await self._get(f"/stock/{symbol.upper()}/news/last/{limit}")
+            if not isinstance(data, list):
+                return []
+            items: list[NewsItem] = []
+            for item in data[:limit]:
+                published_at = None
+                datetime_ms = item.get("datetime")
+                if datetime_ms:
+                    published_at = datetime.fromtimestamp(float(datetime_ms) / 1000, tz=UTC)
+                items.append(
+                    NewsItem(
+                        title=str(item.get("headline") or "IEX news"),
+                        source=str(item.get("source") or "IEX"),
+                        url=item.get("url"),
+                        published_at=published_at,
+                        summary=str(item.get("summary") or ""),
+                    )
+                )
+            return items
+        except Exception:
+            return []
+
+    def capabilities(self) -> ProviderCapability:
+        return ProviderCapability(
+            name=self.name,
+            realtime=True,
+            operations=("quote", "history", "news", "fundamentals"),
+            asset_classes=("stock",),
+            rate_limit_note="IEX availability depends on token and plan.",
+        )
 
     async def status(self) -> ProviderStatus:
         return ProviderStatus(

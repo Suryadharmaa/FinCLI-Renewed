@@ -1039,6 +1039,8 @@ class CommandRouter:
                 "finnhub": "FINNHUB_API_KEY",
                 "twelvedata": "TWELVE_DATA_API_KEY",
                 "alphavantage": "ALPHA_VANTAGE_API_KEY",
+                "polygon": "POLYGON_API_KEY",
+                "iex": "IEX_CLOUD_API_KEY",
                 "custom": "MARKET_DATA_API_KEY",
             }
             key_name = secret_keys.get(provider)
@@ -4978,6 +4980,8 @@ def _market_provider_secret_keys(provider: str) -> tuple[str, ...]:
         "finnhub": ("FINNHUB_API_KEY",),
         "twelvedata": ("TWELVE_DATA_API_KEY",),
         "alphavantage": ("ALPHA_VANTAGE_API_KEY",),
+        "polygon": ("POLYGON_API_KEY",),
+        "iex": ("IEX_CLOUD_API_KEY",),
     }.get(provider.lower(), ())
 
 

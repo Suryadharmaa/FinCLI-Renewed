@@ -22,6 +22,8 @@ from fincli.app.providers.ai.base import AIRequest
 from fincli.app.providers.ai.manager import AIProviderManager
 from fincli.app.storage.session_state import SessionStateManager
 from fincli.app.tui.components import (
+    CockpitHeader,
+    CockpitState,
     CommandPalette,
     StreamingOutput,
     TokenCounter,
@@ -68,6 +70,7 @@ class FinCLIApp(App[None]):
         self._session_state = SessionStateManager(self.router.db)
 
     def compose(self) -> ComposeResult:
+        yield CockpitHeader(id="cockpit_header")
         with Vertical(id="workspace"), Vertical(id="output_frame"):
             yield StreamingOutput(id="stream_output", wrap=True, markup=True, highlight=True)
             yield RichLog(id="output", wrap=True, markup=True, highlight=True)
@@ -88,9 +91,15 @@ class FinCLIApp(App[None]):
         self.query_one("#command_palette_scroll", VerticalScroll).styles.display = "none"
         # Apply saved theme
         self._apply_theme(self.router.config.settings.theme)
+        self._refresh_cockpit("live")
         output = self.query_one("#output", RichLog)
-        write_output_entry(output, f"[bold]FinCLI[/] [#7a7a7a]v{__version__}[/]")
-        write_output_entry(output, "[#7a7a7a]Welcome back. Type [/][#d97757]/[/][#7a7a7a] for commands.[/]")
+        write_output_entry(output, f"[bold]FinCLI Financial Cockpit[/] [#7a7a7a]v{__version__}[/]")
+        write_output_entry(
+            output,
+            "[#7a7a7a]Quick actions: [/][#d97757]/research AAPL --snapshot[/]  "
+            "[#d97757]/provider trust[/]  [#d97757]/market BTC-USD 1d[/]",
+        )
+        write_output_entry(output, "[#7a7a7a]Animations stay async and low-noise; Esc interrupts pending work.[/]")
 
         # Initialize session state and check for recovery
         self._session_state.init_session(self.router.session_id)
@@ -132,10 +141,12 @@ class FinCLIApp(App[None]):
         if raw.lower() == "/ai_model":
             self.push_screen(AIModelSelectorScreen(self.router.config, self._set_ai_model_from_selector))
             status.update("selecting ai model | esc to close")
+            self._refresh_cockpit("model select")
             return
         if raw.lower() == "/news_model":
             self.push_screen(MarketProviderSelectorScreen(self.router.config, self._set_market_provider_from_selector))
             status.update("selecting market/news provider | esc to close")
+            self._refresh_cockpit("provider select")
             return
 
         if raw and (not raw.startswith("/") or raw.lower().startswith("/ai ")):
@@ -147,7 +158,8 @@ class FinCLIApp(App[None]):
             self._invalidate_pending_workers()
             self.query_one(WorkingIndicator).stop()
             output.clear()
-            status.update("cleared | /help for commands")
+            status.update("Ready | cleared | /help for commands")
+            self._refresh_cockpit("ready")
             return
         if raw.lower() == "/exit":
             self.exit()
@@ -159,7 +171,8 @@ class FinCLIApp(App[None]):
         self._invalidate_pending_workers()
         self.query_one(WorkingIndicator).stop()
         self.query_one("#output", RichLog).clear()
-        self.query_one("#status_bar", Static).update("cleared | /help untuk command")
+        self.query_one("#status_bar", Static).update("Ready | cleared | /help for commands")
+        self._refresh_cockpit("ready")
 
     def action_interrupt(self) -> None:
         # Thread workers cannot be force-killed mid-call; this abandons their
@@ -168,7 +181,8 @@ class FinCLIApp(App[None]):
         self.workers.cancel_group(self, "router")
         self._invalidate_pending_workers()
         self.query_one(WorkingIndicator).stop()
-        self.query_one("#status_bar", Static).update("interrupted | esc")
+        self.query_one("#status_bar", Static).update("Interrupted | esc")
+        self._refresh_cockpit("interrupted")
 
     def action_copy_output(self) -> None:
         """Copy last output entry to clipboard."""
@@ -195,7 +209,7 @@ class FinCLIApp(App[None]):
         unclean_state = self._session_state.get_last_unclean_state()
         if unclean_state:
             summary = self._session_state.get_recovery_summary(unclean_state)
-            write_output_entry(output, "[yellow]⚠️ Unclean shutdown detected. Previous session:[/]")
+            write_output_entry(output, "[yellow]WARNING: Unclean shutdown detected. Previous session:[/]")
             for line in summary.split("\n"):
                 write_output_entry(output, f"  {line}")
             write_output_entry(output, "[#7a7a7a]Use /session restore to recover previous state.[/]")
@@ -204,7 +218,8 @@ class FinCLIApp(App[None]):
         """Auto-save session state if dirty."""
         if self._session_state.should_save():
             self._session_state.save()
-            self.query_one("#status_bar", Static).update("state auto-saved | ready")
+            self.query_one("#status_bar", Static).update("Ready | state auto-saved")
+            self._refresh_cockpit("saved")
 
     def action_help(self) -> None:
         output = self.query_one("#output", RichLog)
@@ -254,7 +269,8 @@ class FinCLIApp(App[None]):
         output = self.query_one("#output", RichLog)
         status = self.query_one("#status_bar", Static)
         write_output_entry(output, f"AI model active: {provider} / {model}")
-        status.update(f"ready | ai model: {provider}/{model}")
+        status.update(f"Ready | ai model: {provider}/{model}")
+        self._refresh_cockpit("ready")
 
     def _set_market_provider_from_selector(self, providers: tuple[str, ...]) -> None:
         self.router._refresh_market_service()
@@ -262,7 +278,8 @@ class FinCLIApp(App[None]):
         output = self.query_one("#output", RichLog)
         status = self.query_one("#status_bar", Static)
         write_output_entry(output, f"Active market/news provider priority: {', '.join(providers)}")
-        status.update(f"ready | market provider: {providers[0] if providers else 'yfinance'}")
+        status.update(f"Ready | market provider: {providers[0] if providers else 'yfinance'}")
+        self._refresh_cockpit("ready")
 
     def _handle_ai_chat(self, prompt: str) -> None:
         output = self.query_one("#output", RichLog)
@@ -282,7 +299,8 @@ class FinCLIApp(App[None]):
             "sequence": str(self._worker_index),
             "streaming": True,
         }
-        self.query_one("#status_bar", Static).update("streaming | /ai")
+        self.query_one("#status_bar", Static).update("Streaming AI | /ai")
+        self._refresh_cockpit("streaming")
         self.query_one(WorkingIndicator).start("Thinking")
         token_counter = self.query_one(TokenCounter)
         token_counter.reset()
@@ -373,6 +391,47 @@ class FinCLIApp(App[None]):
         sheet.add_source(css)
         sheet.update(self)
         self.refresh(layout=True)
+        self._refresh_cockpit("live")
+
+    def _refresh_cockpit(self, session_state: str) -> None:
+        try:
+            header = self.query_one(CockpitHeader)
+        except NoMatches:
+            return
+        config = getattr(self.router, "config", None)
+        settings = getattr(config, "settings", None)
+        ai_provider_default = getattr(settings, "ai_provider", "ai")
+        market_provider_default = getattr(settings, "market_provider", "market")
+        ai_model = getattr(settings, "ai_model", "default")
+        ai_provider = getattr(getattr(self.router, "ai_provider", None), "name", ai_provider_default)
+        market_service = getattr(self.router, "market_service", None)
+        market_provider = getattr(getattr(market_service, "primary_provider", None), "name", market_provider_default)
+        header.update_state(
+            CockpitState(
+                version=__version__,
+                market_provider=market_provider,
+                provider_trust=self._provider_trust_label(),
+                ai_provider=ai_provider,
+                ai_model=ai_model,
+                session_state=session_state,
+            )
+        )
+
+    def _provider_trust_label(self) -> str:
+        service = getattr(self.router, "market_service", None)
+        if service is None:
+            return "Limited"
+        metrics = service.provider_metrics_snapshot()
+        last_result = service.last_result
+        if any(metric.circuit_open for metric in metrics.values()):
+            return "Blocked"
+        if last_result is None:
+            return "Limited"
+        if last_result.missing_fields or last_result.status in {"unavailable", "circuit_open"}:
+            return "Blocked"
+        if any(metric.errors or metric.fallbacks for metric in metrics.values()):
+            return "Usable"
+        return "Strong"
 
     def _submit_route(
         self,
@@ -393,7 +452,8 @@ class FinCLIApp(App[None]):
             "clear_output_before_result": clear_output_before_result,
             "sequence": str(self._worker_index),
         }
-        self.query_one("#status_bar", Static).update(f"running | {display_raw}")
+        self.query_one("#status_bar", Static).update(f"{working_verb(raw)} | {display_raw}")
+        self._refresh_cockpit("running")
         self.query_one(WorkingIndicator).start(working_verb(raw))
         self.run_worker(
             lambda: self._route_in_worker(raw),
@@ -437,11 +497,13 @@ class FinCLIApp(App[None]):
             pass
 
         if event.state == WorkerState.CANCELLED:
-            status.update(f"cancelled | {display_raw}")
+            status.update(f"Cancelled | {display_raw}")
+            self._refresh_cockpit("cancelled")
             return
         if event.state == WorkerState.ERROR:
             write_output_entry(output, f"Error running {display_raw}: {worker.error}")
             status.update(f"error | {display_raw}")
+            self._refresh_cockpit("error")
             return
 
         # Handle streaming result
@@ -466,7 +528,8 @@ class FinCLIApp(App[None]):
                 # Fallback returned string — wrap in Markdown
                 from rich.markdown import Markdown
                 write_output_entry(output, Markdown(str(result)))
-            status.update("ready | ai chat (streamed)")
+            status.update("Ready | ai chat (streamed)")
+            self._refresh_cockpit("ready")
             return
 
         result = worker.result
@@ -485,5 +548,6 @@ class FinCLIApp(App[None]):
             status.update(f"{result.status} | ai chat")
         else:
             status.update(f"{result.status} | last: {display_raw or 'empty'}")
+        self._refresh_cockpit("ready" if result.status == "ready" else result.status)
         if result.should_exit:
             self.exit()

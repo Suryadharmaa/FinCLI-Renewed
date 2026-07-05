@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from rich.markdown import Markdown
@@ -16,27 +17,64 @@ if TYPE_CHECKING:
 
     from fincli.app.cli.commands import CommandSpec
 
-# Cycling glyphs for the working animation (Claude-CLI style).
-GLYPHS = ("✻", "✽", "✶", "✴")
+# ASCII frames keep animation readable on Windows and remote terminals.
+GLYPHS = ("-", "\\", "|", "/")
 
-# Map a command root to the verb shown while it runs.
 _VERBS = {
     "/research": "Researching",
     "/news": "Fetching news",
     "/web": "Searching",
     "/macro": "Loading macro",
     "/calendar": "Loading calendar",
-    "/analyze": "Analyzing",
-    "/technical": "Analyzing",
-    "/mtf": "Analyzing",
+    "/analyze": "Analyzing risk",
+    "/technical": "Analyzing risk",
+    "/mtf": "Analyzing risk",
     "/scan": "Scanning",
     "/backtest": "Backtesting",
     "/market": "Fetching market",
     "/chart": "Charting",
-    "/ai": "Thinking",
+    "/ai": "Streaming AI",
     "/provider": "Checking providers",
     "/notification": "Sending notification",
 }
+
+
+@dataclass(frozen=True, slots=True)
+class CockpitState:
+    """Cheap local state rendered in the top financial cockpit strip."""
+
+    version: str
+    market_provider: str
+    provider_trust: str
+    ai_provider: str
+    ai_model: str
+    session_state: str = "live"
+    hint: str = "F1 keys | Esc interrupt | / commands"
+
+
+def cockpit_header_text(state: CockpitState) -> str:
+    """Render the cockpit strip as compact Rich markup."""
+    trust_style = {
+        "Strong": "green",
+        "Usable": "cyan",
+        "Limited": "yellow",
+        "Blocked": "red",
+    }.get(state.provider_trust, "bright_black")
+    return (
+        f"[bold]FinCLI v{state.version}[/] "
+        f"[bright_black]|[/] market [#d97757]{state.market_provider}[/] "
+        f"[bright_black]|[/] trust [{trust_style}]{state.provider_trust}[/] "
+        f"[bright_black]|[/] ai [#d97757]{state.ai_provider}/{state.ai_model}[/] "
+        f"[bright_black]|[/] session {state.session_state} "
+        f"[bright_black]|[/] {state.hint}"
+    )
+
+
+class CockpitHeader(Static):
+    """Top-level financial cockpit strip with cheap local status."""
+
+    def update_state(self, state: CockpitState) -> None:
+        self.update(cockpit_header_text(state))
 
 
 def working_verb(command: str) -> str:
@@ -48,11 +86,11 @@ def working_verb(command: str) -> str:
 def spinner_frame(verb: str, frame_index: int, elapsed_seconds: int) -> str:
     """Render one spinner frame as Rich markup. Pure and unit-testable."""
     glyph = GLYPHS[frame_index % len(GLYPHS)]
-    return f"[#d97757]{glyph}[/] {verb}… ({elapsed_seconds}s · esc to interrupt)"
+    return f"[#d97757]{glyph}[/] {verb}... ({elapsed_seconds}s | esc to interrupt)"
 
 
 class WorkingIndicator(Static):
-    """Animated 'working' line shown while a router command runs."""
+    """Animated working line shown while a router command runs."""
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -68,7 +106,7 @@ class WorkingIndicator(Static):
         self.display = True
         self.update(spinner_frame(self._verb, self._frame, 0))
         if self._timer is None:
-            self._timer = self.set_interval(0.1, self._tick)
+            self._timer = self.set_interval(0.12, self._tick)
         else:
             self._timer.resume()
 
@@ -100,7 +138,7 @@ class TokenCounter(Static):
         self._token_count += tokens
         elapsed = time.monotonic() - self._start if self._start else 0
         tps = self._token_count / elapsed if elapsed > 0 else 0
-        self.update(f"  tokens: {self._token_count:,} · {tps:.1f} tok/s")
+        self.update(f"  tokens: {self._token_count:,} | {tps:.1f} tok/s")
 
     def show(self) -> None:
         self.display = True
@@ -114,26 +152,36 @@ class CommandPalette(Static):
     """Slash command palette shown near the command input."""
 
     def render_commands(self, commands: list[CommandSpec], query: str = "") -> None:
-        table = Table.grid(expand=True)
-        table.add_column("Command", style="white", no_wrap=True, ratio=1)
-        table.add_column("Description", style="bright_black", justify="right", ratio=3)
-
-        for index, command in enumerate(commands):
-            command_text = command.name
-            description = command.description
-            if index == 0:
-                command_text = f"[black on #d97757]> {command.name}[/]"
-                description = f"[black on #d97757]{command.description}[/]"
-            table.add_row(command_text, description)
-
-        if len(commands) > 6:
-            table.add_row("[bright_black]v more[/]", "[bright_black]Type a more specific command[/]")
-
-        title = f"[#d97757]>[/] {query or '/'}"
+        table = command_palette_table(commands)
+        title = f"[#d97757]>[/] {query or '/'} [bright_black]financial command deck[/]"
         self.update(Panel(table, title=title, border_style="#3a3a3a", padding=(0, 1)))
 
     def clear_palette(self) -> None:
         self.update("")
+
+
+def command_palette_table(commands: list[CommandSpec]) -> Table:
+    """Build a grouped command palette table."""
+    table = Table.grid(expand=True)
+    table.add_column("Group", style="bright_black", no_wrap=True, ratio=1)
+    table.add_column("Command", style="white", no_wrap=True, ratio=1)
+    table.add_column("Description", style="bright_black", justify="right", ratio=3)
+
+    last_group = ""
+    for index, command in enumerate(commands):
+        group = command.group if command.group != last_group else ""
+        command_text = command.name
+        description = command.description
+        if index == 0:
+            group = f"[black on #d97757]{command.group}[/]"
+            command_text = f"[black on #d97757]> {command.name}[/]"
+            description = f"[black on #d97757]{command.description}[/]"
+        table.add_row(group, command_text, description)
+        last_group = command.group
+
+    if len(commands) > 6:
+        table.add_row("", "[bright_black]more[/]", "[bright_black]Type a more specific command[/]")
+    return table
 
 
 def format_user_message(message: str) -> Panel:
@@ -155,12 +203,7 @@ def format_ai_message(message: str) -> Markdown:
 
 
 def write_output_entry(log: object, renderable: object) -> None:
-    """Write one output entry with a single blank line separator.
-
-    No visual barrier characters are emitted here; Rich/Textual renderables keep
-    their own borders if they need one.
-    """
-
+    """Write one output entry with a single blank line separator."""
     items = getattr(log, "items", None)
     if isinstance(items, list) and items:
         log.write("")
@@ -173,11 +216,7 @@ def write_output_entry(log: object, renderable: object) -> None:
 
 
 class StreamingOutput(RichLog):
-    """Dedicated container for streaming AI output.
-
-    Separated from the main output RichLog so that clearing the stream
-    does not destroy previous conversation history.
-    """
+    """Dedicated container for streaming AI output."""
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -189,7 +228,7 @@ class StreamingOutput(RichLog):
         self.display = True
 
     def update_stream(self, renderable: object) -> None:
-        """Replace the current stream content (clear + rewrite)."""
+        """Replace the current stream content."""
         self.clear()
         self.write(renderable)
 

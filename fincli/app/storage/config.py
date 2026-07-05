@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 # Valid provider names for "did you mean?" suggestions
 VALID_AI_PROVIDERS = {"openrouter", "gemini", "anthropic", "openai", "together", "huggingface", "groq"}
-VALID_MARKET_PROVIDERS = {"yfinance", "custom", "finnhub", "twelvedata", "alphavantage"}
+VALID_MARKET_PROVIDERS = {"yfinance", "custom", "finnhub", "twelvedata", "alphavantage", "polygon", "iex"}
 VALID_THEMES = {"midnight", "ocean", "forest", "solarized", "dracula", "nord", "monokai"}
 
 
@@ -77,6 +77,7 @@ class FinCLISettings:
             "apitube": mask_secret(os.getenv("APITUBE_API_KEY")),
             "benzinga": mask_secret(os.getenv("BENZINGA_API_KEY")),
             "polygon": mask_secret(os.getenv("POLYGON_API_KEY")),
+            "iex": mask_secret(os.getenv("IEX_CLOUD_API_KEY")),
             "tiingo": mask_secret(os.getenv("TIINGO_API_KEY")),
             "fmp": mask_secret(os.getenv("FMP_API_KEY")),
             "eodhd": mask_secret(os.getenv("EODHD_API_KEY")),

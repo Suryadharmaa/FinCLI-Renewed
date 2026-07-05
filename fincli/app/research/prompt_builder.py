@@ -40,6 +40,21 @@ def build_research_prompt(brief: ResearchBrief) -> str:
         )
     )
     sources = "\n".join(f"- {source.citation()}" for source in brief.sources) or "- No external sources."
+    citations = "\n".join(
+        f"- {citation.id}: {citation.title} | {citation.source} | score={citation.score:g} | {citation.evidence_kind}"
+        for citation in brief.citations
+    ) or "- No citation IDs."
+    report_contract = ""
+    if brief.mode == "report":
+        report_contract = (
+            "\nResearch Engine v4 report contract:\n"
+            "1. Verified Facts — cite source IDs, no uncited facts.\n"
+            "2. Inferences — label as inference and cite evidence source IDs.\n"
+            "3. Missing Data — state impact on confidence.\n"
+            "4. Bull/Base/Bear Scenarios — include trigger, invalidation, capped confidence.\n"
+            "5. What Would Change This View — concrete evidence needed.\n"
+            "Never exceed the data trust confidence cap. If evidence is missing, say so.\n"
+        )
     return (
         f"{RESEARCH_WORKSPACE_PROMPT}\n\n"
         f"Symbol: {brief.symbol}\n"
@@ -54,6 +69,8 @@ def build_research_prompt(brief: ResearchBrief) -> str:
         f"Missing Data: {brief.missing_data}\n"
         f"Source Quality: {brief.source_quality}\n"
         f"Cited Sources:\n{sources}\n"
+        f"Citation IDs:\n{citations}\n"
+        f"{report_contract}"
         f"Quote: {overview.quote.price} {overview.quote.currency} via {overview.quote.provider} ({overview.quote.status})\n"
         f"Data Quality: {overview.data_quality.score}/100; OHLCV={overview.data_quality.ohlcv}; News={overview.data_quality.news}; Fundamentals={overview.data_quality.fundamentals}\n"
         f"Technical: trend={overview.technical.trend_bias}; rsi={overview.technical.rsi}; macd={overview.technical.macd}; support={overview.technical.support}; resistance={overview.technical.resistance}; atr={overview.technical.atr}\n"

@@ -28,6 +28,7 @@ def test_semantic_text_preserves_plain_text_and_applies_style() -> None:
 def test_theme_has_minimal_surface_and_semantic_classes() -> None:
     # Minimal Claude-CLI surface: output area, working spinner, command line.
     for selector in (
+        "#cockpit_header",
         "#output",
         "#working",
         "#output_frame",

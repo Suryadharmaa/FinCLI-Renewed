@@ -31,6 +31,15 @@ Screen {{
     width: 100%;
 }}
 
+#cockpit_header {{
+    dock: top;
+    height: 1;
+    background: {t.bg_alt};
+    color: {t.text};
+    padding: 0 2;
+    border-bottom: solid {t.border};
+}}
+
 #main {{
     width: 1fr;
     height: 1fr;
@@ -40,15 +49,16 @@ Screen {{
 
 #output_frame {{
     height: 1fr;
-    background: {t.bg};
+    background: {t.bg_alt};
     border: none;
-    padding: 1 2;
+    padding: 1 3;
 }}
 
 #output {{
     background: {t.bg};
     color: {t.text};
-    border: none;
+    border: round {t.border};
+    padding: 1 2;
     scrollbar-size: 1 1;
     scrollbar-background: {t.bg};
     scrollbar-color: {t.accent};
@@ -59,7 +69,8 @@ Screen {{
     max-height: 60%;
     background: {t.bg};
     color: {t.text};
-    border: none;
+    border: round {t.accent};
+    padding: 1 2;
     scrollbar-size: 1 1;
     scrollbar-background: {t.bg};
     scrollbar-color: {t.accent};
@@ -73,6 +84,7 @@ Screen {{
     color: {t.accent};
     text-style: bold;
     padding: 0 4;
+    border-top: solid {t.border};
 }}
 
 #token_counter {{
@@ -88,12 +100,14 @@ Screen {{
     height: auto;
     background: {t.bg};
     padding: 0 4 1 4;
+    border-top: solid {t.border};
 }}
 
 #command_hint {{
     height: 1;
     background: {t.bg};
     color: {t.muted};
+    text-style: italic;
     padding: 0 1;
 }}
 

@@ -104,6 +104,8 @@ def test_research_report_mode_returns_report_oriented_output(tmp_path: Path) -> 
 
     output = render_text(result.renderable)
     assert "Research Center: AAPL | report" in output
+    assert "Scenario Matrix" in output
+    assert "Verified Facts" in output
     assert "Report Notes" in output
     assert "Not financial advice" in output
 

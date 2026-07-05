@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -53,6 +54,12 @@ def _research_payload(brief: ResearchBrief) -> dict[str, Any]:
             {"kind": source.kind, "title": source.title, "detail": source.detail, "url": source.url}
             for source in brief.sources
         ],
+        "citations": [asdict(item) for item in brief.citations],
+        "facts": [asdict(item) for item in brief.facts],
+        "inferences": [asdict(item) for item in brief.inferences],
+        "missing_data_items": [asdict(item) for item in brief.missing_data_items],
+        "scenario_matrix": [asdict(item) for item in brief.scenario_matrix],
+        "trust_summary": asdict(brief.trust_summary) if brief.trust_summary is not None else None,
         "final_summary": brief.final_summary,
         "ai_summary": brief.ai_summary,
         "report_notes": list(brief.report_notes),
@@ -66,6 +73,20 @@ def _research_markdown(brief: ResearchBrief) -> str:
     risks = "\n".join(f"- {item}" for item in brief.risks)
     sources = "\n".join(f"- {source.citation()}" for source in brief.sources)
     macro = "\n".join(f"- {item}" for item in brief.macro_context)
+    facts = "\n".join(f"- {item.text} [{', '.join(item.citation_ids) or 'no citations'}]" for item in brief.facts)
+    inferences = "\n".join(
+        f"- {item.text} ({item.confidence:g}%) [{', '.join(item.citation_ids) or 'no citations'}]"
+        for item in brief.inferences
+    )
+    missing_items = "\n".join(f"- {item.severity}: {item.field} — {item.impact}" for item in brief.missing_data_items)
+    scenarios = "\n".join(
+        f"- **{item.name}** ({item.confidence:g}%): {item.thesis} Trigger: {item.trigger} Invalidation: {item.invalidation} [{', '.join(item.citation_ids) or 'no citations'}]"
+        for item in brief.scenario_matrix
+    )
+    citations = "\n".join(
+        f"- {item.id}: {item.title} | {item.source} | score {item.score:g} | {item.evidence_kind} | {item.url or 'no url'}"
+        for item in brief.citations
+    )
     return "\n".join(
         [
             f"# FinCLI Research Report: {brief.symbol}",
@@ -79,6 +100,22 @@ def _research_markdown(brief: ResearchBrief) -> str:
             f"- Context: {brief.context_blend}",
             f"- Missing Data: {brief.missing_data}",
             f"- Source Quality: {brief.source_quality}",
+            "",
+            "## Verified Facts",
+            "",
+            facts or "- None.",
+            "",
+            "## Inferences",
+            "",
+            inferences or "- None.",
+            "",
+            "## Missing Data Items",
+            "",
+            missing_items or "- None.",
+            "",
+            "## Scenario Matrix",
+            "",
+            scenarios or "- None.",
             "",
             "## Decision Points",
             "",
@@ -95,6 +132,10 @@ def _research_markdown(brief: ResearchBrief) -> str:
             "## Sources",
             "",
             sources or "- None.",
+            "",
+            "## Citation Scores",
+            "",
+            citations or "- None.",
             "",
             "## Report Notes",
             "",

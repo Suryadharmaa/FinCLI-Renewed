@@ -11,9 +11,12 @@ from fincli.app.tui.market_provider_selector import (
 def test_market_provider_selector_catalog_and_priority_presets() -> None:
     providers = {choice.provider for choice in market_provider_choices()}
 
-    assert {"yfinance", "finnhub", "twelvedata", "custom"}.issubset(providers)
+    assert {"yfinance", "finnhub", "twelvedata", "custom", "polygon", "iex"}.issubset(providers)
     assert recommended_provider_priority("finnhub")[0] == "finnhub"
     assert recommended_provider_priority("finnhub")[-1] == "yfinance"
+    assert recommended_provider_priority("polygon")[0] == "polygon"
+    assert recommended_provider_priority("polygon")[-1] == "yfinance"
+    assert recommended_provider_priority("iex")[0] == "iex"
     assert recommended_provider_priority("yfinance") == ("yfinance",)
 
     presets = priority_presets("twelvedata")
@@ -36,3 +39,5 @@ async def test_news_model_command_opens_market_provider_selector() -> None:
         assert app.screen.query_one("#ai_selector_title").render() == "Select Market/News Provider"
         assert "Finnhub" in str(app.screen.query_one("#ai_selector_list").render())
         assert "Twelve Data" in str(app.screen.query_one("#ai_selector_list").render())
+        assert "Polygon.io" in str(app.screen.query_one("#ai_selector_list").render())
+        assert "IEX Cloud" in str(app.screen.query_one("#ai_selector_list").render())

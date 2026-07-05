@@ -46,12 +46,12 @@ def test_update_notifier_helpers_detect_newer_versions() -> None:
     script = """
 const notifier = require("./npm/bin/fincli.js");
 const result = {
-  parse: notifier.parseSemver("1.8.4"),
-  newerPatch: notifier.shouldShowUpdate("1.8.4", "1.8.5"),
-  newerMinor: notifier.shouldShowUpdate("1.8.4", "1.9.0"),
-  older: notifier.shouldShowUpdate("1.8.4", "1.8.3"),
-  same: notifier.shouldShowUpdate("1.8.4", "1.8.4"),
-  invalid: notifier.shouldShowUpdate("1.8.4", "latest"),
+  parse: notifier.parseSemver("1.8.5"),
+  newerPatch: notifier.shouldShowUpdate("1.8.5", "1.8.6"),
+  newerMinor: notifier.shouldShowUpdate("1.8.5", "1.9.0"),
+  older: notifier.shouldShowUpdate("1.8.5", "1.8.4"),
+  same: notifier.shouldShowUpdate("1.8.5", "1.8.5"),
+  invalid: notifier.shouldShowUpdate("1.8.5", "latest"),
 };
 console.log(JSON.stringify(result));
 """
@@ -65,7 +65,7 @@ console.log(JSON.stringify(result));
 
     payload = json.loads(result.stdout)
     assert payload == {
-        "parse": [1, 8, 4],
+        "parse": [1, 8, 5],
         "newerPatch": True,
         "newerMinor": True,
         "older": False,
@@ -77,7 +77,7 @@ console.log(JSON.stringify(result));
 def test_update_banner_is_ascii_and_actionable() -> None:
     script = """
 const notifier = require("./npm/bin/fincli.js");
-notifier.showUpdateBanner("1.8.4", "1.8.5");
+notifier.showUpdateBanner("1.8.5", "1.8.6");
 """
     result = subprocess.run(
         ["node", "-e", script],
@@ -88,6 +88,6 @@ notifier.showUpdateBanner("1.8.4", "1.8.5");
     )
 
     assert result.stdout == ""
-    assert "Update available: 1.8.4 -> 1.8.5" in result.stderr
+    assert "Update available: 1.8.5 -> 1.8.6" in result.stderr
     assert "Run: npm i -g @drico2008/fincli" in result.stderr
     assert "â" not in result.stderr

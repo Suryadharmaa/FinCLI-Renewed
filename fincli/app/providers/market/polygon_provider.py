@@ -15,12 +15,20 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 
-from fincli.app.providers.market.base import Candle, FundamentalSnapshot, ProviderStatus, Quote
+from fincli.app.providers.market.base import (
+    Candle,
+    FundamentalSnapshot,
+    NewsItem,
+    ProviderCapability,
+    ProviderStatus,
+    Quote,
+)
 from fincli.app.utils.errors import ProviderError, RateLimitError
 
 
 class PolygonProvider:
     name = "polygon"
+    realtime = False
 
     def __init__(
         self,
@@ -108,6 +116,40 @@ class PolygonProvider:
             )
         except Exception:
             return FundamentalSnapshot(symbol=symbol.upper(), provider=self.name, currency="USD")
+
+    async def news(self, symbol: str, limit: int = 5) -> list[NewsItem]:
+        try:
+            resolved = _resolve_symbol(symbol)
+            data = await self._get("/v2/reference/news", {"ticker": resolved, "limit": str(limit)})
+            results = data.get("results", []) if isinstance(data, dict) else []
+            items: list[NewsItem] = []
+            for item in results[:limit]:
+                published = item.get("published_utc")
+                published_at = None
+                if published:
+                    published_at = datetime.fromisoformat(str(published).replace("Z", "+00:00"))
+                publisher = item.get("publisher", {})
+                items.append(
+                    NewsItem(
+                        title=str(item.get("title") or "Polygon news"),
+                        source=str(publisher.get("name") or "Polygon" if isinstance(publisher, dict) else "Polygon"),
+                        url=item.get("article_url"),
+                        published_at=published_at,
+                        summary=str(item.get("description") or ""),
+                    )
+                )
+            return items
+        except Exception:
+            return []
+
+    def capabilities(self) -> ProviderCapability:
+        return ProviderCapability(
+            name=self.name,
+            realtime=False,
+            operations=("quote", "history", "news", "fundamentals"),
+            asset_classes=("stock", "forex", "crypto"),
+            rate_limit_note="Polygon free tier is delayed and rate-limited.",
+        )
 
     async def status(self) -> ProviderStatus:
         return ProviderStatus(

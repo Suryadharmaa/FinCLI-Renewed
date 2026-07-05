@@ -11,6 +11,7 @@ async def test_tui_uses_inline_command_palette_without_sidebar() -> None:
 
     async with app.run_test(size=(120, 40)) as pilot:
         assert len(list(app.query("#sidebar"))) == 0
+        assert len(list(app.query("#cockpit_header"))) == 1
         assert len(list(app.query("#command_line"))) == 1
         scroll = app.query_one("#command_palette_scroll", VerticalScroll)
         app.query_one(CommandPalette)

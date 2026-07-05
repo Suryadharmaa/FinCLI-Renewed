@@ -27,6 +27,54 @@ def format_research_brief(brief: ResearchBrief) -> Table:
     if brief.sources:
         table.add_row("Sources", semantic_text("\n".join(f"- {source.citation()}" for source in brief.sources[:6])))
     if brief.mode == "report":
+        if brief.trust_summary is not None:
+            table.add_row(
+                "Trust Summary",
+                semantic_text(
+                    f"{brief.trust_summary.label} | cap {brief.trust_summary.confidence_cap:g}% | "
+                    f"{brief.trust_summary.max_signal_strength}"
+                ),
+            )
+        if brief.scenario_matrix:
+            table.add_row(
+                "Scenario Matrix",
+                semantic_text(
+                    "\n".join(
+                        f"- {item.name}: {item.thesis} Trigger: {item.trigger} Invalidation: {item.invalidation} Confidence: {item.confidence:g}% [{', '.join(item.citation_ids) or 'no citations'}]"
+                        for item in brief.scenario_matrix
+                    )
+                ),
+            )
+        if brief.facts:
+            table.add_row(
+                "Verified Facts",
+                semantic_text("\n".join(f"- {item.text} [{', '.join(item.citation_ids) or 'no citations'}]" for item in brief.facts)),
+            )
+        if brief.inferences:
+            table.add_row(
+                "Inferences",
+                semantic_text(
+                    "\n".join(
+                        f"- {item.text} ({item.confidence:g}%) [{', '.join(item.citation_ids) or 'no citations'}]"
+                        for item in brief.inferences
+                    )
+                ),
+            )
+        if brief.missing_data_items:
+            table.add_row(
+                "Missing Data Items",
+                semantic_text("\n".join(f"- {item.severity}: {item.field} — {item.impact}" for item in brief.missing_data_items)),
+            )
+        if brief.citations:
+            table.add_row(
+                "Citations",
+                semantic_text(
+                    "\n".join(
+                        f"- {item.id}: {item.title} | {item.source} | score {item.score:g} | {item.evidence_kind}"
+                        for item in brief.citations[:8]
+                    )
+                ),
+            )
         table.add_row("Report Notes", semantic_text("\n".join(f"- {item}" for item in brief.report_notes)))
     if brief.ai_summary:
         table.add_row("AI Summary", brief.ai_summary)

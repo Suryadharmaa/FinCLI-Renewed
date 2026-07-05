@@ -32,7 +32,16 @@ def test_provider_symbol_matrix_maps_multi_asset_aliases() -> None:
     assert matrix["twelvedata"].symbol == "XAU/USD"
     assert matrix["finnhub"].symbol == "OANDA:XAU_USD"
     assert matrix["custom"].symbol == "XAUUSD"
+    assert matrix["polygon"].symbol == "C:XAUUSD"
+    assert matrix["iex"].symbol == "XAUUSD"
     assert matrix["yfinance"].asset_class == "commodity"
+
+
+def test_provider_symbol_matrix_includes_polygon_and_iex_for_stocks() -> None:
+    matrix = provider_symbol_matrix("AAPL")
+
+    assert matrix["polygon"].symbol == "AAPL"
+    assert matrix["iex"].symbol == "AAPL"
 
 
 def test_symbol_search_returns_provider_specific_symbols() -> None:
@@ -58,6 +67,8 @@ def test_provider_entitlements_include_realtime_labels() -> None:
     assert labels["yfinance"] == "delayed/fallback"
     assert labels["twelvedata"] == "plan-dependent"
     assert labels["custom"] == "custom"
+    assert labels["polygon"] == "delayed/plan-dependent"
+    assert labels["iex"] == "realtime/plan-dependent"
 
 
 def test_symbol_and_entitlement_commands_route(tmp_path: Path) -> None:

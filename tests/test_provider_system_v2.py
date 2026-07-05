@@ -11,6 +11,9 @@ from fincli.app.providers.market.base import (
     ProviderCapability,
     Quote,
 )
+from fincli.app.providers.market.iex_provider import IEXProvider
+from fincli.app.providers.market.manager import MarketProviderManager
+from fincli.app.providers.market.polygon_provider import PolygonProvider
 from fincli.app.providers.market.symbols import SymbolResolver
 from fincli.app.providers.reliability import (
     STATUS_OK,
@@ -236,10 +239,47 @@ class TestPerOperationMetrics:
         assert providers == {"finnhub", "yfinance"}
 
 
+# --- Provider System v3 catalog tests ---
+
+
+def test_market_manager_lists_polygon_and_iex() -> None:
+    names = {provider.name for provider in MarketProviderManager().list_providers()}
+    assert "polygon" in names
+    assert "iex" in names
+
+
+def test_market_manager_creates_polygon_and_iex() -> None:
+    manager = MarketProviderManager()
+    assert manager.create("polygon").name == "polygon"
+    assert manager.create("iex").name == "iex"
+
+
+def test_polygon_contract_surface() -> None:
+    provider = PolygonProvider(api_key="demo", client=None)
+    assert provider.name == "polygon"
+    assert callable(provider.capabilities)
+    assert callable(provider.news)
+    capability = provider.capabilities()
+    assert "quote" in capability.operations
+    assert "history" in capability.operations
+    assert "news" in capability.operations
+    assert "fundamentals" in capability.operations
+
+
+def test_iex_contract_surface() -> None:
+    provider = IEXProvider(api_key="demo", client=None)
+    assert provider.name == "iex"
+    assert callable(provider.capabilities)
+    assert callable(provider.news)
+    capability = provider.capabilities()
+    assert capability.asset_classes == ("stock",)
+    assert "news" in capability.operations
+
+
 # --- Version test ---
 
 
 class TestVersion:
-    def test_version_is_1_8_4(self):
+    def test_version_is_1_8_5(self):
         from fincli import __version__
-        assert __version__ == "1.8.4"
+        assert __version__ == "1.8.5"

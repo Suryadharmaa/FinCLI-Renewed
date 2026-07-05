@@ -6,7 +6,16 @@ from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from fincli.app.providers.ai.base import AIRequest, BaseAIProvider
-from fincli.app.research.models import ResearchBrief, ResearchSource
+from fincli.app.research.models import (
+    MissingDataItem,
+    ResearchBrief,
+    ResearchCitation,
+    ResearchFact,
+    ResearchInference,
+    ResearchScenario,
+    ResearchSource,
+    ResearchTrustSummary,
+)
 from fincli.app.research.prompt_builder import build_research_prompt
 from fincli.app.services.data_trust import build_data_trust_gate
 from fincli.app.services.market_overview import MarketOverview, build_market_overview
@@ -51,7 +60,7 @@ class ResearchEngine:
             macro_rows,
             web_sources,
         )
-        if mode == "deep" and self.ai_provider is not None:
+        if mode in {"deep", "report"} and self.ai_provider is not None:
             prompt = build_research_prompt(brief)
             response = await self.ai_provider.complete(AIRequest(prompt=prompt, model=self.model))
             return replace(brief, ai_summary=response.content)
@@ -140,6 +149,18 @@ def _brief_from_overview(
         risks.append("RSI is at an extreme; avoid chasing without confirmation.")
 
     final_summary = _final_summary(overview, signal, risk, missing_data)
+    citations = _build_citations(sources, overview)
+    citation_ids = tuple(citation.id for citation in citations[:3])
+    trust_summary = ResearchTrustSummary(
+        label=trust_gate.level,
+        confidence_cap=float(trust_gate.confidence_cap),
+        max_signal_strength=trust_gate.max_signal_strength,
+        verification_steps=trust_gate.required_verification,
+    )
+    facts = _build_facts(overview, citations)
+    inferences = _build_inferences(signal, risk, trust_gate.confidence_cap, citation_ids)
+    missing_data_items = _build_missing_data_items(overview)
+    scenario_matrix = _build_scenarios(overview, trust_gate.confidence_cap, citation_ids)
     report_notes = (
         f"Snapshot: {snapshot}",
         f"Signal: {signal}",
@@ -148,6 +169,7 @@ def _brief_from_overview(
         f"Missing data: {missing_data}",
         f"Source quality: {source_quality}",
         f"Sources cited: {len(sources)}",
+        f"Trust cap: {trust_gate.confidence_cap}%",
         "Not financial advice.",
     )
     return ResearchBrief(
@@ -167,7 +189,121 @@ def _brief_from_overview(
         sources=sources,
         context_blend=context_blend,
         macro_context=macro_context,
+        citations=citations,
+        facts=facts,
+        inferences=inferences,
+        missing_data_items=missing_data_items,
+        scenario_matrix=scenario_matrix,
+        trust_summary=trust_summary,
     )
+
+
+def _build_citations(sources: tuple[ResearchSource, ...], overview: MarketOverview) -> tuple[ResearchCitation, ...]:
+    citations: list[ResearchCitation] = []
+    for index, source in enumerate(sources):
+        score = max(0.0, min(100.0, float(overview.data_quality.score))) if source.kind == "market" else 70.0
+        freshness = overview.data_quality.freshness if source.kind == "market" else "source-reported"
+        reliability = overview.data_quality.reliability_status if source.kind == "market" else "unverified"
+        citations.append(
+            ResearchCitation(
+                id=_citation_id(index),
+                title=source.title,
+                source=source.detail or source.kind,
+                url=source.url or None,
+                score=score,
+                freshness=freshness,
+                reliability=reliability,
+                evidence_kind=source.kind,
+            )
+        )
+    return tuple(citations)
+
+
+def _build_facts(overview: MarketOverview, citations: tuple[ResearchCitation, ...]) -> tuple[ResearchFact, ...]:
+    market_id = (citations[0].id,) if citations else ()
+    facts = [
+        ResearchFact(
+            f"{overview.symbol} quote is {overview.quote.price} {overview.quote.currency} via {overview.quote.provider} ({overview.quote.status}).",
+            market_id,
+        ),
+        ResearchFact(
+            f"Technical trend bias is {overview.technical.trend_bias}; market structure is {overview.structure.trend}.",
+            market_id,
+        ),
+        ResearchFact(
+            f"Data quality score is {overview.data_quality.score}/100 with reliability {overview.data_quality.reliability_status}.",
+            market_id,
+        ),
+    ]
+    if overview.fundamentals is not None:
+        facts.append(
+            ResearchFact(
+                f"Fundamentals provider reports sector {overview.fundamentals.sector or 'N/A'} and P/E {overview.fundamentals.pe_ratio}.",
+                tuple(citation.id for citation in citations if citation.evidence_kind in {"fundamentals", "market"})[:2],
+            )
+        )
+    if overview.news:
+        news_ids = tuple(citation.id for citation in citations if citation.evidence_kind in {"news", "web"})
+        facts.append(ResearchFact(f"Latest cited news: {overview.news[0].title} ({overview.news[0].source}).", news_ids[:2]))
+    return tuple(facts)
+
+
+def _build_inferences(signal: str, risk: str, confidence_cap: int, citation_ids: tuple[str, ...]) -> tuple[ResearchInference, ...]:
+    confidence = _confidence_from_trust(float(confidence_cap), 55.0)
+    return (
+        ResearchInference(f"Signal interpretation: {signal}", citation_ids, confidence),
+        ResearchInference(f"Primary risk interpretation: {risk}", citation_ids, _confidence_from_trust(float(confidence_cap), 50.0)),
+    )
+
+
+def _build_missing_data_items(overview: MarketOverview) -> tuple[MissingDataItem, ...]:
+    items: list[MissingDataItem] = []
+    for field in overview.data_quality.missing_fields:
+        severity = "high" if field in {"quote", "ohlcv", "history"} else "medium" if field in {"news", "fundamentals"} else "low"
+        items.append(MissingDataItem(field=field, severity=severity, impact=f"Missing {field} lowers research confidence."))
+    if not items:
+        return ()
+    return tuple(items)
+
+
+def _build_scenarios(overview: MarketOverview, confidence_cap: int, citation_ids: tuple[str, ...]) -> tuple[ResearchScenario, ...]:
+    support = overview.technical.support
+    resistance = overview.technical.resistance
+    cap = float(confidence_cap)
+    return (
+        ResearchScenario(
+            name="Bull",
+            thesis="Upside scenario if price confirms above resistance with improving momentum.",
+            trigger=f"Break and hold above resistance {resistance}.",
+            invalidation=f"Failure back below support {support} or trust gate deterioration.",
+            confidence=_confidence_from_trust(cap, 55.0),
+            citation_ids=citation_ids,
+        ),
+        ResearchScenario(
+            name="Base",
+            thesis="Wait-for-confirmation scenario while signal and risk remain mixed.",
+            trigger="Clean retest near key level with provider data still usable.",
+            invalidation="New missing critical data or failed retest.",
+            confidence=_confidence_from_trust(cap, 60.0),
+            citation_ids=citation_ids,
+        ),
+        ResearchScenario(
+            name="Bear",
+            thesis="Downside scenario if support fails or structure turns bearish.",
+            trigger=f"Break below support {support} with weak momentum.",
+            invalidation=f"Recovery above resistance {resistance} with stronger data quality.",
+            confidence=_confidence_from_trust(cap, 50.0),
+            citation_ids=citation_ids,
+        ),
+    )
+
+
+def _citation_id(index: int) -> str:
+    return f"S{index + 1}"
+
+
+def _confidence_from_trust(cap: float, requested: float) -> float:
+    return min(cap, requested)
 
 
 def _context_blend(overview: MarketOverview, macro_context: tuple[str, ...]) -> str:

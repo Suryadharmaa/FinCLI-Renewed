@@ -124,5 +124,22 @@ def test_research_report_export_json_includes_sources_and_context(tmp_path: Path
     assert payload["mode"] == "report"
     assert payload["engine"] == "Research Engine v3"
     assert payload["sources"]
+    assert payload["citations"]
+    assert payload["facts"]
+    assert payload["inferences"]
+    assert payload["scenario_matrix"]
+    assert payload["trust_summary"]
     assert payload["context_blend"]
     assert "source_quality" in payload
+
+
+def test_research_report_includes_v4_structured_sections(tmp_path: Path) -> None:
+    router, _ = make_router(tmp_path, NewsProvider())
+
+    output = render_text(router.route("/research AAPL --report").renderable)
+
+    assert "Scenario Matrix" in output
+    assert "Verified Facts" in output
+    assert "Inferences" in output
+    assert "Citations" in output
+    assert "Trust Summary" in output

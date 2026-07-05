@@ -28,6 +28,56 @@ class ResearchSource:
 
 
 @dataclass(frozen=True, slots=True)
+class ResearchCitation:
+    id: str
+    title: str
+    source: str
+    url: str | None
+    score: float
+    freshness: str
+    reliability: str
+    evidence_kind: str
+
+
+@dataclass(frozen=True, slots=True)
+class ResearchFact:
+    text: str
+    citation_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ResearchInference:
+    text: str
+    citation_ids: tuple[str, ...]
+    confidence: float
+
+
+@dataclass(frozen=True, slots=True)
+class MissingDataItem:
+    field: str
+    severity: str
+    impact: str
+
+
+@dataclass(frozen=True, slots=True)
+class ResearchScenario:
+    name: str
+    thesis: str
+    trigger: str
+    invalidation: str
+    confidence: float
+    citation_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ResearchTrustSummary:
+    label: str
+    confidence_cap: float
+    max_signal_strength: str
+    verification_steps: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class ResearchBrief:
     symbol: str
     mode: str
@@ -46,3 +96,9 @@ class ResearchBrief:
     sources: tuple[ResearchSource, ...] = ()
     context_blend: str = ""
     macro_context: tuple[str, ...] = ()
+    citations: tuple[ResearchCitation, ...] = ()
+    facts: tuple[ResearchFact, ...] = ()
+    inferences: tuple[ResearchInference, ...] = ()
+    missing_data_items: tuple[MissingDataItem, ...] = ()
+    scenario_matrix: tuple[ResearchScenario, ...] = ()
+    trust_summary: ResearchTrustSummary | None = None

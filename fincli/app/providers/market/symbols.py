@@ -213,7 +213,7 @@ class SymbolResolver:
         return self.resolve(symbol, provider=provider, asset_class=asset_class).symbol
 
     def matrix(self, symbol: str, providers: tuple[str, ...] | None = None) -> dict[str, ResolvedSymbol]:
-        names = providers or ("yfinance", "twelvedata", "finnhub", "alphavantage", "custom")
+        names = providers or ("yfinance", "twelvedata", "finnhub", "alphavantage", "polygon", "iex", "custom")
         return {name: self.resolve(symbol, provider=name) for name in names}
 
     def search(self, query: str, limit: int = 12) -> list[SymbolSearchResult]:
@@ -295,6 +295,22 @@ def resolve_finnhub_symbol(symbol: str) -> ResolvedSymbol:
     return ResolvedSymbol(symbol, symbol.upper(), "stock")
 
 
+def resolve_polygon_symbol(symbol: str) -> ResolvedSymbol:
+    normalized = _normalize(symbol)
+    if normalized in {"BTC", "BTCUSD", "BTCUSDT"}:
+        return ResolvedSymbol(symbol, "X:BTCUSD", "crypto")
+    if normalized in {"ETH", "ETHUSD", "ETHUSDT"}:
+        return ResolvedSymbol(symbol, "X:ETHUSD", "crypto")
+    if _is_metal_pair(normalized) or _is_forex_pair(normalized):
+        return ResolvedSymbol(symbol, f"C:{normalized}", "commodity" if _is_metal_pair(normalized) else "forex")
+    return ResolvedSymbol(symbol, symbol.strip().upper(), _infer_asset_class(normalized))
+
+
+def resolve_iex_symbol(symbol: str) -> ResolvedSymbol:
+    normalized = _normalize(symbol)
+    return ResolvedSymbol(symbol, normalized, "stock")
+
+
 def resolve_provider_symbol(provider: str, symbol: str) -> ResolvedSymbol:
     provider_name = provider.lower().strip()
     if provider_name == "yfinance":
@@ -322,6 +338,10 @@ def resolve_provider_symbol(provider: str, symbol: str) -> ResolvedSymbol:
         if normalized in IDX_ALIASES:
             return ResolvedSymbol(symbol, normalized, "stock")
         return ResolvedSymbol(symbol, symbol.strip().upper(), _infer_asset_class(normalized))
+    if provider_name == "polygon":
+        return resolve_polygon_symbol(symbol)
+    if provider_name == "iex":
+        return resolve_iex_symbol(symbol)
     if provider_name == "custom":
         normalized = symbol.strip().upper()
         return ResolvedSymbol(symbol, normalized, _infer_asset_class(normalized))

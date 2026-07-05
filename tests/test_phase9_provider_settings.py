@@ -64,6 +64,30 @@ def test_provider_priority_updates_config_and_runtime_chain(tmp_path: Path, monk
     assert [provider.name for provider in router.market_service.providers] == ["finnhub", "yfinance"]
 
 
+def test_provider_use_updates_config_and_runtime_polygon_provider(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("POLYGON_API_KEY", "test-key")
+    config = ConfigManager(tmp_path / "config.json")
+    router = CommandRouter(config=config, db=FinCLIDatabase(tmp_path / "fincli.db"))
+
+    result = router.route("/provider use polygon")
+
+    assert result.status == "ready"
+    assert config.settings.market_provider == "polygon"
+    assert router.market_provider.name == "polygon"
+
+
+def test_provider_priority_accepts_polygon_chain(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("POLYGON_API_KEY", "test-key")
+    config = ConfigManager(tmp_path / "config.json")
+    router = CommandRouter(config=config, db=FinCLIDatabase(tmp_path / "fincli.db"))
+
+    result = router.route("/provider priority polygon,yfinance")
+
+    assert result.status == "ready"
+    assert config.settings.market_provider_priority == ["polygon", "yfinance"]
+    assert [provider.name for provider in router.market_service.providers] == ["polygon", "yfinance"]
+
+
 def test_provider_key_status_masks_and_lists_market_keys(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("FINNHUB_API_KEY", "abc123456789")
     router = CommandRouter(config=ConfigManager(tmp_path / "config.json"), db=FinCLIDatabase(tmp_path / "fincli.db"))
@@ -73,6 +97,8 @@ def test_provider_key_status_masks_and_lists_market_keys(tmp_path: Path, monkeyp
     output = render_text(result.renderable)
     assert result.status == "ready"
     assert "FINNHUB_API_KEY" in output
+    assert "POLYGON_API_KEY" in output
+    assert "IEX_CLOUD_API_KEY" in output
     assert "abc1...6789" in output
     assert "abc123456789" not in output
 
