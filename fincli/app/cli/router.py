@@ -1228,6 +1228,14 @@ class CommandRouter:
         profile = self.user_profiles.get()
         table.add_row("Profile", "ok" if profile else "missing", profile.gameplay if profile else "Run /profile set ...")
         table.add_row("AI Provider", "configured", f"{self.config.settings.ai_provider} / {self.config.settings.ai_model}")
+        from fincli.app.web.manager import WebServerManager
+
+        web_status = WebServerManager(self.config).status()
+        table.add_row(
+            "Local Web",
+            "ok" if web_status["running"] else "info",
+            f"{'running' if web_status['running'] else 'stopped'} at {web_status['url']}; auth={'required' if web_status['auth'] else 'disabled'}",
+        )
         if full:
             for name, status, detail in self._doctor_full_checks():
                 style = "green" if status == "ok" else "yellow" if status in {"warning", "info"} else "red"
@@ -2624,8 +2632,9 @@ class CommandRouter:
         return CommandResult(_format_ai_response(response))
 
     def _web(self, args: list[str]) -> CommandResult:
-        if not args:
-            raise CommandError("Format: /web <query>")
+        web_actions = {"start", "stop", "restart", "status", "open", "token", "logs", "config"}
+        if not args or args[0].lower() in web_actions:
+            return self._local_web(args)
         if args[0].lower() in {"sources", "source", "raw"}:
             source_query = " ".join(args[1:]).strip()
             if not source_query:
@@ -2642,6 +2651,47 @@ class CommandRouter:
         if not isinstance(response, AIResponse):
             raise CommandError("AI provider returned invalid data.")
         return CommandResult(_format_ai_response(response))
+
+    def _local_web(self, args: list[str]) -> CommandResult:
+        from fincli.app.web.manager import WebServerManager
+
+        manager = WebServerManager(self.config)
+        action = args[0].lower() if args else "status"
+        try:
+            if action == "start":
+                status = manager.start()
+            elif action == "stop":
+                stopped = manager.stop()
+                message = "Local web server stopped." if stopped else "Local web server is not running."
+                return CommandResult(Panel(message, title="FinCLI Web"))
+            elif action == "restart":
+                status = manager.restart()
+            elif action == "open":
+                return CommandResult(Panel(f"Opened {manager.open()}", title="FinCLI Web"))
+            elif action == "token" and len(args) > 1 and args[1].lower() == "rotate":
+                token = manager.rotate_token()
+                self.audit_log.record("web_token_rotate", "Local web token rotated")
+                return CommandResult(Panel(f"New local access token:\n{token}\n\nStore this token securely.", title="FinCLI Web Token", border_style="yellow"))
+            elif action == "logs":
+                return CommandResult(Panel(manager.logs(), title="FinCLI Web Logs"))
+            elif action == "config":
+                if len(args) >= 4 and args[1].lower() == "set":
+                    manager.set_config(args[2], " ".join(args[3:]))
+                    warning = "\nWARNING: Public binding exposes FinCLI to your network." if args[2] == "host" and args[3] == "0.0.0.0" else ""
+                    return CommandResult(Panel(f"Web setting {args[2]} updated.{warning}", title="FinCLI Web Config", border_style="yellow" if warning else "green"))
+                body = "\n".join(f"{key}: {value}" for key, value in manager.config_dict().items())
+                return CommandResult(Panel(body, title="FinCLI Web Config"))
+            else:
+                status = manager.status()
+        except (ImportError, RuntimeError) as exc:
+            message = f'{exc}\nInstall with: pip install -e ".[web]"'
+            return CommandResult(Panel(message, title="FinCLI Web", border_style="red"), status="error")
+        except (OSError, ValueError) as exc:
+            return CommandResult(Panel(str(exc), title="FinCLI Web", border_style="red"), status="error")
+        state = "running" if status["running"] else "stopped"
+        warning = "\nWARNING: Server is bound beyond localhost." if status["host"] == "0.0.0.0" else ""
+        body = f"Status: {state}\nURL: {status['url']}\nHost: {status['host']}:{status['port']}\nAuthentication: {'required' if status['auth'] else 'disabled'}\nUptime: {status['uptime_seconds']}s\nUse /web token rotate to generate a new access token.{warning}"
+        return CommandResult(Panel(body, title="FinCLI Local Web", border_style="green" if status["running"] else "yellow"))
 
     def _analyze(self, args: list[str]) -> CommandResult:
         if not args:
@@ -4499,6 +4549,11 @@ def _format_security_status(router: object) -> Table:
     table.add_row("Audit Log", "active", f"{router.audit_log.count_events()} events recorded")
     table.add_row("Path Traversal Protection", "active", "File operations validate paths")
     table.add_row("File Permissions", "0o600", "Secrets file is owner-read-write only")
+    from fincli.app.web.manager import WebServerManager
+
+    web_status = WebServerManager(router.config).status()
+    web_detail = f"{web_status['url']}; token auth {'required' if web_status['auth'] else 'disabled'}"
+    table.add_row("Local Web Access", "running" if web_status["running"] else "stopped", web_detail)
 
     # Key age warnings
     from fincli.app.storage.secrets import list_secret_ages

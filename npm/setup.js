@@ -103,7 +103,7 @@ function main() {
   }
 
   run(venvPython(), ["-m", "pip", "install", "--upgrade", "pip"]);
-  run(venvPython(), ["-m", "pip", "install", "."]);
+  run(venvPython(), ["-m", "pip", "install", ".[web]"]);
 }
 
 main();

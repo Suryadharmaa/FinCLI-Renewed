@@ -218,6 +218,42 @@ class FinCLIDatabase:
                             ip_address TEXT DEFAULT 'local',
                             created_at TEXT DEFAULT CURRENT_TIMESTAMP
                         );
+
+                        CREATE TABLE IF NOT EXISTS web_conversations (
+                            id TEXT PRIMARY KEY,
+                            title TEXT NOT NULL,
+                            pinned INTEGER DEFAULT 0,
+                            archived INTEGER DEFAULT 0,
+                            mode TEXT DEFAULT 'chat',
+                            provider TEXT DEFAULT '',
+                            model TEXT DEFAULT '',
+                            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                        );
+
+                        CREATE TABLE IF NOT EXISTS web_messages (
+                            id TEXT PRIMARY KEY,
+                            conversation_id TEXT NOT NULL,
+                            role TEXT NOT NULL,
+                            content TEXT NOT NULL,
+                            command TEXT DEFAULT '',
+                            metadata_json TEXT DEFAULT '{}',
+                            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                            FOREIGN KEY (conversation_id) REFERENCES web_conversations(id) ON DELETE CASCADE
+                        );
+
+                        CREATE TABLE IF NOT EXISTS web_sessions (
+                            id TEXT PRIMARY KEY,
+                            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                            last_seen_at TEXT DEFAULT CURRENT_TIMESTAMP
+                        );
+
+                        CREATE TABLE IF NOT EXISTS web_audit_log (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            action TEXT NOT NULL,
+                            detail TEXT DEFAULT '',
+                            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                        );
                         """
                 )
                 _migrate_user_profile_schema(db)

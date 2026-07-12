@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>FinCLI Local</title><link rel="stylesheet" href="/assets/app.css"><link rel="stylesheet" href="/assets/structured.css"><link rel="stylesheet" href="/assets/commands.css">
+</head>
+<body>
+<div id="auth" class="auth"><form id="auth-form"><div class="mark">F</div><h1>FinCLI Local</h1><p>Enter the token generated with <code>/web token rotate</code>.</p><input id="token" type="password" autocomplete="off" placeholder="Local access token"><button>Connect securely</button><small id="auth-error"></small></form></div>
+<div id="app" class="shell hidden">
+  <aside id="sidebar">
+    <header><div class="brand"><span class="mark">F</span><b>FinCLI</b></div><button class="icon" id="collapse" aria-label="Collapse sidebar">&#9776;</button></header>
+    <button class="new-chat" id="new-chat">+ New research</button>
+    <input class="search" id="search" placeholder="Search conversations">
+    <nav class="shortcuts"><button data-command="/research AAPL --deep">Market Research</button><button data-command="/portfolio risk">Portfolio</button><button data-command="/watchlist">Watchlist</button><button data-command="/backtest AAPL sma_cross 1d">Backtesting</button><button data-command="/provider trust">Provider Status</button></nav>
+    <div class="history-label">Recent</div><div id="history" class="history"></div>
+    <footer><span class="pulse"></span><span>Local encrypted workspace</span><button class="icon" id="settings">&#9881;</button></footer>
+  </aside>
+  <main>
+    <div class="topbar"><button class="mobile-menu icon" id="mobile-menu">&#9776;</button><div><strong id="chat-title">Market research</strong><small id="market-mode">Local Web Access</small></div><div class="top-status"><span id="trust">Trust: checking</span><select id="model"><option>Loading model...</option></select><button id="theme" class="icon" aria-label="Toggle theme">&#9680;</button></div></div>
+    <section id="messages" class="messages"><div id="welcome" class="welcome"><div class="orb">F</div><h1>How can FinCLI help with your market research today?</h1><p>Research markets, inspect your portfolio, or run any safe FinCLI command.</p><div class="prompts"><button>Analyze AAPL deeply</button><button>Show my portfolio risk</button><button>Scan SP500 for RSI &lt; 30</button><button>Compare providers for TSLA</button><button>Backtest BTC-USD momentum strategy</button></div></div></section>
+    <div class="composer-wrap"><form id="composer" class="composer"><textarea id="message" rows="1" placeholder="Message FinCLI or type / for all commands..."></textarea><div id="command-palette" class="web-command-palette hidden"></div><div class="composer-tools"><div class="modes"><button type="button" class="chip active">Research</button><button type="button" class="chip">Deep analysis</button><button type="button" class="chip active">Paper safe</button><button type="button" class="chip">Local only</button></div><button id="send" class="send" aria-label="Send">&#8593;</button></div></form><small>FinCLI can make mistakes. Verify market data before trading.</small></div>
+  </main>
+</div>
+<script src="/assets/app.js"></script>
+</body></html>

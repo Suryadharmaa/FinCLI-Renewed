@@ -282,4 +282,4 @@ def test_iex_contract_surface() -> None:
 class TestVersion:
     def test_version_is_1_8_5(self):
         from fincli import __version__
-        assert __version__ == "1.8.5"
+        assert __version__ == "1.9.0"

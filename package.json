@@ -1,6 +1,6 @@
 {
   "name": "@drico2008/fincli",
-  "version": "1.8.5",
+  "version": "1.9.0",
   "description": "Modern financial CLI/TUI terminal for market monitoring and analysis.",
   "license": "MIT",
   "bin": {
@@ -8,11 +8,16 @@
   },
   "scripts": {
     "check": "node --check npm/bin/fincli.js && node --check npm/setup.js",
+    "web:start": "python -m fincli.app.web.server",
+    "web:dev": "python -m fincli.app.web.server --reload",
+    "web:build": "python -m compileall fincli/app/web -q",
+    "test:web": "python -m pytest tests/test_v190_web.py",
     "prepublish:safety": "python scripts/prepublish_check.py",
     "prepublishOnly": "python scripts/prepublish_check.py"
   },
   "files": [
     "fincli/**/*.py",
+    "fincli/app/web/static",
     "npm",
     "pyproject.toml",
     "README.md",

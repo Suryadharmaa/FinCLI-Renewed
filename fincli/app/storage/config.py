@@ -36,6 +36,21 @@ VALID_THEMES = {"midnight", "ocean", "forest", "solarized", "dracula", "nord", "
 
 
 @dataclass(slots=True)
+class WebSettings:
+    enabled: bool = False
+    host: str = "127.0.0.1"
+    port: int = 19850
+    auto_open: bool = False
+    require_auth: bool = True
+    token_auth: bool = True
+    allowed_origins: list[str] = field(default_factory=lambda: ["http://localhost:19850", "http://127.0.0.1:19850"])
+    session_timeout_minutes: int = 120
+    theme: str = "system"
+    chat_ui: bool = True
+    api_enabled: bool = True
+
+
+@dataclass(slots=True)
 class FinCLISettings:
     ai_provider: str = "openrouter"
     ai_model: str = "openai/gpt-4o-mini"
@@ -53,6 +68,7 @@ class FinCLISettings:
     provider_circuit_breaker_cooldown_seconds: float = 60.0
     theme: str = "midnight"
     language: str = "en"  # "en" or "id"
+    web: WebSettings = field(default_factory=WebSettings)
 
     def safe_dict(self) -> dict[str, Any]:
         """Return display-safe config, including masked secret status."""
@@ -153,6 +169,9 @@ class ConfigManager:
             raw = json.loads(self.config_file.read_text(encoding="utf-8"))
             allowed = FinCLISettings.__dataclass_fields__.keys()
             filtered = {key: value for key, value in raw.items() if key in allowed}
+            if isinstance(filtered.get("web"), dict):
+                web_allowed = WebSettings.__dataclass_fields__.keys()
+                filtered["web"] = WebSettings(**{key: value for key, value in filtered["web"].items() if key in web_allowed})
             settings = FinCLISettings(**filtered)
 
             # Validate and warn about issues
@@ -176,6 +195,10 @@ class ConfigManager:
             )
         except Exception as exc:  # noqa: BLE001
             raise ConfigError("Local config failed to save.") from exc
+
+    def reload(self) -> None:
+        """Re-read config.json and reload secrets into os.environ."""
+        self.settings = self.load()
 
     def set_ai_model(self, provider: str, model: str) -> None:
         self.settings.ai_provider = provider.strip().lower()

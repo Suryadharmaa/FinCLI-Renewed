@@ -1,6 +1,6 @@
 # FinCLI Command Reference
 
-Complete command reference for FinCLI v1.8.5. All commands start with `/` and are entered in the TUI input.
+Complete command reference for FinCLI v1.9.0. All commands start with `/` and are entered in the TUI input.
 
 ---
 
@@ -597,6 +597,24 @@ Batch and individual data export.
 ## Web Research
 
 ### /web
+
+Without arguments, `/web` shows Local Web Access status. Server controls:
+
+```
+/web start
+/web stop
+/web restart
+/web status
+/web open
+/web logs
+/web token rotate
+/web config
+/web config set port 19850
+```
+
+The server defaults to `127.0.0.1:19850` with token authentication. Setting host to `0.0.0.0` emits a security warning. Existing public-source research remains backward compatible:
+
+The Local Web composer supports every registered slash command. Type `/` or press `Ctrl/Cmd+K` to open the searchable command palette. Terminal-interactive selectors are represented by browser controls, and sensitive state changes request explicit confirmation. Credential-bearing commands such as `/ai_model key` must be run in the terminal to avoid persisting secret values in browser/session history.
 
 Web research helper using public sources.
 

@@ -98,6 +98,6 @@ def test_version_bumped_to_040() -> None:
     pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
     package = json.loads(Path("package.json").read_text(encoding="utf-8"))
 
-    assert fincli.__version__ == "1.8.5"
-    assert pyproject["project"]["version"] == "1.8.5"
-    assert package["version"] == "1.8.5"
+    assert fincli.__version__ == "1.9.0"
+    assert pyproject["project"]["version"] == "1.9.0"
+    assert package["version"] == "1.9.0"

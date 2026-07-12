@@ -1,4 +1,4 @@
-# FinCLI v1.8.5
+# FinCLI v1.9.0
 
 [![npm version](https://img.shields.io/npm/v/@drico2008/fincli)](https://www.npmjs.com/package/@drico2008/fincli)
 [![npm downloads](https://img.shields.io/npm/dm/@drico2008/fincli?label=downloads%2Fmonth)](https://www.npmjs.com/package/@drico2008/fincli)
@@ -32,6 +32,8 @@ fincli setup
 fincli
 ```
 
+The npm package includes Local Web Access dependencies. Python source users can install them with `pip install -e ".[web]"`.
+
 Requires Python 3.11+ and Node.js 18+. See [Prerequisites](#prerequisites) if you need to install them.
 
 ---
@@ -45,6 +47,28 @@ Requires Python 3.11+ and Node.js 18+. See [Prerequisites](#prerequisites) if yo
 /portfolio add AAPL 10 185     # Track a position
 /trading live connect alpaca paper  # Connect to Alpaca paper trading
 ```
+
+## Local Web Access
+
+FinCLI v1.9.0 adds an optional, authenticated browser workspace at `http://localhost:19850`. The terminal remains the primary interface and all existing commands continue to work.
+
+```bash
+pip install -e ".[web]"
+fincli web start
+# or: fincli --web
+```
+
+From the TUI, use `/web start`, `/web status`, `/web open`, `/web stop`, `/web logs`, `/web token rotate`, or `/web config`. Existing `/web <research query>` behavior remains available.
+
+The UI includes local conversation history, responsive dark/light themes, provider and model status, streaming-ready chat, research shortcuts, and a safe bridge to the existing FinCLI command router.
+
+Type `/` in the web composer to browse and search the complete FinCLI command registry. Slash commands use the same `CommandRouter` and local services as the terminal. Commands that change sensitive state require browser confirmation; commands containing raw credentials remain terminal-only so secrets cannot leak into web or session history.
+
+> The local web UI is intended for local use. Do not expose it publicly unless you understand the security risks. Authentication is enabled and the server binds to `127.0.0.1` by default. Browser responses never include stored API keys or broker secrets, and sensitive commands require explicit confirmation.
+
+Screenshot placeholder: `docs/images/web-chat-v1.9.0.png`
+
+Troubleshooting: if web dependencies are missing, run `pip install -e ".[web]"`. Use `/web logs` for startup errors and `/web config set port <port>` if port `19850` is occupied.
 
 ---
 
@@ -218,6 +242,26 @@ Free API keys: [Groq](https://console.groq.com/) · [OpenRouter](https://openrou
 /setup                              # Re-run first-run wizard
 ```
 
+### Privacy Cleanup
+
+Use `/security purge` for normal cleanup of stored secrets, the current terminal session history, and market caches. It keeps portfolio, journal, alerts, watchlist, profile, and configuration data.
+
+To remove every saved terminal session, run `/history clear` as well:
+
+```text
+/security purge
+/history clear
+```
+
+Stop Local Web Access before a complete secret cleanup. Starting it again may generate a new local web access token:
+
+```text
+/web stop
+/security purge
+```
+
+FinCLI never prints deleted secret values. API keys must be configured again after a purge, and Local Web Access requires a newly generated token before the next login.
+
 ---
 
 ## Local Storage
@@ -293,6 +337,13 @@ fincli
 - **Research Engine v4**: `/research --report` now includes verified facts, inferences, missing-data severity, bull/base/bear scenario matrix, citation IDs, and source scoring
 - Preserves deterministic snapshot mode and existing v1.8.5 TUI cockpit behavior
 - Validation passed: Ruff, compileall, 792-test pytest suite, npm wrapper check, prepublish safety check, and npm pack dry-run
+
+### v1.9.0
+- Add Local Web Access with a browser-based FinCLI dashboard
+- Add a familiar local chat UI for AI-assisted market research and safe command execution
+- Add an authenticated FastAPI server, SSE streaming endpoint, conversation persistence, model/provider status, CORS, CSRF header validation, rate limiting, and local-only defaults
+- Add web views and shortcuts for research, portfolio, watchlist, backtesting, providers, and settings
+- Preserve all v1.8.5 terminal workflows, including legacy `/web <query>` research
 
 ### v1.8.5
 - **TUI Financial Cockpit Refresh**: add a top cockpit strip with version, provider, trust, AI model, session state, and shortcut hints
