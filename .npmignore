@@ -24,3 +24,4 @@ dist/
 CLAUDE.md
 UsersMSIAppDataLocalTemp*/
 node_modules/
+.codex

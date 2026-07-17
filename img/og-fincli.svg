@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#07090d"/>
+      <stop offset=".55" stop-color="#10141a"/>
+      <stop offset="1" stop-color="#1d1015"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#f1cf85"/>
+      <stop offset=".48" stop-color="#b57a36"/>
+      <stop offset="1" stop-color="#69401f"/>
+    </linearGradient>
+    <pattern id="grid" width="56" height="56" patternUnits="userSpaceOnUse">
+      <path d="M56 0H0v56" fill="none" stroke="#d8b675" stroke-opacity=".08"/>
+    </pattern>
+    <filter id="shadow"><feDropShadow dx="0" dy="18" stdDeviation="18" flood-opacity=".35"/></filter>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect width="1200" height="630" fill="url(#grid)"/>
+  <circle cx="970" cy="315" r="244" fill="none" stroke="#c69a50" stroke-opacity=".16"/>
+  <circle cx="970" cy="315" r="190" fill="none" stroke="#c69a50" stroke-opacity=".12" stroke-dasharray="3 10"/>
+  <path d="M970 138 1076 174v79c0 75-42 128-106 156-64-28-106-81-106-156v-79l106-36Z" fill="url(#gold)" stroke="#f0cb7b" stroke-width="3" filter="url(#shadow)"/>
+  <path d="m907 240 36 30-36 30m66 0h58" fill="none" stroke="#17100a" stroke-width="15" stroke-linecap="square"/>
+  <path d="M804 441c-78-93-55-219 31-286m271 286c78-93 55-219-31-286" fill="none" stroke="#9b6734" stroke-width="5" stroke-linecap="round" opacity=".76"/>
+  <g fill="#9b6734" opacity=".8">
+    <ellipse cx="817" cy="403" rx="9" ry="25" transform="rotate(-42 817 403)"/><ellipse cx="791" cy="362" rx="9" ry="25" transform="rotate(-58 791 362)"/><ellipse cx="782" cy="313" rx="9" ry="25" transform="rotate(-76 782 313)"/><ellipse cx="793" cy="263" rx="9" ry="25" transform="rotate(-101 793 263)"/><ellipse cx="817" cy="220" rx="9" ry="25" transform="rotate(-125 817 220)"/>
+    <ellipse cx="1123" cy="403" rx="9" ry="25" transform="rotate(42 1123 403)"/><ellipse cx="1149" cy="362" rx="9" ry="25" transform="rotate(58 1149 362)"/><ellipse cx="1158" cy="313" rx="9" ry="25" transform="rotate(76 1158 313)"/><ellipse cx="1147" cy="263" rx="9" ry="25" transform="rotate(101 1147 263)"/><ellipse cx="1123" cy="220" rx="9" ry="25" transform="rotate(125 1123 220)"/>
+  </g>
+  <text x="72" y="102" fill="#d9b467" font-family="monospace" font-size="18" letter-spacing="5">FINCLI IMPERIUM · v1.9.0</text>
+  <text x="72" y="220" fill="#fff8ea" font-family="Georgia,serif" font-size="82" font-weight="700">Command markets</text>
+  <text x="72" y="300" fill="#d9b467" font-family="Georgia,serif" font-size="82" font-style="italic">with clarity.</text>
+  <text x="76" y="366" fill="#aaa59c" font-family="Arial,sans-serif" font-size="24">A terminal-native financial workstation.</text>
+  <rect x="72" y="424" width="580" height="86" rx="10" fill="#090b0f" stroke="#d9b467" stroke-opacity=".4"/>
+  <text x="96" y="458" fill="#77c79b" font-family="monospace" font-size="16">fincli@local:~$</text>
+  <text x="96" y="490" fill="#f0cd82" font-family="monospace" font-size="19">/research AAPL --deep</text>
+  <text x="72" y="566" fill="#77736d" font-family="monospace" font-size="14" letter-spacing="2">RESEARCH · VERIFY · RISK · EXECUTE</text>
+</svg>

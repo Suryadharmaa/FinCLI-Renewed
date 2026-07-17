@@ -9,7 +9,7 @@
 
 **A terminal-native financial workstation. Research, trade, and analyze markets without leaving your shell.**
 
-![FinCLI startup dashboard](img/image.png)
+![FinCLI startup dashboard](img/og-fincli.svg)
 
 ---
 

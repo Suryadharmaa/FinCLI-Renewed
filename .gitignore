@@ -30,3 +30,4 @@ Thumbs.db
 secrets.env
 CLAUDE.md
 node_modules/
+.codex
