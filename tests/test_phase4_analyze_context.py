@@ -52,5 +52,4 @@ def test_analyze_prompt_includes_news_fundamental_and_structure_context(tmp_path
     assert result.status == "ready"
     assert "Earnings beat expectations" in ai.last_prompt
     assert "P/E Ratio: 20.5000" in ai.last_prompt
-    assert "Market Structure" in ai.last_prompt
-    assert "Liquidity Area" in ai.last_prompt
+    assert "Structure:" in ai.last_prompt

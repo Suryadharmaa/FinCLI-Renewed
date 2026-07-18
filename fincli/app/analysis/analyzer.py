@@ -32,55 +32,40 @@ def build_market_analysis_prompt(
     grounding_context: str = "",
 ) -> str:
     """Build a structured AI prompt from market data and computed indicators."""
-    recent = candles[-10:]
+    recent = candles[-8:]
+    ohlcv_header = "Datetime           | O       | H       | L       | C       | Volume"
     ohlcv_lines = [
         (
-            f"- {candle.timestamp.isoformat(timespec='seconds')}: "
-            f"O={candle.open:.4f} H={candle.high:.4f} L={candle.low:.4f} "
-            f"C={candle.close:.4f} V={candle.volume:.0f}"
+            f"{candle.timestamp.strftime('%Y-%m-%d %H:%M'):18s} | "
+            f"{candle.open:7.2f} | {candle.high:7.2f} | {candle.low:7.2f} | "
+            f"{candle.close:7.2f} | {_compact_vol(candle.volume)}"
         )
         for candle in recent
     ]
-    indicator_lines = [
-        f"Latest Close: {_fmt(technical.latest_close)}",
-        f"Trend Bias: {technical.trend_bias}",
-        f"SMA 5: {_fmt(technical.sma_fast)}",
-        f"SMA 20: {_fmt(technical.sma_slow)}",
-        f"EMA 12: {_fmt(technical.ema_fast)}",
-        f"RSI 14: {_fmt(technical.rsi)}",
-        f"MACD: {_fmt(technical.macd)}",
-        f"MACD Signal: {_fmt(technical.macd_signal)}",
-        f"Bollinger Upper: {_fmt(technical.bollinger_upper)}",
-        f"Bollinger Lower: {_fmt(technical.bollinger_lower)}",
-        f"ATR 14: {_fmt(technical.atr)}",
-        f"Support: {_fmt(technical.support)}",
-        f"Resistance: {_fmt(technical.resistance)}",
-    ]
+    indicators = (
+        f"Close={_fmt(technical.latest_close)} Trend={technical.trend_bias} "
+        f"SMA({_fmt(technical.sma_fast)},{_fmt(technical.sma_slow)}) "
+        f"EMA={_fmt(technical.ema_fast)} RSI={_fmt(technical.rsi)} "
+        f"MACD({_fmt(technical.macd)},{_fmt(technical.macd_signal)}) "
+        f"BB({_fmt(technical.bollinger_lower)},{_fmt(technical.bollinger_upper)}) "
+        f"ATR={_fmt(technical.atr)} S={_fmt(technical.support)} R={_fmt(technical.resistance)}"
+    )
     debate = run_technical_debate(technical, structure, candles) if structure is not None else None
+    struct_text = _format_structure(structure)
+    signal_text = format_signal(debate.judge_signal) if debate is not None else "N/A"
+    methods = trading_methods_context or format_trading_methods_context(analyze_trading_methods(candles))
     return (
         f"{market_analysis_prompt()}\n\n"
-        f"Instrument: {symbol}\n"
-        f"Timeframe: {timeframe}\n"
-        f"Data Quality: {len(candles)} candles available from provider.\n\n"
-        "AI Grounding Guard:\n"
-        f"{grounding_context or 'Data Quality: unknown; Provider Reliability: unknown; Missing Data: unknown; Provider Metrics: unavailable.'}\n"
-        "Instruction: If reliability is not ok, missing data exists, or provider metrics are weak, reduce confidence before conclusion.\n\n"
-        "Recent OHLCV:\n"
-        f"{chr(10).join(ohlcv_lines)}\n\n"
-        "Computed Indicators:\n"
-        f"{chr(10).join(indicator_lines)}\n\n"
-        "Market Structure:\n"
-        f"{_format_structure(structure)}\n\n"
-        "Signal Assessment:\n"
-        f"{format_signal(debate.judge_signal) if debate is not None else 'No signal assessment available.'}\n\n"
-        "Technical Debate:\n"
-        f"{format_debate(debate) if debate is not None else 'No technical debate available.'}\n\n"
-        "Trading Method Context:\n"
-        f"{trading_methods_context or format_trading_methods_context(analyze_trading_methods(candles))}\n\n"
-        "User Gameplay Context:\n"
-        f"{user_gameplay_context}\n\n"
-        "News/Fundamental Context:\n"
-        f"{news_context}\n"
+        f"Symbol: {symbol} | TF: {timeframe} | Candles: {len(candles)}\n\n"
+        f"Trust:\n{grounding_context or 'unknown'}\n\n"
+        f"OHLCV (last {len(recent)}):\n{ohlcv_header}\n{chr(10).join(ohlcv_lines)}\n\n"
+        f"Indicators: {indicators}\n\n"
+        f"Structure: {struct_text}\n\n"
+        f"Signal: {signal_text}\n\n"
+        f"Debate: {format_debate(debate) if debate is not None else 'N/A'}\n\n"
+        f"Methods: {methods}\n\n"
+        f"Profile: {user_gameplay_context}\n\n"
+        f"News: {news_context}"
     )
 
 
@@ -94,23 +79,23 @@ def build_technical_ai_summary(symbol: str, timeframe: str, candles: list[Candle
     debate = run_technical_debate(technical, structure, candles)
     signal = debate.judge_signal
     return (
-        "AI Assistance Summary:\n"
-        f"Instrument: {symbol}\n"
-        f"Timeframe: {timeframe}\n"
-        f"Data Quality: {len(candles)} candles\n"
-        f"Latest Close: {_fmt(technical.latest_close)}\n"
-        f"Trend Bias: {technical.trend_bias}\n"
-        f"RSI 14: {_fmt(technical.rsi)}\n"
-        f"MACD/Signal: {_fmt(technical.macd)} / {_fmt(technical.macd_signal)}\n"
-        f"Support/Resistance: {_fmt(technical.support)} / {_fmt(technical.resistance)}\n"
-        f"ATR 14: {_fmt(technical.atr)}\n"
-        f"Market Structure: {structure.trend}; {structure.latest_pattern}\n"
-        f"Signal: {signal.label} | Score {signal.score} | Confidence {signal.confidence}\n"
-        f"Signal Reasoning: {'; '.join(signal.reasons[:3])}\n"
-        f"Debate Judge: {signal.label}; {'; '.join(debate.judge_reasoning[:2])}\n"
-        f"Risk Notes: volatility={_fmt(technical.atr)}, liquidity={structure.liquidity_area or 'N/A'}, risk_zone={structure.risk_zone or 'N/A'}\n"
-        "Use this as context for scenario analysis. This is informational, not financial advice."
+        f"Context: {symbol} {timeframe} | {len(candles)} candles\n"
+        f"Close={_fmt(technical.latest_close)} Trend={technical.trend_bias} "
+        f"RSI={_fmt(technical.rsi)} MACD={_fmt(technical.macd)}/{_fmt(technical.macd_signal)} "
+        f"S/R={_fmt(technical.support)}/{_fmt(technical.resistance)} ATR={_fmt(technical.atr)}\n"
+        f"Structure: {structure.trend}; {structure.latest_pattern}\n"
+        f"Signal: {signal.label} score={signal.score} conf={signal.confidence} | {'; '.join(signal.reasons[:3])}\n"
+        f"Risk: vol={_fmt(technical.atr)} liq={structure.liquidity_area or 'N/A'} zone={structure.risk_zone or 'N/A'}\n"
+        "Informational only, not financial advice."
     )
+
+
+def _compact_vol(volume: float) -> str:
+    if volume >= 1_000_000:
+        return f"{volume / 1_000_000:.1f}M"
+    if volume >= 1_000:
+        return f"{volume / 1_000:.0f}K"
+    return f"{volume:.0f}"
 
 
 def _fmt(value: float | None) -> str:
@@ -121,14 +106,10 @@ def _fmt(value: float | None) -> str:
 
 def _format_structure(structure: MarketStructureSummary | None) -> str:
     if structure is None:
-        return "No market structure context provided."
+        return "N/A"
     return (
-        f"Trend: {structure.trend}\n"
-        f"Latest Pattern: {structure.latest_pattern}\n"
-        f"Break of Structure: {structure.break_of_structure}\n"
-        f"Change of Character: {structure.change_of_character}\n"
-        f"Support: {_fmt(structure.support)}\n"
-        f"Resistance: {_fmt(structure.resistance)}\n"
-        f"Liquidity Area: {structure.liquidity_area or 'N/A'}\n"
-        f"Risk Zone: {structure.risk_zone or 'N/A'}"
+        f"{structure.trend} | {structure.latest_pattern} | "
+        f"BOS={structure.break_of_structure} CHoCH={structure.change_of_character} | "
+        f"S={_fmt(structure.support)} R={_fmt(structure.resistance)} | "
+        f"liq={structure.liquidity_area or 'N/A'} risk={structure.risk_zone or 'N/A'}"
     )

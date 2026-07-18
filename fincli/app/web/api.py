@@ -15,14 +15,22 @@ from fincli import __version__
 from fincli.app.cli.commands import CommandRegistry
 from fincli.app.cli.router import CommandRouter
 from fincli.app.providers.ai.manager import AI_PROVIDERS
+from fincli.app.providers.market.manager import MarketProviderManager
 from fincli.app.storage.config import ConfigManager
 from fincli.app.storage.database import FinCLIDatabase
+from fincli.app.storage.secrets import save_secret
 from fincli.app.web.bridge import execute_command, infer_command
 from fincli.app.web.security import LocalRateLimiter, command_requires_confirmation, rotate_token, token_matches
 from fincli.app.web.store import WebStore
 
 logger = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).with_name("static")
+VALID_SECRET_KEYS: set[str] = {info.env_key for info in AI_PROVIDERS.values() if info.env_key} | {
+    "FINNHUB_API_KEY", "TWELVE_DATA_API_KEY", "ALPHA_VANTAGE_API_KEY", "POLYGON_API_KEY", "IEX_CLOUD_API_KEY",
+    "MARKET_DATA_API_KEY", "NEWS_DATA_API_KEY", "MARKETAUX_API_KEY", "NEWSAPI_API_KEY", "GNEWS_API_KEY",
+    "STOCKNEWSAPI_API_KEY", "APITUBE_API_KEY", "BENZINGA_API_KEY", "TIINGO_API_KEY", "FMP_API_KEY", "EODHD_API_KEY",
+    "CUSTOM_NEWS_API_KEY",
+}
 
 
 def create_app() -> Any:
@@ -229,6 +237,33 @@ def create_app() -> Any:
         token = rotate_token()
         store.audit("token_rotate", "Local web access token rotated")
         return {"token": token}
+
+    @app.get("/api/secrets", dependencies=[Depends(authorize)])
+    async def list_secrets() -> dict[str, Any]:
+        ai_keys = {name: {"env_key": info.env_key, "has_key": bool(os.getenv(info.env_key))} for name, info in AI_PROVIDERS.items() if info.env_key}
+        market_manager = MarketProviderManager()
+        market_keys = []
+        for row in market_manager.key_status():
+            if row["key"] != "-":
+                market_keys.append({"provider": row["provider"], "env_key": row["key"], "has_key": row["status"] == "set", "source": row["source"]})
+        return {"ok": True, "ai_keys": ai_keys, "market_keys": market_keys}
+
+    @app.post("/api/secrets", dependencies=[Depends(authorize)])
+    async def set_secret(payload: dict[str, Any]) -> dict[str, Any]:
+        key = str(payload.get("key", "")).strip().upper()
+        value = str(payload.get("value", "")).strip()
+        if not key or not value:
+            raise HTTPException(status_code=422, detail="Both key and value are required.")
+        if key not in VALID_SECRET_KEYS:
+            raise HTTPException(status_code=422, detail=f"Unknown secret key: {key}")
+        try:
+            save_secret(key, value)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        store.audit("secret_set", f"Secret {key} updated via web UI")
+        nonlocal router
+        router = None
+        return {"ok": True, "key": key, "message": f"{key} saved and loaded."}
 
     @app.exception_handler(Exception)
     async def unhandled_error(_request: Request, exc: Exception) -> JSONResponse:

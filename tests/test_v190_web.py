@@ -80,7 +80,7 @@ def test_api_health_endpoint() -> None:
     with TestClient(create_app()) as client:
         response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json()["version"] == "1.9.0"
+    assert response.json()["version"] == "1.9.1"
 
 
 TEST_TOKEN = "test-token-abc123"
@@ -338,3 +338,50 @@ def test_config_reload_method(tmp_path: Path) -> None:
     config.reload()
     assert config.settings.ai_provider == "gemini"
     assert config.settings.ai_model == "gemini-pro"
+
+
+def test_api_secrets_list_endpoint(monkeypatch: object) -> None:
+    from fastapi.testclient import TestClient
+
+    from fincli.app.web.api import create_app
+
+    _patch_token(monkeypatch)
+    with TestClient(create_app()) as client:
+        response = client.get("/api/secrets", headers={"Authorization": f"Bearer {TEST_TOKEN}"})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ok"] is True
+    assert "ai_keys" in data
+    assert "market_keys" in data
+    assert "openrouter" in data["ai_keys"]
+    assert data["ai_keys"]["openrouter"]["env_key"] == "OPENROUTER_API_KEY"
+    market_env_keys = {item["env_key"] for item in data["market_keys"]}
+    assert "FINNHUB_API_KEY" in market_env_keys
+    assert "POLYGON_API_KEY" in market_env_keys
+    assert "IEX_CLOUD_API_KEY" in market_env_keys
+    # yfinance has no key requirement, should not appear
+    market_providers = {item["provider"] for item in data["market_keys"]}
+    assert "yfinance" not in market_providers or all(item["env_key"] != "-" for item in data["market_keys"])
+
+
+def test_api_secrets_set_requires_valid_key(monkeypatch: object) -> None:
+    from fastapi.testclient import TestClient
+
+    from fincli.app.web.api import create_app
+
+    _patch_token(monkeypatch)
+    with TestClient(create_app()) as client:
+        # Missing key
+        r1 = client.post("/api/secrets", json={"value": "test"}, headers={"Authorization": f"Bearer {TEST_TOKEN}", "X-FinCLI-CSRF": "local-web"})
+        assert r1.status_code == 422
+
+        # Unknown key
+        r2 = client.post("/api/secrets", json={"key": "FAKE_KEY_XYZ", "value": "test"}, headers={"Authorization": f"Bearer {TEST_TOKEN}", "X-FinCLI-CSRF": "local-web"})
+        assert r2.status_code == 422
+
+        # Valid key
+        r3 = client.post("/api/secrets", json={"key": "FINNHUB_API_KEY", "value": "test-key-123"}, headers={"Authorization": f"Bearer {TEST_TOKEN}", "X-FinCLI-CSRF": "local-web"})
+        assert r3.status_code == 200
+        data = r3.json()
+        assert data["ok"] is True
+        assert data["key"] == "FINNHUB_API_KEY"

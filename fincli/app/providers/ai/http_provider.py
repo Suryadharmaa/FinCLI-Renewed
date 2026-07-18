@@ -31,6 +31,13 @@ class OpenAICompatibleProvider(BaseAIProvider):
         self._owns_client = client is None
 
     def _get_client(self, timeout: float) -> httpx.AsyncClient:
+        if self._client is not None:
+            try:
+                loop = self._client._transport._pool._loop  # type: ignore[attr-defined]
+                if loop.is_closed():
+                    self._client = None
+            except AttributeError:
+                pass
         if self._client is None:
             self._client = httpx.AsyncClient(timeout=timeout, limits=httpx.Limits(max_connections=10, max_keepalive_connections=5))
             self._owns_client = True
@@ -124,6 +131,13 @@ class GeminiProviderHTTP(BaseAIProvider):
         self._client: httpx.AsyncClient | None = None
 
     def _get_client(self, timeout: float) -> httpx.AsyncClient:
+        if self._client is not None:
+            try:
+                loop = self._client._transport._pool._loop  # type: ignore[attr-defined]
+                if loop.is_closed():
+                    self._client = None
+            except AttributeError:
+                pass
         if self._client is None:
             self._client = httpx.AsyncClient(timeout=timeout, limits=httpx.Limits(max_connections=10, max_keepalive_connections=5))
         return self._client
@@ -167,6 +181,13 @@ class AnthropicProviderHTTP(BaseAIProvider):
         self._client: httpx.AsyncClient | None = None
 
     def _get_client(self, timeout: float) -> httpx.AsyncClient:
+        if self._client is not None:
+            try:
+                loop = self._client._transport._pool._loop  # type: ignore[attr-defined]
+                if loop.is_closed():
+                    self._client = None
+            except AttributeError:
+                pass
         if self._client is None:
             self._client = httpx.AsyncClient(timeout=timeout, limits=httpx.Limits(max_connections=10, max_keepalive_connections=5))
         return self._client

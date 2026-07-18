@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fincli"
-version = "1.9.0"
+version = "1.9.1"
 description = "Modern financial CLI/TUI terminal for market monitoring and analysis."
 readme = "README.md"
 requires-python = ">=3.11"

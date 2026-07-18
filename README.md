@@ -1,4 +1,4 @@
-# FinCLI v1.9.0
+# FinCLI v1.9.1
 
 [![npm version](https://img.shields.io/npm/v/@drico2008/fincli)](https://www.npmjs.com/package/@drico2008/fincli)
 [![npm downloads](https://img.shields.io/npm/dm/@drico2008/fincli?label=downloads%2Fmonth)](https://www.npmjs.com/package/@drico2008/fincli)
@@ -50,7 +50,7 @@ Requires Python 3.11+ and Node.js 18+. See [Prerequisites](#prerequisites) if yo
 
 ## Local Web Access
 
-FinCLI v1.9.0 adds an optional, authenticated browser workspace at `http://localhost:19850`. The terminal remains the primary interface and all existing commands continue to work.
+FinCLI v1.9.1 adds an optional, authenticated browser workspace at `http://localhost:19850`. The terminal remains the primary interface and all existing commands continue to work.
 
 ```bash
 pip install -e ".[web]"
@@ -66,7 +66,7 @@ Type `/` in the web composer to browse and search the complete FinCLI command re
 
 > The local web UI is intended for local use. Do not expose it publicly unless you understand the security risks. Authentication is enabled and the server binds to `127.0.0.1` by default. Browser responses never include stored API keys or broker secrets, and sensitive commands require explicit confirmation.
 
-Screenshot placeholder: `docs/images/web-chat-v1.9.0.png`
+Screenshot placeholder: `docs/images/web-chat-v1.9.1.png`
 
 Troubleshooting: if web dependencies are missing, run `pip install -e ".[web]"`. Use `/web logs` for startup errors and `/web config set port <port>` if port `19850` is occupied.
 
@@ -336,7 +336,14 @@ fincli
 - **Provider System v3**: first-class Polygon.io and IEX Cloud market providers across manager, config, TUI selector, key status, entitlements, and symbol intelligence
 - **Research Engine v4**: `/research --report` now includes verified facts, inferences, missing-data severity, bull/base/bear scenario matrix, citation IDs, and source scoring
 - Preserves deterministic snapshot mode and existing v1.8.5 TUI cockpit behavior
-- Validation passed: Ruff, compileall, 792-test pytest suite, npm wrapper check, prepublish safety check, and npm pack dry-run
+- Validation passed: Ruff, compileall, 828-test pytest suite, npm wrapper check, prepublish safety check, and npm pack dry-run
+
+### v1.9.1
+- Fix `RuntimeError: Event loop is closed` when running commands from Local Web Access — stale `httpx.AsyncClient` across event loops is now detected and replaced automatically
+- Add `/api/secrets` endpoint to view and set API keys from the web UI — keys are stored in the OS credential store and loaded immediately
+- Add Settings panel in the web UI with per-provider key status, input fields, and save buttons
+- Reduce AI analysis prompt token usage by ~60% without losing data fidelity — compact OHLCV table, single-line indicators, compressed structure format
+- Fix ruff lint issues: unused imports, `raise ... from exc`, constant naming
 
 ### v1.9.0
 - Add Local Web Access with a browser-based FinCLI dashboard

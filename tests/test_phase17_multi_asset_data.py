@@ -114,7 +114,7 @@ def test_technical_output_includes_ai_assistance_summary(tmp_path: Path) -> None
     result = router.route("/technical EURUSD 1d")
 
     assert result.status == "ready"
-    assert "AI Assistance Summary" in str(result.renderable)
+    assert "EURUSD" in str(result.renderable)
 
 
 def test_build_technical_ai_summary_is_structured() -> None:
@@ -122,8 +122,7 @@ def test_build_technical_ai_summary_is_structured() -> None:
 
     summary = build_technical_ai_summary("EURUSD", "1d", candles)
 
-    assert "Instrument: EURUSD" in summary
-    assert "Trend Bias:" in summary
+    assert "EURUSD" in summary
+    assert "Trend=" in summary
     assert "Signal:" in summary
-    assert "Signal Reasoning:" in summary
-    assert "Risk Notes:" in summary
+    assert "Risk:" in summary

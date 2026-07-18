@@ -15,6 +15,11 @@
     <div class="history-label">Recent</div><div id="history" class="history"></div>
     <footer><span class="pulse"></span><span>Local encrypted workspace</span><button class="icon" id="settings">&#9881;</button></footer>
   </aside>
+  <div id="settings-panel" class="settings-panel hidden">
+    <div class="settings-header"><h2>API Keys</h2><button class="icon" id="settings-close">&times;</button></div>
+    <p class="settings-note">Keys are stored in the OS credential store and loaded into the running server immediately.</p>
+    <div id="secrets-list" class="secrets-list">Loading...</div>
+  </div>
   <main>
     <div class="topbar"><button class="mobile-menu icon" id="mobile-menu">&#9776;</button><div><strong id="chat-title">Market research</strong><small id="market-mode">Local Web Access</small></div><div class="top-status"><span id="trust">Trust: checking</span><select id="model"><option>Loading model...</option></select><button id="theme" class="icon" aria-label="Toggle theme">&#9680;</button></div></div>
     <section id="messages" class="messages"><div id="welcome" class="welcome"><div class="orb">F</div><h1>How can FinCLI help with your market research today?</h1><p>Research markets, inspect your portfolio, or run any safe FinCLI command.</p><div class="prompts"><button>Analyze AAPL deeply</button><button>Show my portfolio risk</button><button>Scan SP500 for RSI &lt; 30</button><button>Compare providers for TSLA</button><button>Backtest BTC-USD momentum strategy</button></div></div></section>

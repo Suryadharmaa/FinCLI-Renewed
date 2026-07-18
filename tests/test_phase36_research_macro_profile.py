@@ -113,7 +113,7 @@ def make_router(tmp_path: Path) -> tuple[CommandRouter, CapturingAIProvider]:
 
 
 def test_package_metadata_is_v031() -> None:
-    assert fincli.__version__ == "1.9.0"
+    assert fincli.__version__ == "1.9.1"
 
 
 def test_registry_promotes_research_macro_profile_and_documents_advanced_aliases() -> None:

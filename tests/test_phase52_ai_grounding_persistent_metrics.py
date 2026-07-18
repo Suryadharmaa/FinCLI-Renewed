@@ -85,13 +85,12 @@ def test_analyze_prompt_includes_grounding_guard_context(tmp_path: Path) -> None
 
     assert result.status == "ready"
     prompt = ai.prompts[-1]
-    assert "AI Grounding Guard" in prompt
+    assert "Trust:" in prompt
     assert "Data Quality:" in prompt
     assert "Provider Reliability:" in prompt
     assert "Missing Data:" in prompt
     assert "Data Trust Gate:" in prompt
     assert "Provider Metrics:" in prompt
-    assert "If reliability is not ok" in prompt
 
 
 def test_provider_metrics_persist_to_sqlite_across_services(tmp_path: Path) -> None:
