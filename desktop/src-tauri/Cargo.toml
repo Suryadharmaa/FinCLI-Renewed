@@ -1,6 +1,6 @@
 [package]
 name = "fincli"
-version = "2.0.0"
+version = "2.0.1"
 description = "FinCLI Windows desktop workspace"
 authors = ["FinCLI"]
 edition = "2021"

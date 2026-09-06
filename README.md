@@ -1,4 +1,4 @@
-# FinCLI v2.0.0
+# FinCLI v2.0.1
 
 [![npm version](https://img.shields.io/npm/v/@drico2008/fincli)](https://www.npmjs.com/package/@drico2008/fincli)
 [![npm downloads](https://img.shields.io/npm/dm/@drico2008/fincli?label=downloads%2Fmonth)](https://www.npmjs.com/package/@drico2008/fincli)
@@ -64,7 +64,8 @@ npm run tauri:build
 Build output:
 
 - Portable app: `desktop/src-tauri/target/release/fincli.exe`
-- Installer: `desktop/src-tauri/target/release/bundle/nsis/FinCLI_2.0.0_x64-setup.exe`
+- Installer: `desktop/src-tauri/target/release/bundle/nsis/FinCLI_2.0.1_x64-setup.exe`
+- Publish-ready files: `release/v2.0.1/`
 
 ---
 
@@ -80,7 +81,7 @@ Build output:
 
 ## Local Web Access
 
-FinCLI v2.0.0 adds a Windows-first desktop workspace powered by Tauri and the existing authenticated FastAPI bridge. The terminal remains supported and all existing commands continue to work.
+FinCLI v2.0.1 provides a Windows-first desktop workspace powered by Tauri and the existing authenticated FastAPI bridge. The terminal remains supported and all existing commands continue to work.
 
 ```bash
 pip install -e ".[web]"
@@ -363,6 +364,13 @@ fincli
 ---
 
 ## Changelog
+
+### v2.0.1
+- Prevent secret and webhook values from entering desktop history, audit records, API responses, or confirmation previews
+- Make security scans fast and portable by pruning build/cache directories and sharing one packaged scanner
+- Fix desktop backend restart/retry races and strengthen startup, single-instance, and shutdown checks
+- Remove the unused vulnerable npm dependency and enforce release audits in CI
+- Stage publish-ready Windows executables and checksums in `release/v2.0.1/`
 
 ### v2.0.0
 - Add Windows-first `fincli.exe` desktop workspace with Tauri and the existing FastAPI/CommandRouter backend

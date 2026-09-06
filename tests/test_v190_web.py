@@ -101,7 +101,7 @@ def test_api_health_endpoint() -> None:
     with TestClient(create_app()) as client:
         response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json()["version"] == "2.0.0"
+    assert response.json()["version"] == "2.0.1"
 
 
 TEST_TOKEN = "test-token-abc123"

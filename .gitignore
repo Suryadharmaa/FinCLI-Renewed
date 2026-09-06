@@ -15,6 +15,12 @@ env/
 build/
 dist/
 target/
+# Only final, versioned release artifacts may be committed. Build caches stay ignored.
+!release/
+!release/v*/
+!release/v*/fincli.exe
+!release/v*/FinCLI_*_x64-setup.exe
+!release/v*/SHA256SUMS.txt
 desktop/src-tauri/binaries/*.exe
 desktop/src-tauri/icons/android/
 desktop/src-tauri/icons/ios/
