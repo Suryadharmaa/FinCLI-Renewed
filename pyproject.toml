@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fincli"
-version = "1.9.1"
+version = "2.0.0"
 description = "Modern financial CLI/TUI terminal for market monitoring and analysis."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -22,9 +22,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.3.3", "hypothesis>=6.0", "ruff>=0.4.0", "mypy>=1.10.0"]
+dev = ["pytest>=8.3.3", "hypothesis>=6.0", "ruff>=0.4.0", "mypy>=1.10.0", "pip-audit>=2.9.0"]
 market = ["yfinance>=0.2.50", "pandas>=2.2.3", "numpy>=2.1.0"]
 web = ["fastapi>=0.115.0", "uvicorn>=0.30.0"]
+desktop = ["fastapi>=0.115.0", "uvicorn>=0.30.0", "pyinstaller>=6.0.0"]
 
 [project.scripts]
 fincli = "fincli.app.main:main"
@@ -77,3 +78,4 @@ warn_unused_configs = true
 disallow_untyped_defs = false
 check_untyped_defs = true
 ignore_missing_imports = true
+follow_imports = "skip"

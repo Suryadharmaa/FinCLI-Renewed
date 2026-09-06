@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hmac
+import os
 import secrets
 import time
 from collections import defaultdict, deque
@@ -12,6 +13,7 @@ from fincli.app.storage.secrets import read_secrets, save_secret
 WEB_TOKEN_KEY = "FINCLI_WEB_TOKEN"
 SENSITIVE_PREFIXES = (
     "/trading live",
+    "/trading kill",
     "/secrets",
     "/security purge",
     "/security lockdown",
@@ -25,7 +27,7 @@ SENSITIVE_PREFIXES = (
 
 
 def get_or_create_token() -> str:
-    token = read_secrets().get(WEB_TOKEN_KEY, "")
+    token = str(read_secrets().get(WEB_TOKEN_KEY, ""))
     if not token:
         token = secrets.token_urlsafe(32)
         save_secret(WEB_TOKEN_KEY, token)
@@ -39,7 +41,8 @@ def rotate_token() -> str:
 
 
 def token_matches(candidate: str | None) -> bool:
-    return bool(candidate) and hmac.compare_digest(candidate, get_or_create_token())
+    expected = os.getenv("FINCLI_DESKTOP_TOKEN") or get_or_create_token()
+    return candidate is not None and bool(candidate) and hmac.compare_digest(candidate, expected)
 
 
 def command_requires_confirmation(command: str) -> bool:

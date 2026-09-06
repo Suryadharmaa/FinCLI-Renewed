@@ -5,76 +5,20 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 
-BLOCKED_FILE_NAMES = {".env", "secrets.env"}
-BLOCKED_SUFFIXES = {".db", ".sqlite", ".sqlite3", ".log"}
-BLOCKED_PARTS = {
-    ".claude",
-    ".git",
-    ".mypy_cache",
-    ".npm-python",
-    ".pytest_cache",
-    ".ruff_cache",
-    ".tmp-npm-cache",
-    ".tmp-pytest",
-    ".venv",
-    "__pycache__",
-    "build",
-    "dist",
-    "venv",
-}
-SECRET_PATTERNS = (
-    re.compile(r"(?m)^[ \t]*([A-Z0-9_]*(?:API|TOKEN|SECRET|KEY)[A-Z0-9_]*)[ \t]*=[ \t]*([^\s#\"']{12,})[ \t]*$"),
-    re.compile(r"\bsk-[A-Za-z0-9_-]{16,}"),
-    re.compile(r"\bghp_[A-Za-z0-9_]{16,}"),
-    re.compile(r"\bAIza[A-Za-z0-9_-]{20,}"),
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from fincli.app.utils.security_scan import (  # noqa: E402
+    SafetyIssue,
+    find_secret_issues,
+    validate_pack_file_list,
 )
-PLACEHOLDER_VALUES = {"your_key_here", "changeme", "replace_me", "example", "none", "null"}
-
-
-@dataclass(frozen=True, slots=True)
-class SafetyIssue:
-    path: Path
-    kind: str
-    detail: str
-
-
-def find_secret_issues(root: Path) -> list[SafetyIssue]:
-    """Scan working tree for blocked files and obvious token patterns."""
-    issues: list[SafetyIssue] = []
-    for path in _iter_scannable_files(root):
-        rel = path.relative_to(root)
-        if _is_blocked_path(rel):
-            issues.append(SafetyIssue(rel, "blocked_file", "sensitive/runtime file must not be published"))
-        try:
-            text = path.read_text(encoding="utf-8", errors="ignore")
-        except OSError as exc:
-            issues.append(SafetyIssue(rel, "read_error", str(exc)))
-            continue
-        for pattern in SECRET_PATTERNS:
-            match = pattern.search(text)
-            if match and len(match.groups()) >= 2 and _is_placeholder_secret(match.group(2)):
-                continue
-            if match:
-                issues.append(SafetyIssue(rel, "secret_pattern", _redact(match.group(0))))
-                break
-    return issues
-
-
-def validate_pack_file_list(files: list[str]) -> list[SafetyIssue]:
-    """Validate npm pack file list lines from npm pack --dry-run --json."""
-    issues: list[SafetyIssue] = []
-    for value in files:
-        path = Path(value.replace("\\", "/"))
-        if _is_blocked_path(path):
-            issues.append(SafetyIssue(path, "pack_blocked_file", "sensitive package file"))
-    return issues
 
 
 def npm_pack_file_list(root: Path) -> list[str]:
@@ -113,18 +57,29 @@ def run_pip_audit() -> list[SafetyIssue]:
     issues: list[SafetyIssue] = []
     try:
         result = subprocess.run(
-            [sys.executable, "-m", "pip_audit"],
+            [
+                sys.executable,
+                "-m",
+                "pip_audit",
+                "--progress-spinner",
+                "off",
+                "-r",
+                str(PROJECT_ROOT / "requirements.txt"),
+            ],
             capture_output=True,
             text=True,
             timeout=120,
         )
         if result.returncode != 0 and "no known vulnerabilities" not in result.stdout.lower():
+            combined = "\n".join(part.strip() for part in (result.stdout, result.stderr) if part.strip())
             # Parse output for vulnerability lines
             for line in result.stdout.strip().splitlines():
                 if line.startswith("Name") or line.startswith("----") or not line.strip():
                     continue
                 if "Found" in line and "vulnerability" in line:
                     issues.append(SafetyIssue(Path("pip-audit"), "vulnerability", line.strip()))
+            if not issues:
+                issues.append(SafetyIssue(Path("pip-audit"), "audit_error", combined or f"exit code {result.returncode}"))
     except (OSError, subprocess.TimeoutExpired) as exc:
         issues.append(SafetyIssue(Path("pip-audit"), "audit_error", str(exc)))
     return issues
@@ -158,44 +113,6 @@ def main(argv: list[str] | None = None) -> int:
     for item in release_checklist():
         print(f"- {item}")
     return 0
-
-
-def _iter_scannable_files(root: Path):
-    for path in root.rglob("*"):
-        if not path.is_file():
-            continue
-        rel = path.relative_to(root)
-        if any(part in BLOCKED_PARTS or part.endswith(".egg-info") for part in rel.parts[:-1]):
-            continue
-        yield path
-
-
-def _is_blocked_path(path: Path) -> bool:
-    normalized_parts = tuple(str(part) for part in path.parts)
-    if any(part in BLOCKED_PARTS for part in normalized_parts):
-        return True
-    if path.name in BLOCKED_FILE_NAMES:
-        return True
-    return path.suffix.lower() in BLOCKED_SUFFIXES
-
-
-def _redact(value: str) -> str:
-    if "=" in value:
-        key, _, _secret = value.partition("=")
-        return f"{key.strip()}=***"
-    return value[:16] + "..." if len(value) > 16 else "***"
-
-
-def _is_placeholder_secret(value: str) -> bool:
-    normalized = value.strip().strip("\"'").lower()
-    return (
-        not normalized
-        or normalized in PLACEHOLDER_VALUES
-        or normalized.endswith("_here")
-        or normalized.startswith("your_")
-        or normalized.startswith("your-")
-        or normalized.startswith("<")
-    )
 
 
 if __name__ == "__main__":

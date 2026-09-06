@@ -206,4 +206,4 @@ class TestLifecycleManager:
 class TestVersion:
     def test_version_is_1_0_5(self):
         from fincli import __version__
-        assert __version__ == "1.9.1"
+        assert __version__ == "2.0.0"

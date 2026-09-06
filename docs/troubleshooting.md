@@ -6,6 +6,41 @@ Common issues and solutions for FinCLI.
 
 ## Installation
 
+### `fincli.exe` does not open on Windows
+
+The portable desktop app does not require Python or Node.js, but it does rely on
+the Windows WebView2 runtime.
+
+**Solutions:**
+
+1. Install or repair WebView2 runtime.
+2. Launch `fincli.exe` again after WebView2 setup finishes.
+3. If the app still closes immediately, check `%LOCALAPPDATA%\FinCLI\logs\backend.log`.
+
+### `fincli.exe` opens a blank or broken window
+
+This usually means the embedded backend did not become ready, or WebView2 failed
+to render the workspace correctly.
+
+**Solutions:**
+
+1. Close the app completely and reopen it.
+2. Check `%LOCALAPPDATA%\FinCLI\logs\backend.log` for startup errors.
+3. Verify that local security software did not block the embedded backend.
+4. If the machine is very locked down, try the installer build instead of the portable executable.
+
+### Desktop app starts but FinCLI features do not respond
+
+The desktop app runs an embedded local backend automatically. If that backend
+fails, the UI can load while commands stay unavailable.
+
+**Solutions:**
+
+1. Reopen the app and wait for the workspace to finish loading.
+2. Check `%LOCALAPPDATA%\FinCLI\logs\backend.log`.
+3. Confirm `%LOCALAPPDATA%\FinCLI` is writable for the current Windows user.
+4. If a previous session crashed, close all `fincli.exe` and `fincli-backend.exe` processes, then relaunch.
+
 ### `fincli` command not found after npm install
 
 The npm wrapper requires Python 3.11+ to be available on PATH.

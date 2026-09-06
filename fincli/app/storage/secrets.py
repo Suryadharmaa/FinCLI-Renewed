@@ -9,7 +9,7 @@ import os
 from datetime import UTC
 from typing import TYPE_CHECKING
 
-from fincli.app.storage.config_paths import APP_DIR
+from fincli.app.storage.config_paths import APP_DIR, LEGACY_APP_DIR
 from fincli.app.utils.errors import ConfigError
 
 if TYPE_CHECKING:
@@ -22,6 +22,7 @@ except ImportError:  # pragma: no cover - exercised when optional dependency is 
 
 
 SECRETS_FILE = APP_DIR / "secrets.env"
+LEGACY_SECRETS_FILE = LEGACY_APP_DIR / "secrets.env"
 _KEY_FILE = APP_DIR / ".secrets_key"
 _MAGIC = b"FINCLI1:"
 _SERVICE_NAME = "fincli.secrets"
@@ -109,9 +110,20 @@ def read_secrets(path: Path | None = None) -> dict[str, str]:
         raise ConfigError("OS credential store not available.") from exc
     if raw is not None:
         return _decode_blob(raw)
-    if not target.exists():
-        return {}
-    return _migrate_legacy_file(target, backend, account)
+    if target.exists():
+        return _migrate_legacy_file(target, backend, account)
+    if target == SECRETS_FILE and LEGACY_SECRETS_FILE.exists():
+        legacy_key = LEGACY_APP_DIR / ".secrets_key"
+        secrets = _migrate_legacy_file(LEGACY_SECRETS_FILE, backend, account, key_file=legacy_key)
+        legacy_metadata = LEGACY_APP_DIR / "secrets_metadata.json"
+        if legacy_metadata.exists() and not _METADATA_FILE.exists():
+            try:
+                _METADATA_FILE.parent.mkdir(parents=True, exist_ok=True)
+                _METADATA_FILE.write_bytes(legacy_metadata.read_bytes())
+            except OSError:
+                pass
+        return secrets
+    return {}
 
 
 def secret_source(env_key: str, path: Path | None = None) -> str:
@@ -139,9 +151,15 @@ def _write_secrets(path: Path, secrets: dict[str, str]) -> None:
         raise ConfigError("Failed to verify secret in OS credential store.")
 
 
-def _migrate_legacy_file(path: Path, backend: object, account: str) -> dict[str, str]:
+def _migrate_legacy_file(
+    path: Path,
+    backend: object,
+    account: str,
+    *,
+    key_file: Path | None = None,
+) -> dict[str, str]:
     try:
-        legacy = _parse_legacy(_decrypt_legacy(path.read_bytes()))
+        legacy = _parse_legacy(_decrypt_legacy(path.read_bytes(), key_file=key_file))
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         raise ConfigError("Legacy secret file cannot be migrated.", f"Path: {path}") from exc
 
@@ -156,8 +174,9 @@ def _migrate_legacy_file(path: Path, backend: object, account: str) -> dict[str,
 
     try:
         path.unlink()
-        if path == SECRETS_FILE and _KEY_FILE.exists():
-            _KEY_FILE.unlink()
+        old_key = key_file or _KEY_FILE
+        if old_key.exists():
+            old_key.unlink()
     except OSError as exc:
         raise ConfigError("Secret migration succeeded but failed to delete old file.", f"Path: {path}") from exc
     return legacy
@@ -201,14 +220,15 @@ def _parse_legacy(plaintext: str) -> dict[str, str]:
     return result
 
 
-def _decrypt_legacy(raw: bytes) -> str:
+def _decrypt_legacy(raw: bytes, *, key_file: Path | None = None) -> str:
     """DEPRECATED: Only used for migrating legacy secret files. Will be removed in v2.0."""
     if not raw.startswith(_MAGIC):
         return raw.decode("utf-8")
-    if not _KEY_FILE.exists():
+    key_path = key_file or _KEY_FILE
+    if not key_path.exists():
         raise ConfigError("Legacy secret key not found; migration cannot proceed.")
     encrypted = base64.b64decode(raw[len(_MAGIC):])
-    key = base64.b64decode(_KEY_FILE.read_bytes())
+    key = base64.b64decode(key_path.read_bytes())
     return _xorcrypt(encrypted, key).decode("utf-8")
 
 
@@ -239,7 +259,7 @@ _METADATA_FILE = APP_DIR / "secrets_metadata.json"
 
 def _read_metadata(path: Path | None = None) -> dict[str, str]:
     """Read secret metadata (creation timestamps)."""
-    meta_path = _METADATA_FILE
+    meta_path = _metadata_path(path)
     if not meta_path.exists():
         return {}
     try:
@@ -254,7 +274,7 @@ def _update_metadata(env_key: str, path: Path | None = None) -> None:
     """Update the creation timestamp for a secret."""
     import json as _json
     from datetime import datetime
-    meta_path = _METADATA_FILE
+    meta_path = _metadata_path(path)
     metadata = _read_metadata(path)
     key = _validate_env_key(env_key)
     metadata[key] = datetime.now(UTC).isoformat()
@@ -262,3 +282,9 @@ def _update_metadata(env_key: str, path: Path | None = None) -> None:
         meta_path.write_text(_json.dumps(metadata, indent=2), encoding="utf-8")
     except OSError:
         pass  # Best effort; don't fail the save
+
+
+def _metadata_path(path: Path | None) -> Path:
+    if path is None or path == SECRETS_FILE:
+        return _METADATA_FILE
+    return path.with_name("secrets_metadata.json")

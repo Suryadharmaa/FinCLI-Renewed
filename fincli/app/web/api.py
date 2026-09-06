@@ -19,7 +19,17 @@ from fincli.app.providers.market.manager import MarketProviderManager
 from fincli.app.storage.config import ConfigManager
 from fincli.app.storage.database import FinCLIDatabase
 from fincli.app.storage.secrets import save_secret
-from fincli.app.web.bridge import execute_command, infer_command
+from fincli.app.web.bridge import (
+    CommandExecutionContext,
+    OutputMode,
+    WebCommandResult,
+    WebError,
+    execute_command,
+    infer_command,
+    is_secret_command,
+    redact_sensitive_command,
+)
+from fincli.app.web.desktop_actions import ACTION_BY_NAME, command_for_action, desktop_capabilities
 from fincli.app.web.security import LocalRateLimiter, command_requires_confirmation, rotate_token, token_matches
 from fincli.app.web.store import WebStore
 
@@ -43,14 +53,18 @@ def create_app() -> Any:
         raise RuntimeError('Web dependencies missing. Install with: pip install -e ".[web]"') from exc
 
     config = ConfigManager()
+    desktop_mode = os.getenv("FINCLI_DESKTOP") == "1"
     db = FinCLIDatabase()
     store = WebStore(db)
     limiter = LocalRateLimiter()
     router: CommandRouter | None = None
     app = FastAPI(title="FinCLI Local API", version=__version__, docs_url=None, redoc_url=None)
+    allowed_origins = list(config.settings.web.allowed_origins)
+    if desktop_mode:
+        allowed_origins.extend(["http://tauri.localhost", "https://tauri.localhost", "tauri://localhost"])
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=config.settings.web.allowed_origins,
+        allow_origins=list(dict.fromkeys(allowed_origins)),
         allow_credentials=False,
         allow_methods=["GET", "POST", "DELETE"],
         allow_headers=["Authorization", "Content-Type", "X-FinCLI-CSRF"],
@@ -85,7 +99,7 @@ def create_app() -> Any:
 
     @app.get("/api/health")
     async def health() -> dict[str, Any]:
-        return {"status": "ok", "version": __version__, "local_only": config.settings.web.host == "127.0.0.1"}
+        return {"status": "ok", "version": __version__, "local_only": desktop_mode or config.settings.web.host == "127.0.0.1"}
 
     @app.get("/api/status", dependencies=[Depends(authorize)])
     async def status() -> dict[str, Any]:
@@ -96,6 +110,30 @@ def create_app() -> Any:
             "ai_model": settings.ai_model,
             "market_provider": settings.market_provider,
             "auth": settings.web.require_auth,
+            "mode": "desktop" if desktop_mode else "browser",
+            "desktop": desktop_mode,
+            "api_contract": "2.0",
+        }
+
+    @app.get("/api/desktop/info", dependencies=[Depends(authorize)])
+    async def desktop_info() -> dict[str, Any]:
+        """Expose the stable capability contract used by the Tauri workspace."""
+        return {
+            "ok": True,
+            "desktop": desktop_mode,
+            "version": __version__,
+            "backend": "fastapi",
+            "router": "CommandRouter",
+            "local_only": config.settings.web.host == "127.0.0.1",
+            "capabilities": {
+                "research": True,
+                "portfolio": True,
+                "watchlist": True,
+                "provider_status": True,
+                "secrets": True,
+                "paper_trading": True,
+                "live_trading": True,
+            },
         }
 
     @app.get("/api/ai/status", dependencies=[Depends(authorize)])
@@ -146,10 +184,104 @@ def create_app() -> Any:
                 "group": spec.group,
                 "confirmation_required": command_requires_confirmation(spec.example),
                 "terminal_only_secret": spec.name in {"/ai_model key", "/notification add"},
+                "desktop_supported": spec.name not in {"/ai_model", "/news_model", "/ai_model key", "/notification add"},
             }
             for spec in specs
         ]
         return {"ok": True, "count": len(rows), "commands": rows}
+
+    @app.get("/api/desktop/capabilities", dependencies=[Depends(authorize)])
+    async def desktop_capability_contract() -> dict[str, Any]:
+        """Return the complete command inventory plus GUI action forms."""
+        capabilities = desktop_capabilities()
+        return {
+            "ok": True,
+            "api_contract": "2.1",
+            "command_count": len(capabilities["commands"]),
+            "commands": capabilities["commands"],
+            "actions": capabilities["actions"],
+        }
+
+    @app.get("/api/desktop/overview", dependencies=[Depends(authorize)])
+    async def desktop_overview(symbol: str = "") -> dict[str, Any]:
+        """Build a quick local workspace summary without inventing market data."""
+        portfolio_rows = db.query("SELECT COUNT(*) AS count FROM portfolio_positions")
+        watchlist_rows = db.query("SELECT COUNT(*) AS count FROM watchlist")
+        alert_rows = db.query("SELECT COUNT(*) AS count FROM alerts WHERE active = 1")
+        provider_rows = db.query(
+            "SELECT provider, calls, successes, errors, last_status FROM provider_metrics ORDER BY provider"
+        )
+        market: dict[str, Any] = {
+            "status": "idle",
+            "message": "Select a symbol to load market data.",
+            "symbol": "",
+        }
+        if symbol.strip():
+            result = await asyncio.to_thread(execute_command, command_router(), f"/market {symbol.strip()} 1d")
+            market = result.to_dict()
+            market["symbol"] = symbol.strip().upper()
+        return {
+            "ok": True,
+            "market": market,
+            "portfolio": {"positions": int(portfolio_rows[0]["count"]) if portfolio_rows else 0},
+            "watchlist": {"count": int(watchlist_rows[0]["count"]) if watchlist_rows else 0},
+            "providers": [dict(row) for row in provider_rows],
+            "provider_trust": {"status": "available" if provider_rows else "not_called", "count": len(provider_rows)},
+            "alerts": {"active": int(alert_rows[0]["count"]) if alert_rows else 0},
+        }
+
+    @app.post("/api/desktop/action", dependencies=[Depends(authorize)])
+    async def desktop_action(payload: dict[str, Any]) -> dict[str, Any]:
+        action = str(payload.get("action", "")).strip()
+        params = payload.get("params") if isinstance(payload.get("params"), dict) else {}
+        spec = ACTION_BY_NAME.get(action)
+        if spec is None:
+            raise HTTPException(status_code=422, detail=f"Unknown desktop action: {action}")
+        if not spec.desktop_supported:
+            raise HTTPException(status_code=422, detail=spec.terminal_only_reason or "Action is not supported on desktop.")
+        try:
+            built_command = command_for_action(action, params)
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if spec.confirmation_required and not bool(payload.get("confirmed")):
+            result = WebCommandResult(
+                False,
+                "error",
+                redact_sensitive_command(built_command),
+                "confirmation_required",
+                title="Confirmation required",
+                message="This action requires explicit confirmation before it can run.",
+                errors=[WebError(
+                    title="Confirmation required",
+                    message="Review the action in the desktop confirmation dialog, then confirm it explicitly.",
+                    code="CONFIRMATION_REQUIRED",
+                )],
+                metadata={"action": action},
+            )
+            response = result.to_dict()
+            response["action"] = action
+            response["conversation_id"] = str(payload.get("conversation_id", ""))
+            return response
+        result = await asyncio.to_thread(
+            execute_command,
+            command_router(),
+            built_command,
+            bool(payload.get("confirmed")),
+            CommandExecutionContext(
+                output_mode=OutputMode.WEB,
+                source="desktop",
+                user_confirmed=bool(payload.get("confirmed")),
+            ),
+        )
+        conversation_id = str(payload.get("conversation_id", ""))
+        if spec.history_safe and conversation_id and store.get_conversation(conversation_id):
+            store.add_message(conversation_id, "user", f"{spec.label}: {built_command}", built_command)
+            store.add_message(conversation_id, "assistant", result.content, built_command, {"action": action, "status": result.status})
+        store.audit("desktop_action", action)
+        response = result.to_dict()
+        response["action"] = action
+        response["conversation_id"] = conversation_id
+        return response
 
     @app.get("/api/conversations", dependencies=[Depends(authorize)])
     async def conversations() -> list[dict[str, Any]]:
@@ -177,13 +309,19 @@ def create_app() -> Any:
         if not message:
             raise HTTPException(status_code=422, detail="Message is required")
         conversation_id = str(payload.get("conversation_id", ""))
+        command = infer_command(message)
+        if is_secret_command(command):
+            result = await asyncio.to_thread(execute_command, command_router(), command, bool(payload.get("confirmed")))
+            store.audit("command_blocked", redact_sensitive_command(command))
+            response = result.to_dict()
+            response["conversation_id"] = conversation_id if store.get_conversation(conversation_id) else ""
+            return response
         if not store.get_conversation(conversation_id):
             conversation_id = store.create_conversation(message[:60], config.settings.ai_provider, config.settings.ai_model)["id"]
-        command = infer_command(message)
         store.add_message(conversation_id, "user", message, command)
         result = await asyncio.to_thread(execute_command, command_router(), command, bool(payload.get("confirmed")))
         store.add_message(conversation_id, "assistant", result.content, command, {"status": result.status})
-        store.audit("command", command)
+        store.audit("command", redact_sensitive_command(command))
         response = result.to_dict()
         response["conversation_id"] = conversation_id
         return response
@@ -209,24 +347,28 @@ def create_app() -> Any:
     async def command(payload: dict[str, Any]) -> dict[str, Any]:
         raw = str(payload.get("command", ""))
         result = await asyncio.to_thread(execute_command, command_router(), raw, bool(payload.get("confirmed")))
-        store.audit("command", raw)
+        store.audit("command", redact_sensitive_command(raw))
         return result.to_dict()
 
     @app.get("/api/providers/status", dependencies=[Depends(authorize)])
     async def providers() -> dict[str, Any]:
-        return (await command({"command": "/provider trust"}))
+        response: dict[str, Any] = await command({"command": "/provider trust"})
+        return response
 
     @app.get("/api/portfolio", dependencies=[Depends(authorize)])
     async def portfolio() -> dict[str, Any]:
-        return (await command({"command": "/portfolio"}))
+        response: dict[str, Any] = await command({"command": "/portfolio"})
+        return response
 
     @app.get("/api/watchlist", dependencies=[Depends(authorize)])
     async def watchlist() -> dict[str, Any]:
-        return (await command({"command": "/watchlist"}))
+        response: dict[str, Any] = await command({"command": "/watchlist"})
+        return response
 
     @app.get("/api/research/{symbol}", dependencies=[Depends(authorize)])
     async def research(symbol: str) -> dict[str, Any]:
-        return (await command({"command": f"/research {symbol}"}))
+        response: dict[str, Any] = await command({"command": f"/research {symbol}"})
+        return response
 
     @app.get("/api/logs", dependencies=[Depends(authorize)])
     async def logs() -> list[dict[str, Any]]:

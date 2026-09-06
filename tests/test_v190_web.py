@@ -9,7 +9,15 @@ from rich.table import Table
 from fincli.app.cli.router import CommandResult
 from fincli.app.storage.config import ConfigManager
 from fincli.app.storage.database import FinCLIDatabase
-from fincli.app.web.bridge import execute_command, extract_tables, infer_command, sanitize_web_text, strip_ansi
+from fincli.app.web.bridge import (
+    CommandExecutionContext,
+    execute_command,
+    extract_tables,
+    infer_command,
+    redact_sensitive_command,
+    sanitize_web_text,
+    strip_ansi,
+)
 from fincli.app.web.security import command_requires_confirmation
 from fincli.app.web.store import WebStore
 
@@ -66,6 +74,19 @@ def test_safe_command_reuses_router() -> None:
     assert "ran /portfolio" in result.content
 
 
+def test_secret_commands_are_redacted_from_results() -> None:
+    secret = "https://discord.example/webhook/super-secret-value"
+    command = f"/notification add discord alerts {secret}"
+    result = execute_command(
+        StubRouter(),
+        command,
+        context=CommandExecutionContext(source="desktop", user_confirmed=True),  # type: ignore[arg-type]
+    )
+    assert secret not in result.command
+    assert "[REDACTED]" in result.command
+    assert secret not in redact_sensitive_command(command)
+
+
 def test_web_ui_assets_exist() -> None:
     static = Path(__file__).parents[1] / "fincli" / "app" / "web" / "static"
     assert (static / "index.html").is_file()
@@ -80,7 +101,7 @@ def test_api_health_endpoint() -> None:
     with TestClient(create_app()) as client:
         response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json()["version"] == "1.9.1"
+    assert response.json()["version"] == "2.0.0"
 
 
 TEST_TOKEN = "test-token-abc123"
@@ -94,6 +115,32 @@ def _patch_token(monkeypatch: object) -> None:
         return bool(candidate) and candidate == TEST_TOKEN
 
     monkeypatch.setattr(api_mod, "token_matches", _fake_matches)  # type: ignore[arg-type]
+
+
+def test_secret_chat_is_not_persisted_or_audited(tmp_path: Path, monkeypatch: object) -> None:
+    from fastapi.testclient import TestClient
+
+    import fincli.app.web.api as api_mod
+
+    database = FinCLIDatabase(tmp_path / "fincli.db")
+    monkeypatch.setattr(api_mod, "FinCLIDatabase", lambda: database)  # type: ignore[attr-defined]
+    _patch_token(monkeypatch)
+    secret = "secret-webhook-value-123456"
+    headers = {"Authorization": f"Bearer {TEST_TOKEN}", "X-FinCLI-CSRF": "local-web"}
+    with TestClient(api_mod.create_app()) as client:
+        response = client.post(
+            "/api/chat",
+            headers=headers,
+            json={"message": f"/notification add discord alerts {secret}"},
+        )
+        conversations = client.get("/api/conversations", headers=headers).json()
+        audit = client.get("/api/logs", headers=headers).json()
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "blocked"
+    assert secret not in json.dumps(response.json())
+    assert conversations == []
+    assert secret not in json.dumps(audit)
 
 
 def test_auth_correct_token_succeeds(tmp_path: Path, monkeypatch: object) -> None:

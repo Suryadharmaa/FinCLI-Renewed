@@ -1,4 +1,4 @@
-# FinCLI v1.9.1
+# FinCLI v2.0.0
 
 [![npm version](https://img.shields.io/npm/v/@drico2008/fincli)](https://www.npmjs.com/package/@drico2008/fincli)
 [![npm downloads](https://img.shields.io/npm/dm/@drico2008/fincli?label=downloads%2Fmonth)](https://www.npmjs.com/package/@drico2008/fincli)
@@ -7,7 +7,7 @@
 ![Node](https://img.shields.io/badge/Node.js-18+-green)
 [![Socket Badge](https://badge.socket.dev/npm/package/@drico2008/fincli)](https://badge.socket.dev/npm/package/@drico2008/fincli)
 
-**A terminal-native financial workstation. Research, trade, and analyze markets without leaving your shell.**
+**A local-first financial workspace for terminal and Windows desktop. Research, trade, and analyze markets from `fincli.exe` or your shell.**
 
 ![FinCLI startup dashboard](img/og-fincli.svg)
 
@@ -24,7 +24,21 @@
 
 ---
 
-## Install
+## Windows Desktop
+
+For most Windows users, the recommended entrypoint is the portable desktop app: `fincli.exe`.
+
+### Portable app for end users
+
+1. Download `fincli.exe` or the optional Windows installer from the project release artifacts.
+2. Open `fincli.exe`.
+3. Complete setup inside the app.
+
+`fincli.exe` already bundles the FinCLI backend. End users do not need to install Python, Node.js, npm, or a separate backend service.
+
+The only Windows runtime dependency is WebView2. Many systems already include it. If the app does not open on a clean machine, install WebView2 once and launch `fincli.exe` again.
+
+### CLI install
 
 ```bash
 npm install -g @drico2008/fincli
@@ -34,7 +48,23 @@ fincli
 
 The npm package includes Local Web Access dependencies. Python source users can install them with `pip install -e ".[web]"`.
 
-Requires Python 3.11+ and Node.js 18+. See [Prerequisites](#prerequisites) if you need to install them.
+CLI usage requires Python 3.11+ and Node.js 18+. See [Prerequisites](#prerequisites) if you need to install them.
+
+### Build desktop from source
+
+```powershell
+python -m pip install -e ".[web]"
+./scripts/build_desktop_backend.ps1
+cd desktop
+npm install
+npm run tauri:icons
+npm run tauri:build
+```
+
+Build output:
+
+- Portable app: `desktop/src-tauri/target/release/fincli.exe`
+- Installer: `desktop/src-tauri/target/release/bundle/nsis/FinCLI_2.0.0_x64-setup.exe`
 
 ---
 
@@ -50,7 +80,7 @@ Requires Python 3.11+ and Node.js 18+. See [Prerequisites](#prerequisites) if yo
 
 ## Local Web Access
 
-FinCLI v1.9.1 adds an optional, authenticated browser workspace at `http://localhost:19850`. The terminal remains the primary interface and all existing commands continue to work.
+FinCLI v2.0.0 adds a Windows-first desktop workspace powered by Tauri and the existing authenticated FastAPI bridge. The terminal remains supported and all existing commands continue to work.
 
 ```bash
 pip install -e ".[web]"
@@ -66,7 +96,7 @@ Type `/` in the web composer to browse and search the complete FinCLI command re
 
 > The local web UI is intended for local use. Do not expose it publicly unless you understand the security risks. Authentication is enabled and the server binds to `127.0.0.1` by default. Browser responses never include stored API keys or broker secrets, and sensitive commands require explicit confirmation.
 
-Screenshot placeholder: `docs/images/web-chat-v1.9.1.png`
+Screenshot placeholder: `docs/images/web-chat-v2.0.0.png`
 
 Troubleshooting: if web dependencies are missing, run `pip install -e ".[web]"`. Use `/web logs` for startup errors and `/web config set port <port>` if port `19850` is occupied.
 
@@ -286,6 +316,8 @@ Blocked by default: `os`, `sys`, `subprocess`, `socket`, `exec()`, `eval()`, `op
 
 ## Prerequisites
 
+Desktop end users can skip this section unless they are building from source or using the CLI/npm version.
+
 <details>
 <summary>Install Python 3.11+</summary>
 
@@ -331,6 +363,12 @@ fincli
 ---
 
 ## Changelog
+
+### v2.0.0
+- Add Windows-first `fincli.exe` desktop workspace with Tauri and the existing FastAPI/CommandRouter backend
+- Start and stop a loopback-only Python sidecar automatically, with readiness retry and single-instance behavior
+- Add internal desktop session bootstrap, structured desktop API metadata, and explicit confirmation for kill-switch actions
+- Add PyInstaller sidecar packaging, NSIS installer configuration, app icon generation, and Windows CI artifact publishing
 
 ### Next Major (validated, unreleased)
 - **Provider System v3**: first-class Polygon.io and IEX Cloud market providers across manager, config, TUI selector, key status, entitlements, and symbol intelligence

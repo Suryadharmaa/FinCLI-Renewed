@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FinCLI</title>
+  <style>
+    :root { color-scheme: light; font-family: "Segoe UI", sans-serif; background: #f7f7f5; color: #20201e; }
+    body { min-height: 100vh; margin: 0; display: grid; place-items: center; background: radial-gradient(circle at 50% 20%, #dff5ea, #f7f7f5 50%); }
+    main { width: min(420px, 88vw); padding: 32px; border: 1px solid #deded8; border-radius: 24px; background: #fff; box-shadow: 0 16px 50px #18181212; }
+    .mark { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 12px; background: #087f5b; color: #fff; font: bold 24px Georgia, serif; }
+    h1 { margin: 20px 0 8px; font: 500 28px Georgia, serif; }
+    p { color: #73736c; line-height: 1.5; }
+    .track { height: 8px; overflow: hidden; border-radius: 8px; background: #ecece8; }
+    .track span { display: block; width: 35%; height: 100%; border-radius: inherit; background: #087f5b; animation: loading 1.2s infinite ease-in-out; }
+    #error { color: #a62038; white-space: pre-wrap; }
+    button { width: 100%; margin-top: 16px; padding: 11px; border: 0; border-radius: 10px; background: #087f5b; color: #fff; cursor: pointer; }
+    @keyframes loading { 50% { transform: translateX(185%); } }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="mark">F</div>
+    <h1>Starting FinCLI workspace</h1>
+    <p id="status">Preparing the local secure backend...</p>
+    <div class="track"><span></span></div>
+    <p id="error"></p>
+    <button id="retry" hidden>Retry</button>
+  </main>
+  <script>
+    const tauri = window.__TAURI__;
+    const invoke = (name, args) => tauri.core.invoke(name, args);
+    const status = document.querySelector("#status");
+    const error = document.querySelector("#error");
+    const retry = document.querySelector("#retry");
+    let attempts = 0;
+
+    async function boot(restart = false) {
+      retry.hidden = true;
+      error.textContent = "";
+      if (restart) await invoke("desktop_restart").catch(() => null);
+      for (attempts = 0; attempts < 60; attempts += 1) {
+        try {
+          const base = await invoke("desktop_url");
+          status.textContent = `Connecting to local backend (${attempts + 1}/60)...`;
+          const response = await fetch(`${base}/api/health`, { cache: "no-store" });
+          if (response.ok) {
+            window.location.replace(`${base}/?desktop=1`);
+            return;
+          }
+        } catch (_) {
+          // The sidecar may need a few seconds to initialize on first launch.
+        }
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+      const detail = await invoke("desktop_error").catch(() => "The local backend did not become ready.");
+      status.textContent = "FinCLI could not start the local backend.";
+      error.textContent = `${detail}\n\nCheck the FinCLI logs and retry.`;
+      retry.hidden = false;
+    }
+
+    retry.onclick = () => boot(true);
+    boot();
+  </script>
+</body>
+</html>

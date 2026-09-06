@@ -120,13 +120,14 @@ class WebServerManager:
     def _healthy(self) -> bool:
         try:
             with urlopen(f"{self.url}/api/health", timeout=0.25) as response:
-                return response.status == 200
+                return bool(response.status == 200)
         except Exception:  # noqa: BLE001
             return False
 
     @staticmethod
     def _read_state() -> dict[str, Any]:
         try:
-            return json.loads(STATE_FILE.read_text(encoding="utf-8"))
+            payload = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+            return payload if isinstance(payload, dict) else {}
         except (OSError, ValueError):
             return {}

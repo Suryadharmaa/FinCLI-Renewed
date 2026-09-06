@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import platform
 import sys
 from dataclasses import dataclass
@@ -9,6 +10,7 @@ from importlib import metadata, util
 from pathlib import Path
 
 from fincli import __version__
+from fincli.app.storage.config_paths import APP_DIR
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +50,12 @@ def startup_dependency_error(exc: ImportError) -> str:
     """Build a friendly startup message when a runtime dependency is missing."""
 
     missing = getattr(exc, "name", None) or "unknown"
+    if os.getenv("FINCLI_DESKTOP") == "1":
+        return (
+            f"FinCLI desktop backend could not load dependency: {missing}\n\n"
+            "Restart FinCLI or reinstall the latest desktop release.\n"
+            "The diagnostic log is available under %LOCALAPPDATA%\\FinCLI\\logs."
+        )
     return (
         f"FinCLI failed to load Python dependency: {missing}\n\n"
         "Quick fix:\n"
@@ -95,7 +103,7 @@ def _npm_runtime_check() -> RuntimeCheck:
 
 
 def _user_config_dir_check() -> RuntimeCheck:
-    config_dir = Path.home() / ".fincli"
+    config_dir = APP_DIR
     try:
         config_dir.mkdir(parents=True, exist_ok=True)
         probe = config_dir / ".doctor-write-test"

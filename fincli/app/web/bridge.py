@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import re
+import shlex
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal
@@ -24,6 +25,26 @@ BOX_DRAWING_RE = re.compile(r"[╭╮╯╰─│┌┐└┘├┤┬┴┼═�
 TERMINAL_ONLY_SECRET_COMMANDS = ("/ai_model key", "/notification add")
 
 
+def is_secret_command(command: str) -> bool:
+    normalized = " ".join(command.strip().lower().split())
+    return any(normalized == prefix or normalized.startswith(prefix + " ") for prefix in TERMINAL_ONLY_SECRET_COMMANDS)
+
+
+def redact_sensitive_command(command: str) -> str:
+    """Return a display-safe command without credential-bearing arguments."""
+    if not is_secret_command(command):
+        return command
+    try:
+        parts = shlex.split(command)
+    except ValueError:
+        return f"{command.split(maxsplit=2)[0]} [REDACTED]"
+    if len(parts) >= 2 and parts[0].lower() == "/ai_model" and parts[1].lower() == "key":
+        parts[3:] = ["[REDACTED]"] if len(parts) > 3 else []
+    elif len(parts) >= 2 and parts[0].lower() == "/notification" and parts[1].lower() == "add":
+        parts[4:] = ["[REDACTED]"] if len(parts) > 4 else []
+    return " ".join(parts)
+
+
 class OutputMode(StrEnum):
     TERMINAL = "terminal"
     WEB = "web"
@@ -33,7 +54,7 @@ class OutputMode(StrEnum):
 @dataclass(frozen=True, slots=True)
 class CommandExecutionContext:
     output_mode: OutputMode = OutputMode.WEB
-    source: Literal["cli", "web"] = "web"
+    source: Literal["cli", "web", "desktop"] = "web"
     user_confirmed: bool = False
 
 
@@ -136,24 +157,25 @@ def execute_command(
 ) -> WebCommandResult:
     execution = context or CommandExecutionContext(user_confirmed=confirmed)
     normalized = " ".join(command.strip().lower().split())
-    if any(normalized.startswith(prefix) for prefix in TERMINAL_ONLY_SECRET_COMMANDS):
+    display_command = redact_sensitive_command(command)
+    if execution.source != "desktop" and is_secret_command(normalized):
         error = WebError(
             title="Terminal required",
             message="Commands that contain credentials cannot be submitted through Local Web Access.",
             code="TERMINAL_ONLY_SECRET",
             suggestion="Run this command in the FinCLI terminal so secret values are not stored in web or session history.",
         )
-        return WebCommandResult(False, "error", command, "blocked", title=error.title, message=error.message, errors=[error])
+        return WebCommandResult(False, "error", display_command, "blocked", title=error.title, message=error.message, errors=[error])
     if normalized == "/clear":
-        return WebCommandResult(True, "action", command, "ready", message="Conversation view cleared.", metadata={"action": "clear"})
+        return WebCommandResult(True, "action", display_command, "ready", message="Conversation view cleared.", metadata={"action": "clear"})
     if normalized == "/exit":
-        return WebCommandResult(True, "action", command, "ready", message="The browser session remains open. Close this tab to exit Local Web Access.", metadata={"action": "exit"})
+        return WebCommandResult(True, "action", display_command, "ready", message="The browser session remains open. Close this tab to exit Local Web Access.", metadata={"action": "exit"})
     if normalized in {"/ai_model", "/news_model"}:
         target = "AI provider/model" if normalized == "/ai_model" else "market/news provider"
         return WebCommandResult(
             True,
             "settings",
-            command,
+            display_command,
             "ready",
             title=f"Select {target}",
             text="The terminal picker is not used in a browser. Use the selector in the top bar or submit this command with explicit arguments.",
@@ -166,12 +188,12 @@ def execute_command(
             code="CONFIRMATION_REQUIRED",
             suggestion="Review the action and confirm it explicitly before continuing.",
         )
-        return WebCommandResult(False, "error", command, "confirmation_required", title=error.title, message=error.message, errors=[error])
+        return WebCommandResult(False, "error", display_command, "confirmation_required", title=error.title, message=error.message, errors=[error])
     try:
         result = router.route(command)
     except Exception as exc:  # noqa: BLE001
-        return error_to_web(exc, command)
-    return renderable_to_web(result.renderable, command, result.status)
+        return error_to_web(exc, display_command)
+    return renderable_to_web(result.renderable, display_command, result.status)
 
 
 def renderable_to_web(renderable: object, command: str, status: str = "ready") -> WebCommandResult:

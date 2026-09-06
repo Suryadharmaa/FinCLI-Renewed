@@ -4667,7 +4667,7 @@ def _format_security_scan(secrets: dict[str, str]) -> Table:
 
     # 5. Project file scan for leaked secrets
     try:
-        from scripts.prepublish_check import find_secret_issues
+        from fincli.app.utils.security_scan import find_secret_issues
         issues = find_secret_issues(Path("."))
         if issues:
             table.add_row("Project Scan", "warn", f"{len(issues)} potential leak(s) found")
@@ -4677,8 +4677,8 @@ def _format_security_scan(secrets: dict[str, str]) -> Table:
                 table.add_row("  ...", "info", f"+{len(issues) - 5} more. Run: python scripts/prepublish_check.py")
         else:
             table.add_row("Project Scan", "ok", "No leaked secrets in project files")
-    except FileNotFoundError:
-        table.add_row("Project Scan", "info", "Could not run (scripts/prepublish_check.py not found)")
+    except OSError as exc:
+        table.add_row("Project Scan", "warn", f"Could not scan workspace: {exc}")
 
     # 6. .env file check
     env_files = list(Path(".").glob(".env*"))
@@ -4687,43 +4687,6 @@ def _format_security_scan(secrets: dict[str, str]) -> Table:
         table.add_row(".env Files", "warn", f"Found: {', '.join(f.name for f in env_files)}")
     else:
         table.add_row(".env Files", "ok", "None in project root")
-
-    # 7. Token pattern scan in Python/JS/JSON files
-    import re
-    token_patterns = [
-        (re.compile(r'(?:api[_-]?key|token|secret|password)\s*[=:]\s*["\'][A-Za-z0-9_\-]{16,}["\']', re.IGNORECASE), "potential hardcoded token"),
-        (re.compile(r'ghp_[A-Za-z0-9]{36}'), "GitHub personal access token"),
-        (re.compile(r'sk-[A-Za-z0-9]{20,}'), "OpenAI-style API key"),
-        (re.compile(r'xoxb-[A-Za-z0-9\-]+'), "Slack bot token"),
-    ]
-    scan_extensions = {".py", ".js", ".ts", ".json", ".yml", ".yaml", ".toml"}
-    skip_dirs = {".git", "node_modules", "__pycache__", ".venv", ".npm-python", "dist", "build"}
-    token_findings: list[str] = []
-    try:
-        for path in Path(".").rglob("*"):
-            if any(skip in path.parts for skip in skip_dirs):
-                continue
-            if path.suffix not in scan_extensions or not path.is_file():
-                continue
-            try:
-                content = path.read_text(encoding="utf-8", errors="ignore")
-            except (OSError, UnicodeDecodeError):
-                continue
-            for pattern, label in token_patterns:
-                if pattern.search(content):
-                    token_findings.append(f"{path}: {label}")
-                    if len(token_findings) >= 10:
-                        break
-            if len(token_findings) >= 10:
-                break
-    except OSError:
-        pass
-    if token_findings:
-        table.add_row("Token Scan", "warn", f"{len(token_findings)} finding(s)")
-        for finding in token_findings[:5]:
-            table.add_row("  ", "warn", finding[:80])
-    else:
-        table.add_row("Token Scan", "ok", "No hardcoded token patterns found")
 
     table.caption = "Use /security lockdown to emergency-clear all secrets."
     return table

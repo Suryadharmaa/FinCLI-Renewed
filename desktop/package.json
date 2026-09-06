@@ -1,0 +1,15 @@
+{
+  "name": "fincli-desktop",
+  "private": true,
+  "version": "2.0.0",
+  "description": "FinCLI Windows desktop workspace",
+  "scripts": {
+    "tauri:icons": "tauri icon assets/fincli.svg",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "tauri:check": "tauri info"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
+  }
+}
