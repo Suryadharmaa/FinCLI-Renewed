@@ -28,6 +28,7 @@ from fincli.app.providers.market.base import (
 from fincli.app.services.web_research import WebSearchResult
 from fincli.app.storage.config import ConfigManager
 from fincli.app.storage.database import FinCLIDatabase
+from tests.workspace_support import configure_smoke, workspace_smoke_commands
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -135,6 +136,7 @@ def make_router(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> CommandRoute
         ai_provider=SmokeAIProvider(),
     )
     router.web_research = SmokeWebResearch()
+    configure_smoke(router, monkeypatch)
     return router
 
 
@@ -145,6 +147,7 @@ def make_router(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> CommandRoute
 def _smoke_commands(router: CommandRouter, export_dir: Path) -> dict[str, str]:
     """Return a mapping of every CommandRegistry name to a raw command string."""
     return {
+        **workspace_smoke_commands(router, export_dir),
         # General / System
         "/help": "/help",
         "/dashboard": "/dashboard",

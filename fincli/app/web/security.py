@@ -12,6 +12,13 @@ from fincli.app.storage.secrets import read_secrets, save_secret
 
 WEB_TOKEN_KEY = "FINCLI_WEB_TOKEN"
 SENSITIVE_PREFIXES = (
+    "/tv symbol",
+    "/tv timeframe",
+    "/tv indicator",
+    "/tv draw",
+    "/tv pine",
+    "/tv replay",
+    "/tv screenshot",
     "/trading live",
     "/trading kill",
     "/secrets",

@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+import pytest
 from rich.console import Console
 
 from fincli.app.cli.router import CommandRouter
@@ -29,6 +30,7 @@ from fincli.app.modules.trading import (
 from fincli.app.providers.market.base import Candle, FundamentalSnapshot, NewsItem, ProviderStatus, Quote
 from fincli.app.storage.config import ConfigManager
 from fincli.app.storage.database import FinCLIDatabase
+from tests.workspace_support import mock_quote
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -502,3 +504,8 @@ def test_kill_switch_blocks_paper_order(tmp_path: Path) -> None:
 
     assert result.status == "error"
     assert "Kill switch" in render_text(result.renderable) or "Risk guard" in render_text(result.renderable).lower()
+
+
+@pytest.fixture(autouse=True)
+def offline_reference_prices(monkeypatch):
+    monkeypatch.setattr(CommandRouter, "_safe_quote", lambda self, symbol: mock_quote(symbol))

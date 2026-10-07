@@ -23,7 +23,7 @@ function getErrorMessage(error) {
   if (error && typeof error === "object") return error.message || error.detail || error.error || "Request failed.";
   return "Request failed.";
 }
-function escapeHtml(value) { const div = document.createElement("div"); div.textContent = String(value ?? ""); return div.innerHTML; }
+function escapeHtml(value) { const div = document.createElement("div"); div.textContent = String(value ?? ""); return div.innerHTML.replaceAll('"', "&quot;").replaceAll("'", "&#39;"); }
 function sanitizeDisplayText(value) { return String(value ?? "").replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").replace(/[â•­â•®â•¯â•°â”€â”‚â”Œâ”â””â”˜â”œâ”¤â”¬â”´â”¼â•â•‘â•”â•—â•šâ•]/g, "").split("\n").map(line => line.trim()).filter(Boolean).join("\n"); }
 async function api(path, options = {}) {
   const timeoutMs = Number(options.timeoutMs || 120000);
@@ -112,6 +112,8 @@ function showView(view) {
   activeView = view; $("#sidebar").classList.remove("open"); visibleMessages = []; renderMessagePanel(false);
   document.querySelectorAll(".nav-item").forEach(item => item.classList.toggle("active", item.dataset.view === view));
   $("#chat-title").textContent = view === "home" ? "Home" : VIEW_COPY[view]?.[0] || "Workspace";
+  if (typeof cockpitEpoch !== "undefined") { cockpitEpoch++; cancelCockpitJobs(); }
+  if (view === "cockpit") { renderCockpit(); return; }
   if (view === "home") { renderHome(); return; }
   if (view === "settings") { openSettings(); renderSystem(); return; }
   const [title, description] = VIEW_COPY[view];

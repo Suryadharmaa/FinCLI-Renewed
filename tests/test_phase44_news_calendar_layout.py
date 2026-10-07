@@ -96,7 +96,7 @@ def test_calendar_country_filter_keeps_fallback_calendar_when_provider_fails(tmp
 
     monkeypatch.setattr("fincli.app.storage.secrets.SECRETS_FILE", tmp_path / "empty-secrets.env")
     monkeypatch.setattr(
-        "fincli.app.cli.router.read_secrets",
+        "fincli.app.cli.handlers.research.read_secrets",
         lambda: {"FINNHUB_API_KEY": "bad-key"},
     )
     monkeypatch.setattr(EconomicCalendarService, "events", fail_finnhub)
@@ -122,7 +122,7 @@ def test_calendar_static_fallback_message_is_not_raw_http_error(tmp_path: Path, 
         raise ProviderError("Public economic calendar gagal: HTTP 429.")
 
     monkeypatch.setattr(
-        "fincli.app.cli.router.read_secrets",
+        "fincli.app.cli.handlers.research.read_secrets",
         lambda: {"FINNHUB_API_KEY": "valid-but-calendar-blocked"},
     )
     monkeypatch.setattr(EconomicCalendarService, "events", fail_finnhub)
@@ -159,7 +159,7 @@ def test_calendar_uses_public_provider_before_static_fallback(tmp_path: Path, mo
         ]
 
     monkeypatch.setattr(
-        "fincli.app.cli.router.read_secrets",
+        "fincli.app.cli.handlers.research.read_secrets",
         lambda: {"FINNHUB_API_KEY": "valid-but-no-calendar-entitlement"},
     )
     monkeypatch.setattr(EconomicCalendarService, "events", fail_finnhub)
@@ -193,7 +193,7 @@ def test_calendar_shows_value_columns_for_provider_calendar_view(tmp_path: Path,
         ]
 
     monkeypatch.setattr(
-        "fincli.app.cli.router.read_secrets",
+        "fincli.app.cli.handlers.research.read_secrets",
         lambda: {"FINNHUB_API_KEY": "valid-but-no-calendar-entitlement"},
     )
     monkeypatch.setattr(EconomicCalendarService, "events", fail_finnhub)

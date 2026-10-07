@@ -58,7 +58,13 @@ def create_app() -> Any:
     store = WebStore(db)
     limiter = LocalRateLimiter()
     router: CommandRouter | None = None
-    app = FastAPI(title="FinCLI Local API", version=__version__, docs_url=None, redoc_url=None)
+    from contextlib import asynccontextmanager
+    @asynccontextmanager
+    async def lifespan(application):
+        yield
+        if router is not None:
+            router.shutdown()
+    app = FastAPI(title="FinCLI Local API", version=__version__, docs_url=None, redoc_url=None, lifespan=lifespan)
     allowed_origins = list(config.settings.web.allowed_origins)
     if desktop_mode:
         allowed_origins.extend(["http://tauri.localhost", "https://tauri.localhost", "tauri://localhost"])
@@ -75,6 +81,7 @@ def create_app() -> Any:
         if router is None:
             config.reload()
             router = CommandRouter(config=config, db=db)
+        app.state.workspace_router = router
         return router
 
     async def authorize(request: Request) -> None:
@@ -96,6 +103,9 @@ def create_app() -> Any:
             csrf = request.headers.get("X-FinCLI-CSRF", "")
             if csrf != "local-web":
                 raise HTTPException(status_code=403, detail="Missing CSRF header")
+
+    from fincli.app.workspace.api import register_workspace_routes
+    register_workspace_routes(app, authorize, command_router)
 
     @app.get("/api/health")
     async def health() -> dict[str, Any]:

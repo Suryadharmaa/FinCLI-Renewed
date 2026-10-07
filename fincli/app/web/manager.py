@@ -54,7 +54,7 @@ class WebServerManager:
         command = [sys.executable, "-m", "uvicorn", "fincli.app.web.api:create_app", "--factory", "--host", self.config.settings.web.host, "--port", str(self.config.settings.web.port)]
         if reload:
             command.append("--reload")
-        flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS if os.name == "nt" else 0
+        flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "DETACHED_PROCESS", 0) if os.name == "nt" else 0
         try:
             process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, creationflags=flags, close_fds=True)
         finally:

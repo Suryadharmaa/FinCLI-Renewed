@@ -349,7 +349,7 @@ class MarketDataService:
             with self._loop_lock:
                 if self._loop is None or self._loop.is_closed():
                     self._loop = asyncio.new_event_loop()
-            return self._loop.run_until_complete(awaitable)
+                return self._loop.run_until_complete(awaitable)
         with ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(asyncio.run, awaitable)
             return future.result(timeout=self.provider_timeout_seconds)
