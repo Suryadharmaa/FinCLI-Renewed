@@ -24,7 +24,8 @@
     "npm",
     "pyproject.toml",
     "README.md",
-    "requirements.txt"
+    "requirements.txt",
+    "docs/V3_WORKSPACE.md"
   ],
   "engines": {
     "node": ">=18"

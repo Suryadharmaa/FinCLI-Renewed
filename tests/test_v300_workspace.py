@@ -401,6 +401,10 @@ def test_authenticated_api_jobs_documents_and_exports(router, monkeypatch):
             == 403
         )
         assert client.post("/api/workspace/jobs", headers=headers, json={"action": "order"}).status_code == 422
+        confirmation = client.post(
+            "/api/command", headers=headers, json={"command": "/tv symbol AAPL", "confirmed": "false"}
+        )
+        assert confirmation.json()["status"] == "confirmation_required"
         assert (
             client.post(
                 "/api/workspace/layouts",

@@ -253,7 +253,7 @@ def create_app() -> Any:
             built_command = command_for_action(action, params)
         except (KeyError, ValueError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
-        if spec.confirmation_required and not bool(payload.get("confirmed")):
+        if spec.confirmation_required and payload.get("confirmed") is not True:
             result = WebCommandResult(
                 False,
                 "error",
@@ -276,11 +276,11 @@ def create_app() -> Any:
             execute_command,
             command_router(),
             built_command,
-            bool(payload.get("confirmed")),
+            payload.get("confirmed") is True,
             CommandExecutionContext(
                 output_mode=OutputMode.WEB,
                 source="desktop",
-                user_confirmed=bool(payload.get("confirmed")),
+                user_confirmed=payload.get("confirmed") is True,
             ),
         )
         conversation_id = str(payload.get("conversation_id", ""))
@@ -321,7 +321,7 @@ def create_app() -> Any:
         conversation_id = str(payload.get("conversation_id", ""))
         command = infer_command(message)
         if is_secret_command(command):
-            result = await asyncio.to_thread(execute_command, command_router(), command, bool(payload.get("confirmed")))
+            result = await asyncio.to_thread(execute_command, command_router(), command, payload.get("confirmed") is True)
             store.audit("command_blocked", redact_sensitive_command(command))
             response = result.to_dict()
             response["conversation_id"] = conversation_id if store.get_conversation(conversation_id) else ""
@@ -329,7 +329,7 @@ def create_app() -> Any:
         if not store.get_conversation(conversation_id):
             conversation_id = store.create_conversation(message[:60], config.settings.ai_provider, config.settings.ai_model)["id"]
         store.add_message(conversation_id, "user", message, command)
-        result = await asyncio.to_thread(execute_command, command_router(), command, bool(payload.get("confirmed")))
+        result = await asyncio.to_thread(execute_command, command_router(), command, payload.get("confirmed") is True)
         store.add_message(conversation_id, "assistant", result.content, command, {"status": result.status})
         store.audit("command", redact_sensitive_command(command))
         response = result.to_dict()
@@ -356,7 +356,7 @@ def create_app() -> Any:
     @app.post("/api/command", dependencies=[Depends(authorize)])
     async def command(payload: dict[str, Any]) -> dict[str, Any]:
         raw = str(payload.get("command", ""))
-        result = await asyncio.to_thread(execute_command, command_router(), raw, bool(payload.get("confirmed")))
+        result = await asyncio.to_thread(execute_command, command_router(), raw, payload.get("confirmed") is True)
         store.audit("command", redact_sensitive_command(raw))
         return result.to_dict()
 
