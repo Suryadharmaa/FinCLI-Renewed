@@ -191,6 +191,10 @@ def handle(router, root: str, args: list[str]):
             output = result("runs", service.store.runs())
         elif action == "run" and len(args) == 2:
             output = service.store.get_run(args[1])
+            return CommandResult(
+                Panel(Text(json.dumps(output, indent=2, ensure_ascii=False)), title="Saved run evidence"),
+                metadata={"workspace": output},
+            )
         elif action == "export" and len(args) == 3:
             output = result("export", {"path": service.export(args[1], args[2])})
         elif action == "job" and len(args) >= 2:
@@ -200,4 +204,12 @@ def handle(router, root: str, args: list[str]):
             )
         else:
             raise ValueError("Use /workspace layouts|save|runs|run|export|job.")
-    return CommandResult(render_result(output), metadata={"workspace": output})
+    provenance = output["provenance"]
+    notes = [
+        *output["warnings"],
+        f"Source: {provenance['source']} · {provenance['retrieved_at']} · {provenance['verification']} · {output['status']}",
+    ]
+    return CommandResult(
+        Group(render_result(output), Panel(Text("\n".join(notes)), title="Provenance and coverage")),
+        metadata={"workspace": output},
+    )

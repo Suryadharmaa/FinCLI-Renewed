@@ -507,3 +507,17 @@ def test_ai_validates_all_enum_arguments_before_providers(router, monkeypatch):
     )
     with pytest.raises(ValueError):
         router.workspace_service.workflow("Research AAPL then test MSFT")
+
+
+def test_saved_workflow_evidence_and_coverage_are_visible_in_cli(router):
+    from rich.console import Console
+
+    workflow = router.workspace_service.workflow("Research AAPL")
+    command = router.route(f"/workspace run {workflow['data']['id']}")
+    console = Console(record=True, width=200)
+    console.print(command.renderable)
+    text = console.export_text()
+    assert "Total Revenue" in text and '"provenance"' in text
+    valuation = router.route("/valuation 100 0.05 0.1 0.02")
+    console.print(valuation.renderable)
+    assert "User-supplied unlevered FCF" in console.export_text()
