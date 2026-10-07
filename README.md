@@ -1,4 +1,4 @@
-# FinCLI v2.0.1
+# FinCLI v3.0.0
 
 [![npm version](https://img.shields.io/npm/v/@drico2008/fincli)](https://www.npmjs.com/package/@drico2008/fincli)
 [![npm downloads](https://img.shields.io/npm/dm/@drico2008/fincli?label=downloads%2Fmonth)](https://www.npmjs.com/package/@drico2008/fincli)
@@ -12,6 +12,23 @@
 ![FinCLI startup dashboard](img/og-fincli.svg)
 
 ---
+
+## New in 3.0.0
+
+FinCLI remains a CLI/TUI and also offers a connected local workspace in the browser and Windows desktop app. Open **Workspace** after `/web start` or inside the desktop UI. Select an instrument to link company financials, charts, technical indicators, news and document evidence; save layouts and ticker tabs locally.
+
+| Capability | Entry point |
+| --- | --- |
+| Annual company statements, margins, growth, leverage, ROE/ROIC and fiscal-period-aligned peers | `/company AAPL`, `/company peers AAPL MSFT` |
+| PDF/TXT/Markdown research with page citations | `/document import report.pdf AAPL`, `/document search margin risks`; upload in Workspace |
+| Read-only AI tools with saved execution traces and evidence | `/workflow Compare AAPL and MSFT` |
+| Fundamental + technical screening, saved filters and Excel export | `/screen AAPL,MSFT --where "revenue_growth > 10% and rsi < 40"` |
+| FX-aware attribution, explicit stress scenarios, benchmark and rebalance preview | `/portfolio intelligence`; Portfolio workspace |
+| DCF with explicit assumptions and sensitivity grid | `/valuation 100 0.05 0.1 0.02` |
+| Saved historical strategy experiments with input snapshots | Workspace → Strategy experiment |
+| Optional local TradingView chart controls | `/tv capabilities`; Workspace → TradingView bridge |
+
+The same structured services serve CLI and UI. Background jobs support progress and cooperative cancellation. Financial calculations with missing inputs are withheld; company consensus estimates are currently labeled unavailable. TradingView is an optional external UI bridge, not FinCLI's market-data feed. See [the v3 guide](docs/V3_WORKSPACE.md) for commands, formulas, upgrade behavior and connector limitations.
 
 ## Why FinCLI
 
@@ -64,8 +81,8 @@ npm run tauri:build
 Build output:
 
 - Portable app: `desktop/src-tauri/target/release/fincli.exe`
-- Installer: `desktop/src-tauri/target/release/bundle/nsis/FinCLI_2.0.1_x64-setup.exe`
-- Publish-ready files: `release/v2.0.1/`
+- Installer: `desktop/src-tauri/target/release/bundle/nsis/FinCLI_3.0.0_x64-setup.exe`
+- Existing v2 binaries in `release/v2.0.1/` remain historical; build v3 from this source or use a v3 release artifact when published.
 
 ---
 
@@ -81,7 +98,7 @@ Build output:
 
 ## Local Web Access
 
-FinCLI v2.0.1 provides a Windows-first desktop workspace powered by Tauri and the existing authenticated FastAPI bridge. The terminal remains supported and all existing commands continue to work.
+FinCLI v3.0.0 provides a Windows-first desktop workspace powered by Tauri and the existing authenticated FastAPI bridge. The terminal remains supported and all existing commands continue to work.
 
 ```bash
 pip install -e ".[web]"
@@ -364,6 +381,12 @@ fincli
 ---
 
 ## Changelog
+
+### v3.0.0
+- Connected local layouts, ticker tabs and asynchronous panels shared by web/desktop and CLI services.
+- Annual financial statements, aligned peers, explicit-assumption DCF, document evidence and bounded AI tool workflows.
+- Fundamental/technical screener, Excel exports, portfolio FX attribution/stress/benchmark, and saved strategy experiments.
+- Optional confirmed TradingView chart bridge, additive SQLite storage, domain router handlers and expanded regression/CI coverage.
 
 ### v2.0.1
 - Prevent secret and webhook values from entering desktop history, audit records, API responses, or confirmation previews

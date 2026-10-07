@@ -106,9 +106,9 @@ def test_desktop_workspace_assets_and_capabilities(monkeypatch: object) -> None:
     assert "assets/" not in source
     assert capabilities.status_code == 200
     payload = capabilities.json()
-    assert payload["command_count"] == len(COMMANDS) == 155
-    assert len(payload["commands"]) == 155
-    assert len({row["name"] for row in payload["commands"]}) == 155
+    assert payload["command_count"] == len(COMMANDS) == 167
+    assert len(payload["commands"]) == 167
+    assert len({row["name"] for row in payload["commands"]}) == 167
     assert all("desktop_supported" in row and "input_schema" in row for row in payload["commands"])
     assert all(row["desktop_available"] for row in payload["commands"])
     assert any(row["terminal_only_reason"] for row in payload["commands"])

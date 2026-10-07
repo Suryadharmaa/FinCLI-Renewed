@@ -45,8 +45,8 @@ try {
     $securityTimer.Stop()
     $css = Invoke-WebRequest -Uri ("http://127.0.0.1:{0}/app.css" -f $port) -UseBasicParsing
     $js = Invoke-WebRequest -Uri ("http://127.0.0.1:{0}/app.js" -f $port) -UseBasicParsing
-    if ($capabilities.command_count -ne 155) { throw "Desktop capability count mismatch: $($capabilities.command_count)" }
-    if ($help.kind -ne "help" -or $help.tables[0].rows.Count -ne 155) { throw "Packaged /help response is incomplete." }
+    if ($capabilities.command_count -ne 167) { throw "Desktop capability count mismatch: $($capabilities.command_count)" }
+    if ($help.kind -ne "help" -or $help.tables[0].rows.Count -ne 167) { throw "Packaged /help response is incomplete." }
     if ($timer.ElapsedMilliseconds -gt 3000) { throw "Packaged /help exceeded 3 seconds: $($timer.ElapsedMilliseconds)ms" }
     if (-not $security.ok) { throw "Packaged /security scan failed." }
     if ($securityTimer.ElapsedMilliseconds -gt 3000) { throw "Packaged /security scan exceeded 3 seconds: $($securityTimer.ElapsedMilliseconds)ms" }

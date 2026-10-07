@@ -18,6 +18,7 @@ from fincli.app.providers.market.base import (
 )
 from fincli.app.services.web_research import WebSearchResult
 from fincli.app.storage.database import FinCLIDatabase
+from tests.workspace_support import configure_smoke, workspace_smoke_commands
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -90,6 +91,7 @@ def make_router(tmp_path: Path, monkeypatch) -> CommandRouter:
     monkeypatch.setattr("fincli.app.storage.secrets.SECRETS_FILE", tmp_path / "secrets.env")
     router = CommandRouter(db=FinCLIDatabase(tmp_path / "fincli.db"), market_provider=SmokeMarketProvider(), ai_provider=SmokeAIProvider())
     router.web_research = SmokeWebResearch()
+    configure_smoke(router, monkeypatch)
     return router
 
 
@@ -157,6 +159,7 @@ def test_registry_commands_have_local_smoke_coverage(tmp_path: Path, monkeypatch
 
 def _smoke_commands(router: CommandRouter, export_dir: Path) -> dict[str, str]:
     return {
+        **workspace_smoke_commands(router, export_dir),
         "/help": "/help",
         "/dashboard": "/dashboard",
         "/ai_model": "/ai_model",

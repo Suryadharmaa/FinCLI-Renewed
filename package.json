@@ -1,13 +1,13 @@
 {
   "name": "@drico2008/fincli",
-  "version": "2.0.1",
+  "version": "3.0.0",
   "description": "Modern financial CLI/TUI terminal for market monitoring and analysis.",
   "license": "MIT",
   "bin": {
     "fincli": "npm/bin/fincli.js"
   },
   "scripts": {
-    "check": "node --check npm/bin/fincli.js && node --check npm/setup.js",
+    "check": "node --check npm/bin/fincli.js && node --check npm/setup.js && node --check fincli/app/web/static/app.js && node --check fincli/app/web/static/workspace.js",
     "web:start": "python -m fincli.app.web.server",
     "web:dev": "python -m fincli.app.web.server --reload",
     "web:build": "python -m compileall fincli/app/web -q",
@@ -15,7 +15,8 @@
     "desktop:build": "powershell -ExecutionPolicy Bypass -File scripts/build_desktop.ps1",
     "test:web": "python -m pytest tests/test_v190_web.py",
     "prepublish:safety": "python scripts/prepublish_check.py",
-    "prepublishOnly": "python scripts/prepublish_check.py"
+    "prepublishOnly": "python scripts/prepublish_check.py",
+    "test:workspace-ui": "node scripts/test_workspace_ui.cjs"
   },
   "files": [
     "fincli/**/*.py",
@@ -23,9 +24,13 @@
     "npm",
     "pyproject.toml",
     "README.md",
-    "requirements.txt"
+    "requirements.txt",
+    "docs/V3_WORKSPACE.md"
   ],
   "engines": {
     "node": ">=18"
+  },
+  "devDependencies": {
+    "jsdom": "^26.1.0"
   }
 }

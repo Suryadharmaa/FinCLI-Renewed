@@ -158,6 +158,15 @@ def execute_command(
     execution = context or CommandExecutionContext(user_confirmed=confirmed)
     normalized = " ".join(command.strip().lower().split())
     display_command = redact_sensitive_command(command)
+    if normalized.startswith(("/document import ", "/workspace export ")):
+        return WebCommandResult(
+            False,
+            "error",
+            display_command,
+            "blocked",
+            title="Use document upload or download",
+            message="Local file paths are terminal-only. Use the workspace upload/download controls.",
+        )
     if execution.source != "desktop" and is_secret_command(normalized):
         error = WebError(
             title="Terminal required",
@@ -165,11 +174,22 @@ def execute_command(
             code="TERMINAL_ONLY_SECRET",
             suggestion="Run this command in the FinCLI terminal so secret values are not stored in web or session history.",
         )
-        return WebCommandResult(False, "error", display_command, "blocked", title=error.title, message=error.message, errors=[error])
+        return WebCommandResult(
+            False, "error", display_command, "blocked", title=error.title, message=error.message, errors=[error]
+        )
     if normalized == "/clear":
-        return WebCommandResult(True, "action", display_command, "ready", message="Conversation view cleared.", metadata={"action": "clear"})
+        return WebCommandResult(
+            True, "action", display_command, "ready", message="Conversation view cleared.", metadata={"action": "clear"}
+        )
     if normalized == "/exit":
-        return WebCommandResult(True, "action", display_command, "ready", message="The browser session remains open. Close this tab to exit Local Web Access.", metadata={"action": "exit"})
+        return WebCommandResult(
+            True,
+            "action",
+            display_command,
+            "ready",
+            message="The browser session remains open. Close this tab to exit Local Web Access.",
+            metadata={"action": "exit"},
+        )
     if normalized in {"/ai_model", "/news_model"}:
         target = "AI provider/model" if normalized == "/ai_model" else "market/news provider"
         return WebCommandResult(
@@ -188,12 +208,25 @@ def execute_command(
             code="CONFIRMATION_REQUIRED",
             suggestion="Review the action and confirm it explicitly before continuing.",
         )
-        return WebCommandResult(False, "error", display_command, "confirmation_required", title=error.title, message=error.message, errors=[error])
+        return WebCommandResult(
+            False,
+            "error",
+            display_command,
+            "confirmation_required",
+            title=error.title,
+            message=error.message,
+            errors=[error],
+        )
+    if normalized.startswith("/tv ") and execution.user_confirmed:
+        command += " --confirm"
     try:
         result = router.route(command)
     except Exception as exc:  # noqa: BLE001
         return error_to_web(exc, display_command)
-    return renderable_to_web(result.renderable, display_command, result.status)
+    web_result = renderable_to_web(result.renderable, display_command, result.status)
+    if result.metadata and "workspace" in result.metadata:
+        web_result.metadata["workspace"] = result.metadata["workspace"]
+    return web_result
 
 
 def renderable_to_web(renderable: object, command: str, status: str = "ready") -> WebCommandResult:
@@ -216,7 +249,9 @@ def renderable_to_web(renderable: object, command: str, status: str = "ready") -
         return nested
     tables = _extract_tables(renderable)
     if tables:
-        return WebCommandResult(True, _command_kind(command, "table"), command, status, title=tables[0].title, tables=tables)
+        return WebCommandResult(
+            True, _command_kind(command, "table"), command, status, title=tables[0].title, tables=tables
+        )
     if isinstance(renderable, Panel):
         message = _plain_value(renderable.renderable)
         title = sanitize_web_text(str(renderable.title or "Result"))
@@ -229,7 +264,9 @@ def renderable_to_web(renderable: object, command: str, status: str = "ready") -
     text = _plain_value(renderable)
     if status == "error" or _looks_like_error(text):
         return _error_message_to_web(text, command)
-    return WebCommandResult(True, _command_kind(command, "text"), command, status, text=text or "No displayable output.")
+    return WebCommandResult(
+        True, _command_kind(command, "text"), command, status, text=text or "No displayable output."
+    )
 
 
 def error_to_web(error: Exception, command: str = "") -> WebCommandResult:
@@ -254,7 +291,16 @@ def _error_message_to_web(message: str, command: str, title: str = "Command fail
             else "Check provider status and command arguments, then try again."
         ),
     )
-    return WebCommandResult(False, "error", command, "error", title=title, message=clean, errors=[error], metadata={"provider": provider} if provider else {})
+    return WebCommandResult(
+        False,
+        "error",
+        command,
+        "error",
+        title=title,
+        message=clean,
+        errors=[error],
+        metadata={"provider": provider} if provider else {},
+    )
 
 
 def _extract_tables(renderable: object) -> list[WebTable]:

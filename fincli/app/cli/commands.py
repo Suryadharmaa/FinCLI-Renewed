@@ -14,6 +14,18 @@ class CommandSpec:
 
 
 COMMANDS: tuple[CommandSpec, ...] = (
+    CommandSpec('/workspace', 'Connected panel layouts and reproducible runs.', '/workspace layouts', 'System'),
+    CommandSpec('/company', 'Company statements, ratios and events.', '/company AAPL', 'Research'),
+    CommandSpec('/company peers', 'Compare companies in a common fiscal period.', '/company peers AAPL MSFT', 'Research'),
+    CommandSpec('/document list', 'List local research documents.', '/document list AAPL', 'Research'),
+    CommandSpec('/document import', 'Import local PDF/TXT/MD evidence.', '/document import report.pdf AAPL', 'Research'),
+    CommandSpec('/document search', 'Search documents with page citations.', '/document search margin risks', 'Research'),
+    CommandSpec('/workflow', 'Run bounded read-only AI research tools.', '/workflow Compare AAPL and MSFT', 'AI'),
+    CommandSpec('/screen', 'Combined fundamental and technical screening.', '/screen AAPL,MSFT --where "revenue_growth > 10% and rsi < 40"', 'Market'),
+    CommandSpec('/valuation', 'Unlevered FCF model and sensitivity.', '/valuation 100 0.05 0.1 0.02', 'Research'),
+    CommandSpec('/portfolio intelligence', 'FX attribution, stress and rebalance preview.', '/portfolio intelligence', 'Portfolio'),
+    CommandSpec('/tv', 'Optional external TradingView chart bridge.', '/tv capabilities', 'Advanced'),
+    CommandSpec('/jobs', 'Inspect or cancel background work.', '/jobs show <id>', 'System'),
     CommandSpec("/help", "Show help, command list, and examples.", "/help"),
     CommandSpec("/dashboard", "Show compact FinCLI dashboard.", "/dashboard", "General"),
     CommandSpec("/ai_model", "Interactive AI provider/model picker. No arguments: open picker.", "/ai_model", "AI"),

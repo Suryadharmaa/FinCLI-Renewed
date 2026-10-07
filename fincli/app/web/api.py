@@ -58,7 +58,13 @@ def create_app() -> Any:
     store = WebStore(db)
     limiter = LocalRateLimiter()
     router: CommandRouter | None = None
-    app = FastAPI(title="FinCLI Local API", version=__version__, docs_url=None, redoc_url=None)
+    from contextlib import asynccontextmanager
+    @asynccontextmanager
+    async def lifespan(application):
+        yield
+        if router is not None:
+            router.shutdown()
+    app = FastAPI(title="FinCLI Local API", version=__version__, docs_url=None, redoc_url=None, lifespan=lifespan)
     allowed_origins = list(config.settings.web.allowed_origins)
     if desktop_mode:
         allowed_origins.extend(["http://tauri.localhost", "https://tauri.localhost", "tauri://localhost"])
@@ -75,6 +81,7 @@ def create_app() -> Any:
         if router is None:
             config.reload()
             router = CommandRouter(config=config, db=db)
+        app.state.workspace_router = router
         return router
 
     async def authorize(request: Request) -> None:
@@ -96,6 +103,9 @@ def create_app() -> Any:
             csrf = request.headers.get("X-FinCLI-CSRF", "")
             if csrf != "local-web":
                 raise HTTPException(status_code=403, detail="Missing CSRF header")
+
+    from fincli.app.workspace.api import register_workspace_routes
+    register_workspace_routes(app, authorize, command_router)
 
     @app.get("/api/health")
     async def health() -> dict[str, Any]:
@@ -243,7 +253,7 @@ def create_app() -> Any:
             built_command = command_for_action(action, params)
         except (KeyError, ValueError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
-        if spec.confirmation_required and not bool(payload.get("confirmed")):
+        if spec.confirmation_required and payload.get("confirmed") is not True:
             result = WebCommandResult(
                 False,
                 "error",
@@ -266,11 +276,11 @@ def create_app() -> Any:
             execute_command,
             command_router(),
             built_command,
-            bool(payload.get("confirmed")),
+            payload.get("confirmed") is True,
             CommandExecutionContext(
                 output_mode=OutputMode.WEB,
                 source="desktop",
-                user_confirmed=bool(payload.get("confirmed")),
+                user_confirmed=payload.get("confirmed") is True,
             ),
         )
         conversation_id = str(payload.get("conversation_id", ""))
@@ -311,7 +321,7 @@ def create_app() -> Any:
         conversation_id = str(payload.get("conversation_id", ""))
         command = infer_command(message)
         if is_secret_command(command):
-            result = await asyncio.to_thread(execute_command, command_router(), command, bool(payload.get("confirmed")))
+            result = await asyncio.to_thread(execute_command, command_router(), command, payload.get("confirmed") is True)
             store.audit("command_blocked", redact_sensitive_command(command))
             response = result.to_dict()
             response["conversation_id"] = conversation_id if store.get_conversation(conversation_id) else ""
@@ -319,7 +329,7 @@ def create_app() -> Any:
         if not store.get_conversation(conversation_id):
             conversation_id = store.create_conversation(message[:60], config.settings.ai_provider, config.settings.ai_model)["id"]
         store.add_message(conversation_id, "user", message, command)
-        result = await asyncio.to_thread(execute_command, command_router(), command, bool(payload.get("confirmed")))
+        result = await asyncio.to_thread(execute_command, command_router(), command, payload.get("confirmed") is True)
         store.add_message(conversation_id, "assistant", result.content, command, {"status": result.status})
         store.audit("command", redact_sensitive_command(command))
         response = result.to_dict()
@@ -346,7 +356,7 @@ def create_app() -> Any:
     @app.post("/api/command", dependencies=[Depends(authorize)])
     async def command(payload: dict[str, Any]) -> dict[str, Any]:
         raw = str(payload.get("command", ""))
-        result = await asyncio.to_thread(execute_command, command_router(), raw, bool(payload.get("confirmed")))
+        result = await asyncio.to_thread(execute_command, command_router(), raw, payload.get("confirmed") is True)
         store.audit("command", redact_sensitive_command(raw))
         return result.to_dict()
 

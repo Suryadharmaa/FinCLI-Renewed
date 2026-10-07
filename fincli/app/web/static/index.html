@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="structured.css">
   <link rel="stylesheet" href="commands.css">
   <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="workspace.css">
 </head>
 <body>
   <div id="auth" class="auth-screen">
@@ -29,12 +30,13 @@
   <div id="app" class="app-shell hidden">
     <aside id="sidebar" class="sidebar">
       <div class="sidebar-top">
-        <div class="brand"><span class="brand-mark small">F</span><span class="brand-name">FinCLI</span><span class="brand-version">2.0</span></div>
+        <div class="brand"><span class="brand-mark small">F</span><span class="brand-name">FinCLI</span><span class="brand-version">3.0</span></div>
         <button class="icon-button" id="collapse" aria-label="Collapse sidebar">&#9776;</button>
       </div>
       <button class="new-task" id="new-chat"><span>+</span> New task</button>
       <div class="search-wrap"><span class="search-icon">&#8981;</span><input class="search" id="search" placeholder="Search conversations"></div>
       <nav class="main-nav" aria-label="Main navigation">
+        <button class="nav-item" data-view="cockpit"><span>▦</span><b>Workspace</b></button>
         <button class="nav-item active" data-view="home"><span>⌂</span><b>Home</b></button>
         <button class="nav-item" data-view="research"><span>⌁</span><b>Research</b></button>
         <button class="nav-item" data-view="market"><span>◌</span><b>Market</b></button>
@@ -85,5 +87,6 @@
   </aside>
   <div id="modal-root"></div>
   <script src="app.js"></script>
+  <script src="workspace.js"></script>
 </body>
 </html>

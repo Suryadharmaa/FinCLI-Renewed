@@ -4,6 +4,7 @@ import json
 import tomllib
 from pathlib import Path
 
+import pytest
 from rich.console import Console
 
 import fincli
@@ -12,6 +13,7 @@ from fincli.app.cli.router import CommandRouter
 from fincli.app.modules.trading import BrokerCatalog, PaperTradingEngine, RealtimeConnectorCatalog
 from fincli.app.storage.config import ConfigManager
 from fincli.app.storage.database import FinCLIDatabase
+from tests.workspace_support import mock_quote
 
 
 def render_text(renderable: object) -> str:
@@ -98,6 +100,11 @@ def test_version_bumped_to_040() -> None:
     pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
     package = json.loads(Path("package.json").read_text(encoding="utf-8"))
 
-    assert fincli.__version__ == "2.0.1"
-    assert pyproject["project"]["version"] == "2.0.1"
-    assert package["version"] == "2.0.1"
+    assert fincli.__version__ == "3.0.0"
+    assert pyproject["project"]["version"] == "3.0.0"
+    assert package["version"] == "3.0.0"
+
+
+@pytest.fixture(autouse=True)
+def offline_reference_prices(monkeypatch):
+    monkeypatch.setattr(CommandRouter, "_safe_quote", lambda self, symbol: mock_quote(symbol))
