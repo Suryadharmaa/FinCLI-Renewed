@@ -33,8 +33,11 @@ function Capture-Window([IntPtr]$handle, [string]$name) {
         $dc = $graphics.GetHdc()
         try { $printed = [FinCLICapture]::PrintWindow($handle, $dc, 2) } finally { $graphics.ReleaseHdc($dc) }
         $bitmap.Save((Join-Path $output "$name-window.png"), [System.Drawing.Imaging.ImageFormat]::Png)
-        $graphics.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $bitmap.Size)
-        $bitmap.Save((Join-Path $output "$name-screen.png"), [System.Drawing.Imaging.ImageFormat]::Png)
+        $screenBounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+        if ($rect.Right -le $screenBounds.Right -and $rect.Bottom -le $screenBounds.Bottom) {
+            $graphics.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $bitmap.Size)
+            $bitmap.Save((Join-Path $output "$name-screen.png"), [System.Drawing.Imaging.ImageFormat]::Png)
+        }
         Write-Host "CAPTURED $name ${width}x${height} PrintWindow=$printed"
     } finally { $graphics.Dispose(); $bitmap.Dispose() }
 }
@@ -69,8 +72,8 @@ try {
     }
     if ($handle -eq [IntPtr]::Zero) { throw 'No FinCLI window.' }
     $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
-    $width = [Math]::Min(1440, $screen.Width - 16)
-    $height = [Math]::Min(920, $screen.Height - 40)
+    $width = 1440
+    $height = 920
     [FinCLICapture]::ShowWindow($handle, 9) | Out-Null
     [FinCLICapture]::SetWindowPos($handle, [IntPtr]::Zero, 8, 8, $width, $height, 0) | Out-Null
     [FinCLICapture]::SetForegroundWindow($handle) | Out-Null
