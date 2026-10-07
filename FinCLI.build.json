@@ -1,0 +1,13 @@
+{
+  "version": "3.0.0",
+  "source_commit": "1e6ab929ec843cdf3414fe402f1f70dabfc8459d",
+  "sha256": "da65984668a9df7100b29bb854587f2b653921a5b3059310b716c9126dcc129f",
+  "size_bytes": 58433536,
+  "build_run": "37563273377",
+  "checks": [
+    "packaged-backend",
+    "desktop-startup",
+    "single-instance",
+    "desktop-shutdown"
+  ]
+}
