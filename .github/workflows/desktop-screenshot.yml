@@ -1,0 +1,26 @@
+name: Desktop screenshot sample
+on:
+  push:
+    branches: [preview/windows-screenshots]
+    paths:
+      - '.github/workflows/desktop-screenshot.yml'
+      - 'scripts/capture_desktop_sample.ps1'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  screenshot:
+    runs-on: windows-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Capture actual FinCLI executable
+        shell: powershell
+        run: ./scripts/capture_desktop_sample.ps1
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FinCLI-Native-Screenshots
+          path: screenshots/
+          if-no-files-found: error
