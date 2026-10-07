@@ -6,13 +6,17 @@ if (-not (Test-Path $executable)) {
     throw "Portable FinCLI executable not found: $executable"
 }
 
-$app = Start-Process -FilePath $executable -PassThru
+$temp = Join-Path $env:TEMP ("FinCLI-app-smoke-" + [guid]::NewGuid().ToString("N"))
+$oldData = $env:FINCLI_DATA_DIR
+$env:FINCLI_DATA_DIR = $temp
+$app = $null
 $backend = $null
 $second = $null
 try {
+    $app = Start-Process -FilePath $executable -PassThru
     for ($attempt = 0; $attempt -lt 120; $attempt++) {
         Start-Sleep -Milliseconds 500
-        $backend = Get-CimInstance Win32_Process -Filter "Name = 'fincli-backend.exe'" | Where-Object { $_.CommandLine -like '*--desktop*' } | Select-Object -First 1
+        $backend = Get-CimInstance Win32_Process -Filter "Name = 'fincli-backend.exe'" | Where-Object { $_.ParentProcessId -eq $app.Id -and $_.CommandLine -like '*--desktop*' } | Select-Object -First 1
         if ($backend) { break }
         if ($app.HasExited) { throw "FinCLI exited before starting its embedded backend (code $($app.ExitCode))." }
     }
@@ -29,6 +33,10 @@ try {
     }
     if ($null -eq $response) { throw "Embedded backend health endpoint did not become ready." }
     if ($response.StatusCode -ne 200) { throw "Desktop backend health check failed: $($response.StatusCode)" }
+    $expectedVersion = (Get-Content "$root/package.json" | ConvertFrom-Json).version
+    if (($response.Content | ConvertFrom-Json).version -ne $expectedVersion) { throw "Desktop app version does not match source." }
+    $app.Refresh()
+    if ($app.MainWindowHandle -eq 0) { throw "FinCLI did not create a desktop window." }
     $second = Start-Process -FilePath $executable -PassThru
     if (-not $second.WaitForExit(10000)) { throw "Second FinCLI instance did not exit." }
     Write-Host "SMOKE_OK $($response.Content) app=$($app.Id) backend=$($backend.ProcessId) port=$port"
@@ -49,5 +57,8 @@ try {
     }
     if ($second -and -not $second.HasExited) { taskkill.exe /PID $second.Id /T /F 2>$null | Out-Null }
     if ($app -and -not $app.HasExited) { taskkill.exe /PID $app.Id /T /F 2>$null | Out-Null }
+    if ($null -eq $oldData) { Remove-Item Env:FINCLI_DATA_DIR -ErrorAction SilentlyContinue } else { $env:FINCLI_DATA_DIR = $oldData }
+    if (Test-Path "$temp/logs/backend.log") { Get-Content "$temp/logs/backend.log" -Tail 30 | Write-Host }
+    Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
     if ($backend -and -not $backendStopped) { throw "Embedded backend did not stop cleanly with the desktop app." }
 }

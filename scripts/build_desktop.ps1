@@ -7,12 +7,15 @@ try {
     Push-Location "$root/desktop"
     try {
         & npm.cmd ci
+        if ($LASTEXITCODE -ne 0) { throw "Desktop npm installation failed: $LASTEXITCODE" }
         if (-not (Test-Path "src-tauri/icons/icon.ico")) {
             & npm.cmd run tauri:icons
+            if ($LASTEXITCODE -ne 0) { throw "Desktop icon generation failed: $LASTEXITCODE" }
         }
         $backend = (Resolve-Path "$root/desktop/src-tauri/binaries/fincli-backend-x86_64-pc-windows-msvc.exe").Path
         $env:FINCLI_BACKEND_BINARY = $backend
         & npm.cmd run tauri:build
+        if ($LASTEXITCODE -ne 0) { throw "Desktop Tauri build failed: $LASTEXITCODE" }
     } finally {
         Pop-Location
     }
@@ -29,6 +32,26 @@ try {
     if (-not (Test-Path $installer)) {
         throw "Windows installer was not produced: $installer"
     }
+
+    # Validate the packaged backend and real desktop lifecycle before replacing artifacts.
+    & "$root/scripts/smoke_desktop_backend.ps1"
+    & "$root/scripts/smoke_desktop_app.ps1"
+
+    $rootExecutable = Join-Path $root "FinCLI.exe"
+    Copy-Item -LiteralPath $portable -Destination $rootExecutable -Force
+    Set-Content -LiteralPath "$rootExecutable.sha256" -Value "$($hash.Hash.ToLowerInvariant())  FinCLI.exe" -Encoding ascii
+    $sourceCommit = (& git -C $root rev-parse HEAD).Trim()
+    if ($LASTEXITCODE -ne 0) { throw "Cannot resolve build source commit." }
+    $manifest = [ordered]@{
+        version = $version
+        source_commit = $sourceCommit
+        sha256 = $hash.Hash.ToLowerInvariant()
+        size_bytes = (Get-Item -LiteralPath $rootExecutable).Length
+        build_run = $env:GITHUB_RUN_ID
+        checks = @("packaged-backend", "desktop-startup", "single-instance", "desktop-shutdown")
+    }
+    $manifest | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $root "FinCLI.build.json") -Encoding utf8
+    Write-Host "Root portable app: $rootExecutable"
 
     $releaseDir = Join-Path $root "release/v$version"
     New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null

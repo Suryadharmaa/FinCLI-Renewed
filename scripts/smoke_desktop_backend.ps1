@@ -32,6 +32,8 @@ try {
         Write-Host (Get-Content $stderr -Raw -ErrorAction SilentlyContinue)
         throw "Backend health endpoint did not become ready."
     }
+    $expectedVersion = (Get-Content "$root/package.json" | ConvertFrom-Json).version
+    if (($response.Content | ConvertFrom-Json).version -ne $expectedVersion) { throw "Packaged backend version does not match source." }
     $headers = @{ Authorization = "Bearer smoke-token" }
     $capabilities = Invoke-RestMethod -Uri ("http://127.0.0.1:{0}/api/desktop/capabilities" -f $port) -Headers $headers
     $commandHeaders = @{ Authorization = "Bearer smoke-token"; "X-FinCLI-CSRF" = "local-web" }
@@ -45,6 +47,9 @@ try {
     $securityTimer.Stop()
     $css = Invoke-WebRequest -Uri ("http://127.0.0.1:{0}/app.css" -f $port) -UseBasicParsing
     $js = Invoke-WebRequest -Uri ("http://127.0.0.1:{0}/app.js" -f $port) -UseBasicParsing
+    $workspace = Invoke-WebRequest -Uri ("http://127.0.0.1:{0}/workspace.js" -f $port) -UseBasicParsing
+    $layouts = Invoke-RestMethod -Uri ("http://127.0.0.1:{0}/api/workspace/layouts" -f $port) -Headers $headers
+    if ($workspace.StatusCode -ne 200 -or $workspace.Content -notmatch "renderCockpit" -or $null -eq $layouts.layouts) { throw "Packaged v3 workspace is incomplete." }
     if ($capabilities.command_count -ne 167) { throw "Desktop capability count mismatch: $($capabilities.command_count)" }
     if ($help.kind -ne "help" -or $help.tables[0].rows.Count -ne 167) { throw "Packaged /help response is incomplete." }
     if ($timer.ElapsedMilliseconds -gt 3000) { throw "Packaged /help exceeded 3 seconds: $($timer.ElapsedMilliseconds)ms" }

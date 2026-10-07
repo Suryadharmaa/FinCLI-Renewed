@@ -5,8 +5,23 @@ on:
     branches: [main]
   workflow_dispatch:
   push:
+    branches: [main]
+    paths:
+      - "fincli/**"
+      - "desktop/**"
+      - "scripts/build_desktop*.ps1"
+      - "scripts/smoke_desktop*.ps1"
+      - "scripts/desktop_backend.py"
+      - "scripts/fincli_backend.spec"
+      - "pyproject.toml"
+      - "requirements.txt"
+      - "package.json"
+      - ".github/workflows/desktop.yml"
     tags:
       - "v*"
+
+permissions:
+  contents: read
 
 jobs:
   build-windows-portable:
@@ -31,18 +46,76 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Ensure WebView2 for native desktop smoke
+        shell: pwsh
+        run: |
+          $keys = @(
+            'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}',
+            'HKCU:\Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+          )
+          $installed = @($keys | ForEach-Object { (Get-ItemProperty $_ -Name pv -ErrorAction SilentlyContinue).pv } | Where-Object { $_ -and $_ -ne '0.0.0.0' })
+          if ($installed.Count -eq 0) {
+            $setup = Join-Path $env:RUNNER_TEMP 'MicrosoftEdgeWebview2Setup.exe'
+            Invoke-WebRequest 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile $setup
+            $signature = Get-AuthenticodeSignature $setup
+            if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notlike '*Microsoft Corporation*') { throw 'Invalid WebView2 bootstrapper signature.' }
+            $installer = Start-Process $setup -ArgumentList '/silent', '/install' -Wait -PassThru
+            if ($installer.ExitCode -ne 0) { throw "WebView2 installation failed: $($installer.ExitCode)" }
+          }
+
       - name: Build portable executable
         shell: pwsh
         run: ./scripts/build_desktop.ps1
-
-      - name: Smoke packaged backend
-        shell: pwsh
-        run: ./scripts/smoke_desktop_backend.ps1
 
       - name: Upload portable executable
         uses: actions/upload-artifact@v4
         with:
           name: FinCLI-Windows-Portable
+          if-no-files-found: error
           path: |
-            desktop/src-tauri/target/release/fincli.exe
+            FinCLI.exe
+            FinCLI.exe.sha256
+            FinCLI.build.json
             desktop/src-tauri/target/release/bundle/nsis/*.exe
+
+  publish-root-app:
+    needs: build-windows-portable
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: FinCLI-Windows-Portable
+          path: checked-app
+      - name: Verify and publish tested executable to root
+        env:
+          BUILD_SOURCE: ${{ github.sha }}
+        run: |
+          python - <<'PY'
+          import hashlib, json, os, shutil
+          from pathlib import Path
+          app = Path('checked-app/FinCLI.exe')
+          manifest = json.loads(Path('checked-app/FinCLI.build.json').read_text(encoding='utf-8-sig'))
+          digest = hashlib.sha256(app.read_bytes()).hexdigest()
+          assert manifest['source_commit'] == os.environ['BUILD_SOURCE'], 'Wrong build source'
+          assert manifest['version'] == json.loads(Path('package.json').read_text())['version'], 'Wrong version'
+          assert manifest['sha256'] == digest, 'Checksum mismatch'
+          assert manifest['size_bytes'] == app.stat().st_size, 'Size mismatch'
+          assert Path('checked-app/FinCLI.exe.sha256').read_text().strip() == f'{digest}  FinCLI.exe', 'Invalid checksum file'
+          assert set(manifest['checks']) == {'packaged-backend', 'desktop-startup', 'single-instance', 'desktop-shutdown'}, 'Missing checks'
+          for name in ('FinCLI.exe', 'FinCLI.exe.sha256', 'FinCLI.build.json'):
+              shutil.copyfile(Path('checked-app') / name, name)
+          PY
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$BUILD_SOURCE" || { echo 'main advanced; rerun the desktop workflow on latest main.'; exit 1; }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add FinCLI.exe FinCLI.exe.sha256 FinCLI.build.json
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'build: publish tested FinCLI Windows app at repository root'
+          git push origin HEAD:main

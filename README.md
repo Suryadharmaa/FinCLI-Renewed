@@ -43,15 +43,17 @@ The same structured services serve CLI and UI. Background jobs support progress 
 
 ## Windows Desktop
 
-For most Windows users, the recommended entrypoint is the portable desktop app: `fincli.exe`.
+For most Windows users, the recommended entrypoint is **[FinCLI.exe](https://github.com/Suryadharmaa/FinCLI-Renewed/raw/refs/heads/main/FinCLI.exe)** in the repository root.
 
 ### Portable app for end users
 
-1. Download `fincli.exe` or the optional Windows installer from the project release artifacts.
-2. Open `fincli.exe`.
+1. Download [FinCLI.exe](https://github.com/Suryadharmaa/FinCLI-Renewed/raw/refs/heads/main/FinCLI.exe) using the link or **Download raw file** on GitHub. The optional installer is available in the Desktop Windows workflow artifacts.
+2. Open `FinCLI.exe`.
 3. Complete setup inside the app.
 
-`fincli.exe` already bundles the FinCLI backend. End users do not need to install Python, Node.js, npm, or a separate backend service.
+`FinCLI.exe` already bundles the FinCLI backend. End users do not need to install Python, Node.js, npm, or a separate backend service. The portable build targets Windows x64.
+
+Verify a download with `Get-FileHash .\FinCLI.exe -Algorithm SHA256` against [FinCLI.exe.sha256](FinCLI.exe.sha256). [FinCLI.build.json](FinCLI.build.json) records the version and exact source commit. The Windows workflow publishes the root executable only after packaged backend/workspace, startup, single-instance and shutdown checks pass. Source updates on `main` rebuild it; publication rejects a build if `main` has advanced.
 
 The only Windows runtime dependency is WebView2. Many systems already include it. If the app does not open on a clean machine, install WebView2 once and launch `fincli.exe` again.
 
@@ -70,17 +72,13 @@ CLI usage requires Python 3.11+ and Node.js 18+. See [Prerequisites](#prerequisi
 ### Build desktop from source
 
 ```powershell
-python -m pip install -e ".[web]"
-./scripts/build_desktop_backend.ps1
-cd desktop
-npm install
-npm run tauri:icons
-npm run tauri:build
+./scripts/build_desktop.ps1
 ```
 
 Build output:
 
 - Portable app: `desktop/src-tauri/target/release/fincli.exe`
+- Tested portable copy: `FinCLI.exe` at the repository root, with checksum and source manifest
 - Installer: `desktop/src-tauri/target/release/bundle/nsis/FinCLI_3.0.0_x64-setup.exe`
 - Existing v2 binaries in `release/v2.0.1/` remain historical; build v3 from this source or use a v3 release artifact when published.
 
