@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from datetime import UTC, date, datetime
 from time import monotonic
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote as url_quote
@@ -38,6 +39,8 @@ API_KEYS_URL = "https://equibles.com/dashboard/apikeys"
 # Annual filings change at most a few times a year; one snapshot costs three requests of a
 # free key's 100 a day, so a process reuses it for six hours.
 DEFAULT_CACHE_TTL_SECONDS = 6 * 60 * 60
+# A fiscal year that ended over two years ago means a missed annual report, so it is not shown as current.
+MAX_ANNUAL_AGE_DAYS = 2 * 365
 _FISCAL_YEAR = re.compile(r"^FY(\d{4})$")
 
 
@@ -52,12 +55,14 @@ class EquiblesProvider:
         client: httpx.AsyncClient | None = None,
         cache_ttl_seconds: float = DEFAULT_CACHE_TTL_SECONDS,
         clock: Callable[[], float] = monotonic,
+        today: Callable[[], date] | None = None,
     ) -> None:
         self.api_key = (api_key or "").strip()
         self.base_url = base_url.rstrip("/")
         self._client = client
         self._cache_ttl_seconds = cache_ttl_seconds
         self._clock = clock
+        self._today = today or (lambda: datetime.now(UTC).date())
         self._cache: dict[str, tuple[float, FundamentalSnapshot]] = {}
 
     async def fundamentals(self, symbol: str) -> FundamentalSnapshot:
@@ -69,12 +74,19 @@ class EquiblesProvider:
             return cached[1]
 
         path = f"/stocks/{url_quote(ticker, safe='')}"
-        profile = await self._get(path)
+        try:
+            profile = await self._get(path)
+        except _NotFoundError:
+            # A symbol Equibles does not list (FX, crypto, a non-SEC listing) is an empty answer, not a
+            # provider failure: it must not count toward the circuit breaker or be asked again within the window.
+            snapshot = FundamentalSnapshot(symbol=ticker, provider=self.name, currency="USD")
+            self._cache[ticker] = (self._clock(), snapshot)
+            return snapshot
         revenue, eps = await asyncio.gather(
             self._get_facts(f"{path}/financial-facts/revenue"),
             self._get_facts(f"{path}/financial-facts/eps-diluted"),
         )
-        snapshot = build_snapshot(ticker, profile, revenue, eps)
+        snapshot = build_snapshot(ticker, profile, revenue, eps, today=self._today())
         self._cache[ticker] = (self._clock(), snapshot)
         return snapshot
 
@@ -151,36 +163,48 @@ def build_snapshot(
     profile: dict[str, Any],
     revenue_facts: dict[str, Any] | None,
     eps_facts: dict[str, Any] | None,
+    today: date | None = None,
 ) -> FundamentalSnapshot:
-    """A snapshot from the latest full fiscal year; EPS only when it is the same year and currency as revenue."""
+    """A snapshot of the newest full fiscal year either series reports.
+
+    A series whose latest year is older than that year, or EPS in another currency than revenue, is left empty
+    rather than shown as current. So are both when that year ended more than MAX_ANNUAL_AGE_DAYS before `today`
+    (a filer that stopped reporting, or a concept whose tag changed).
+    """
     revenue_rows = _comparable_annual(revenue_facts)
     eps_rows = _comparable_annual(eps_facts)
-    revenue_currency = _currency(revenue_facts)
-    eps_currency = _currency(eps_facts)
+    latest = [rows[-1] for rows in (revenue_rows, eps_rows) if rows]
+    # max() keeps the first of equal period ends, so revenue anchors a tie.
+    anchor = max(latest, key=lambda row: row["periodEnd"]) if latest else None
+    if anchor is not None and _days_since(anchor["periodEnd"], today or datetime.now(UTC).date()) > MAX_ANNUAL_AGE_DAYS:
+        anchor = None
 
-    latest_revenue = revenue_rows[-1] if revenue_rows else None
-    if latest_revenue is not None:
-        anchor, currency = latest_revenue, revenue_currency
-        eps_row = next((row for row in eps_rows if row["fiscalPeriod"] == anchor["fiscalPeriod"]), None)
-        if eps_currency != revenue_currency:
-            eps_row = None
-    else:
-        anchor = eps_row = eps_rows[-1] if eps_rows else None
-        currency = eps_currency
+    revenue_row = revenue_rows[-1] if anchor and revenue_rows and revenue_rows[-1]["fiscalPeriod"] == anchor["fiscalPeriod"] else None
+    eps_row = next((row for row in eps_rows if anchor and row["fiscalPeriod"] == anchor["fiscalPeriod"]), None)
+    currency = _currency(revenue_facts) if revenue_row else _currency(eps_facts) if eps_row else None
+    if revenue_row and eps_row and _currency(eps_facts) != currency:
+        eps_row = None
 
     return FundamentalSnapshot(
         symbol=ticker,
         provider="equibles",
         currency=currency or str(profile.get("currency") or "USD"),
         eps=_number(eps_row),
-        revenue=_number(latest_revenue),
+        revenue=_number(revenue_row),
         sector=profile.get("sector") or None,
         industry=profile.get("industry") or None,
         fiscal_period=anchor.get("fiscalPeriod") if anchor else None,
         period_end=anchor.get("periodEnd") if anchor else None,
         filed_date=anchor.get("filedDate") if anchor else None,
-        revenue_growth=revenue_growth(revenue_rows),
+        revenue_growth=revenue_growth(revenue_rows) if revenue_row else None,
     )
+
+
+def _days_since(iso_date: str, today: date) -> int:
+    try:
+        return (today - date.fromisoformat(iso_date[:10])).days
+    except ValueError:
+        return MAX_ANNUAL_AGE_DAYS + 1
 
 
 def revenue_growth(rows: list[dict[str, Any]]) -> float | None:

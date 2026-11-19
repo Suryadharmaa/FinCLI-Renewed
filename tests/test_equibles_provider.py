@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
+from datetime import date
 
 import httpx
 import pytest
@@ -11,7 +12,6 @@ from fincli.app.providers.market.base import FundamentalSnapshot, ProviderCapabi
 from fincli.app.providers.market.equibles_provider import EquiblesProvider, build_snapshot, revenue_growth
 from fincli.app.providers.reliability import (
     STATUS_AUTH_FAILED,
-    STATUS_EMPTY_DATA,
     STATUS_ENTITLEMENT_MISSING,
     STATUS_NETWORK_ERROR,
     STATUS_PARTIAL_DATA,
@@ -25,6 +25,7 @@ from fincli.app.tui.market_provider_selector import priority_presets, recommende
 from fincli.app.utils.errors import ProviderError, RateLimitError
 
 # Trimmed from live responses (AAPL, 2026-11-19).
+TODAY = date(2026, 11, 19)
 AAPL_PROFILE = {"ticker": "AAPL", "currency": "USD", "sector": "Technology", "industry": "Consumer Electronics"}
 
 
@@ -74,6 +75,7 @@ def _provider(routes: dict[str, httpx.Response], seen: list[httpx.Request], **kw
     return EquiblesProvider(
         api_key="eq_test_secret",
         client=httpx.AsyncClient(transport=_transport(routes, seen)),
+        today=lambda: TODAY,
         **kwargs,
     )
 
@@ -122,24 +124,47 @@ def test_a_short_transition_year_is_never_the_latest_year_or_a_comparison_base()
             _row("FY2025", 40.0, "2025-06-30", comparable=False),
         ],
     }
-    snapshot = build_snapshot("XYZ", {}, revenue, None)
+    snapshot = build_snapshot("XYZ", {}, revenue, None, today=TODAY)
     assert (snapshot.revenue, snapshot.fiscal_period) == (100.0, "FY2024")
     assert snapshot.revenue_growth is None
 
 
 def test_eps_is_dropped_when_its_year_or_currency_differs_from_revenue() -> None:
     other_year = {"unit": "USD/shares", "annual": [_row("FY2025", 7.46, "2025-09-27")]}
-    assert build_snapshot("AAPL", AAPL_PROFILE, AAPL_REVENUE, other_year).eps is None
+    assert build_snapshot("AAPL", AAPL_PROFILE, AAPL_REVENUE, other_year, today=TODAY).eps is None
 
     other_currency = {"unit": "TWD/shares", "annual": [_row("FY2026", 8.98, "2026-09-26")]}
-    assert build_snapshot("AAPL", AAPL_PROFILE, AAPL_REVENUE, other_currency).eps is None
+    assert build_snapshot("AAPL", AAPL_PROFILE, AAPL_REVENUE, other_currency, today=TODAY).eps is None
 
 
 def test_a_foreign_filer_reports_in_its_own_currency() -> None:
     revenue = {"unit": "TWD", "annual": [_row("FY2025", 3809054300000.0, "2025-12-31")]}
     eps = {"unit": "TWD/shares", "annual": [_row("FY2025", 66.25, "2025-12-31")]}
-    snapshot = build_snapshot("TSM", {"currency": "USD", "sector": "Technology"}, revenue, eps)
+    snapshot = build_snapshot("TSM", {"currency": "USD", "sector": "Technology"}, revenue, eps, today=TODAY)
     assert (snapshot.currency, snapshot.eps) == ("TWD", 66.25)
+
+
+def test_newer_eps_anchors_the_year_and_the_lagging_revenue_is_left_empty() -> None:
+    lagging_revenue = {"unit": "USD", "annual": [_row("FY2021", 90.0, "2021-12-31"), _row("FY2022", 100.0, "2022-12-31")]}
+    eps = {"unit": "USD/shares", "annual": [_row("FY2025", 3.5, "2025-12-31")]}
+    snapshot = build_snapshot("XYZ", {}, lagging_revenue, eps, today=TODAY)
+    assert (snapshot.fiscal_period, snapshot.eps, snapshot.currency) == ("FY2025", 3.5, "USD")
+    assert (snapshot.revenue, snapshot.revenue_growth) == (None, None)
+
+
+def test_figures_from_a_year_that_ended_over_two_years_ago_are_not_shown_as_current() -> None:
+    snapshot = build_snapshot("AAPL", AAPL_PROFILE, AAPL_REVENUE, AAPL_EPS, today=date(2028, 12, 1))
+    assert (snapshot.revenue, snapshot.eps, snapshot.revenue_growth, snapshot.fiscal_period) == (None, None, None, None)
+    assert snapshot.sector == "Technology"
+
+
+def test_an_unlisted_symbol_is_an_empty_answer_asked_once_per_window() -> None:
+    seen: list[httpx.Request] = []
+    provider = _provider({}, seen)
+    first = asyncio.run(provider.fundamentals("EURUSD=X"))
+    second = asyncio.run(provider.fundamentals("EURUSD=X"))
+    assert first == second == FundamentalSnapshot(symbol="EURUSD=X", provider="equibles", currency="USD")
+    assert len(seen) == 1
 
 
 def test_a_concept_the_company_does_not_report_leaves_that_field_empty() -> None:
@@ -169,7 +194,6 @@ def test_a_snapshot_is_reused_within_the_cache_window() -> None:
     [
         (httpx.Response(401, json={"error": {"message": "Invalid API key."}}), ProviderError, STATUS_AUTH_FAILED),
         (httpx.Response(403, json={"error": {"message": "Requires the Pro plan."}}), ProviderError, STATUS_ENTITLEMENT_MISSING),
-        (httpx.Response(404, json={"error": {"message": "Stock 'ZZZZ' not found."}}), ProviderError, STATUS_EMPTY_DATA),
         (
             httpx.Response(
                 429,
@@ -262,7 +286,7 @@ class _SpyEquibles(EquiblesProvider):
 
     async def fundamentals(self, symbol: str) -> FundamentalSnapshot:
         self.calls.append("fundamentals")
-        return build_snapshot(symbol, AAPL_PROFILE, AAPL_REVENUE, AAPL_EPS)
+        return build_snapshot(symbol, AAPL_PROFILE, AAPL_REVENUE, AAPL_EPS, today=TODAY)
 
 
 def test_the_service_never_routes_quotes_history_or_news_to_a_fundamentals_only_provider() -> None:
@@ -283,7 +307,7 @@ def test_the_service_never_routes_quotes_history_or_news_to_a_fundamentals_only_
 
 
 def test_the_cache_round_trip_keeps_the_filing_provenance() -> None:
-    snapshot = build_snapshot("AAPL", AAPL_PROFILE, AAPL_REVENUE, AAPL_EPS)
+    snapshot = build_snapshot("AAPL", AAPL_PROFILE, AAPL_REVENUE, AAPL_EPS, today=TODAY)
     assert _fundamentals_from_payload(_fundamentals_to_payload(snapshot)) == snapshot
     legacy = replace(snapshot, fiscal_period=None, period_end=None, filed_date=None, revenue_growth=None)
     payload = _fundamentals_to_payload(legacy)
@@ -299,6 +323,23 @@ def test_equibles_is_appended_to_the_current_chain_and_never_leads_it() -> None:
     assert recommended_provider_priority("finnhub", ["polygon"])[0] == "finnhub"
     minimal = next(preset for preset in priority_presets("equibles") if preset.label == "Primary + yfinance")
     assert minimal.providers == ("yfinance", "equibles")
+
+
+@pytest.mark.parametrize("command", ["/news_model equibles", "/provider use equibles"])
+def test_selecting_equibles_appends_it_without_changing_the_active_providers(tmp_path, monkeypatch, command) -> None:
+    monkeypatch.setattr("fincli.app.storage.secrets.SECRETS_FILE", tmp_path / "secrets.env")
+    monkeypatch.setenv("EQUIBLES_API_KEY", "eq_test_secret")
+    monkeypatch.setenv("FINNHUB_API_KEY", "test-finnhub")
+    router = CommandRouter(config=ConfigManager(tmp_path / "config.json"), db=FinCLIDatabase(tmp_path / "fincli.db"))
+    router.route("/provider priority finnhub,yfinance")
+    news_before = router.config.settings.news_provider
+
+    result = router.route(command)
+
+    assert result.status == "ready"
+    assert router.config.settings.market_provider_priority == ["finnhub", "yfinance", "equibles"]
+    assert router.config.settings.market_provider == "finnhub"
+    assert router.config.settings.news_provider == news_before
 
 
 def test_saving_an_equibles_key_keeps_the_active_market_and_news_providers(tmp_path, monkeypatch) -> None:

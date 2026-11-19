@@ -100,14 +100,18 @@ Browse available connectors:
 
 Equibles supplies `/fundamentals` data as reported in SEC filings. It is never used for quotes, history or news:
 its capability declaration lists only `fundamentals`, and FinCLI skips a provider for operations it does not declare.
-Saving its key appends it to the end of your provider chain, after yfinance, without changing the active provider.
+Selecting it (the `/news_model` picker, `/news_model equibles`, `/provider use equibles`) or saving its key appends it
+to the end of your provider chain, after yfinance, without changing the active market or news provider.
 
-- **Fields:** `eps` (diluted) and `revenue` from the latest full fiscal year, `sector`, `industry`, and the reporting `currency`.
+- **Fields:** `eps` (diluted) and `revenue` from the newest full fiscal year either one reports, `sector`, `industry`,
+  and the reporting `currency`. A figure whose latest year is older than that year is left empty rather than shown as current,
+  and both are left empty when that year ended more than two years ago (a filer that stopped reporting).
   Each snapshot also carries `fiscal_period` (e.g. `FY2026`), `period_end`, `filed_date`, and `revenue_growth`:
   the percent change from the prior fiscal year, matched by fiscal-year label. It is empty when the prior year is missing,
   either value is absent, or the prior value is zero or negative. Short transition fiscal years are skipped.
 - **Coverage:** companies that file 10-K, 20-F or 40-F reports with the SEC. Foreign filers report in their own currency,
-  and EPS is per ordinary share, not per ADR. EPS is left empty when it is from a different year or currency than revenue.
+  and EPS is per ordinary share, not per ADR. EPS is left empty when its currency differs from revenue's.
+  A symbol Equibles does not list (FX, crypto, non-SEC listings) returns an empty snapshot, not an error.
 - **Not provided:** `market_cap`, `pe_ratio` and `beta`, which derive from prices. FinCLI therefore marks an Equibles snapshot
   as partial and prefers a complete snapshot from another provider. Equibles answers when the others fail or return less.
 - **Usage:** one snapshot costs 3 requests (profile, revenue, diluted EPS) and is reused for 6 hours in the running process.

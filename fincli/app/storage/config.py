@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 # Valid provider names for "did you mean?" suggestions
 VALID_AI_PROVIDERS = {"openrouter", "gemini", "anthropic", "openai", "together", "huggingface", "groq"}
-VALID_MARKET_PROVIDERS = {"yfinance", "custom", "finnhub", "twelvedata", "alphavantage", "polygon", "iex"}
+VALID_MARKET_PROVIDERS = {"yfinance", "custom", "finnhub", "twelvedata", "alphavantage", "polygon", "iex", "equibles"}
 VALID_THEMES = {"midnight", "ocean", "forest", "solarized", "dracula", "nord", "monokai"}
 
 

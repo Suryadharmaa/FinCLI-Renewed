@@ -107,18 +107,12 @@ class ProvidersCommands:
                 save_secret("CUSTOM_NEWS_BASE_URL", args[3])
             elif provider == "custom" and len(args) >= 4:
                 save_secret("MARKET_DATA_BASE_URL", args[3])
-            from fincli.app.tui.market_provider_selector import SUPPLEMENTARY_PROVIDERS, recommended_provider_priority
-
-            supplementary = provider in SUPPLEMENTARY_PROVIDERS
-            if supplementary:
-                current = self.config.settings.market_provider_priority or [self.config.settings.market_provider]
-                self.config.set_market_provider_priority(list(recommended_provider_priority(provider, current)))
-                self._refresh_market_service()
-            elif self.market_manager.get(provider) is not None:
+            supplementary = self._append_supplementary_provider(provider)
+            if not supplementary and self.market_manager.get(provider) is not None:
                 self.config.set_market_provider_priority([provider, *self._priority_tail(provider)])
                 self.config.set_news_provider(provider)
                 self._refresh_market_service()
-            else:
+            elif not supplementary:
                 self.config.set_news_provider_priority([provider, *self._news_priority_tail(provider)])
             self.cache.clear()
             extra = "\nCustom base URL also saved." if provider in {"custom", "custom_news"} and len(args) >= 4 else ""
@@ -193,6 +187,16 @@ class ProvidersCommands:
                         con.print(f"[green]✓ {key} saved.[/green]")
                     else:
                         con.print(f"[dim]Skipped {key}.[/dim]")
+            if self._append_supplementary_provider(provider):
+                self.cache.clear()
+                return CommandResult(
+                    Panel(
+                        f"{provider} added after your market providers; it serves fundamentals only.\n"
+                        f"Active market provider unchanged: [bold]{self.config.settings.market_provider}[/bold]",
+                        title="Provider Updated",
+                        border_style="green",
+                    )
+                )
             self.config.set_market_provider(provider)
             self.config.set_news_provider(provider)
             self.config.set_market_provider_priority([provider, *self._priority_tail(provider)])
@@ -277,6 +281,15 @@ class ProvidersCommands:
             if len(args) < 2:
                 raise CommandError("Format: /provider use <provider>")
             provider = args[1].lower()
+            if self._append_supplementary_provider(provider):
+                self.cache.clear()
+                return CommandResult(
+                    Panel(
+                        f"{provider} serves fundamentals only, so it was added after your market providers. "
+                        f"Active market provider: {self.config.settings.market_provider}",
+                        title="Provider Updated",
+                    )
+                )
             self.config.set_market_provider_priority([provider, *self._priority_tail(provider)])
             self._refresh_market_service()
             self.cache.clear()
@@ -433,6 +446,18 @@ class ProvidersCommands:
     def _refresh_market_service(self) -> None:
         self.market_service = self._build_market_service()
         self.market_provider = self.market_service.primary_provider
+
+    def _append_supplementary_provider(self, provider: str) -> bool:
+        """Append a fundamentals-only provider after the current chain, leaving the active provider; False for others."""
+        from fincli.app.tui.market_provider_selector import SUPPLEMENTARY_PROVIDERS, recommended_provider_priority
+
+        if provider not in SUPPLEMENTARY_PROVIDERS:
+            return False
+        settings = self.config.settings
+        current = settings.market_provider_priority or [settings.market_provider]
+        self.config.set_market_provider_priority(list(recommended_provider_priority(provider, current)))
+        self._refresh_market_service()
+        return True
 
     def _priority_tail(self, active_provider: str) -> list[str]:
         active = active_provider.lower()
