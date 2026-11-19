@@ -1,9 +1,9 @@
 {
   "version": "3.0.0",
-  "source_commit": "8e02625f02d1e29663c0dde9aa325bf23c0706db",
-  "sha256": "dd3bc827f4c82d6459262c4025bbdb5beeaf34f39a629dde6553df0ea607e397",
-  "size_bytes": 59529728,
-  "build_run": "44576831119",
+  "source_commit": "c117d047511b615b735b62268e12aefe208e235a",
+  "sha256": "1bcb824dee2abed60287324bb2b77658ed576889c810c79085626e21846f0d59",
+  "size_bytes": 59526656,
+  "build_run": "44639277628",
   "checks": [
     "packaged-backend",
     "desktop-startup",
