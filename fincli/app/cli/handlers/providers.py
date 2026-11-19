@@ -32,7 +32,7 @@ from fincli.app.connectors.news_connectors import (
     news_connector_secret_key,
 )
 from fincli.app.providers.market.symbols import search_symbol_catalog
-from fincli.app.services.market_data import MarketDataService
+from fincli.app.services.market_data import MarketDataService, supports_operation
 from fincli.app.storage.secrets import save_secret
 from fincli.app.utils.errors import CommandError, FinCLIError
 
@@ -117,7 +117,7 @@ class ProvidersCommands:
             self.cache.clear()
             extra = "\nCustom base URL also saved." if provider in {"custom", "custom_news"} and len(args) >= 4 else ""
             active_line = (
-                f"{provider} added after your market providers; it serves fundamentals only.\n"
+                f"{provider} added after your market providers as a fundamentals fallback: it answers only when they fail or return less.\n"
                 if supplementary
                 else f"Active news provider saved: {provider}.\n"
             )
@@ -191,7 +191,7 @@ class ProvidersCommands:
                 self.cache.clear()
                 return CommandResult(
                     Panel(
-                        f"{provider} added after your market providers; it serves fundamentals only.\n"
+                        f"{provider} added after your market providers as a fundamentals fallback: it answers only when they fail or return less.\n"
                         f"Active market provider unchanged: [bold]{self.config.settings.market_provider}[/bold]",
                         title="Provider Updated",
                         border_style="green",
@@ -285,7 +285,7 @@ class ProvidersCommands:
                 self.cache.clear()
                 return CommandResult(
                     Panel(
-                        f"{provider} serves fundamentals only, so it was added after your market providers. "
+                        f"{provider} serves fundamentals only, so it was added after your market providers as a fallback. "
                         f"Active market provider: {self.config.settings.market_provider}",
                         title="Provider Updated",
                     )
@@ -391,6 +391,12 @@ class ProvidersCommands:
 
         results: list[dict[str, object]] = []
         for provider in self.market_service.providers:
+            if not supports_operation(provider, "quote"):
+                # A provider that declares no quotes (fundamentals-only) is not asked, and is not shown as failing.
+                results.append(
+                    {"provider": provider.name, "price": None, "currency": "-", "status": "not supported", "latency_ms": None, "error": None}
+                )
+                continue
             start = monotonic()
             try:
                 quote = self._run_async(provider.quote(symbol))
@@ -460,12 +466,15 @@ class ProvidersCommands:
         return True
 
     def _priority_tail(self, active_provider: str) -> list[str]:
+        """The rest of the current chain after a new active provider; fundamentals-only providers stay, last."""
+        from fincli.app.tui.market_provider_selector import SUPPLEMENTARY_PROVIDERS
+
         active = active_provider.lower()
         existing = self.config.settings.market_provider_priority or ["yfinance"]
         tail = [provider for provider in existing if provider != active]
         if active != "yfinance" and "yfinance" not in tail:
             tail.append("yfinance")
-        return tail
+        return [p for p in tail if p not in SUPPLEMENTARY_PROVIDERS] + [p for p in tail if p in SUPPLEMENTARY_PROVIDERS]
 
     def _news_priority_tail(self, active_provider: str) -> list[str]:
         active = active_provider.lower()

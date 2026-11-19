@@ -74,7 +74,7 @@ class MarketDataService:
     @property
     def primary_provider(self) -> BaseMarketProvider:
         """The first provider that serves quotes, so a fundamentals-only provider never becomes the active one."""
-        return next((provider for provider in self.providers if _supports(provider, "quote")), self.providers[0])
+        return next((provider for provider in self.providers if supports_operation(provider, "quote")), self.providers[0])
 
     async def quote(self, symbol: str) -> Quote:
         cache_key = self._cache_key(symbol)
@@ -136,7 +136,7 @@ class MarketDataService:
         degraded_response: ProviderResponse[Any] | None = None
         for provider in self.providers:
             provider_name = getattr(provider, "name", "unknown")
-            if not _supports(provider, method_name):
+            if not supports_operation(provider, method_name):
                 # Not a failure: no metric or circuit-breaker count, or a fundamentals-only
                 # provider's circuit would open on quote calls and block its fundamentals.
                 errors.append(f"{provider_name}: does not provide {method_name}")
@@ -435,7 +435,7 @@ def _fundamentals_from_payload(payload: dict[str, Any]) -> FundamentalSnapshot:
     )
 
 
-def _supports(provider: BaseMarketProvider, operation: str) -> bool:
+def supports_operation(provider: BaseMarketProvider, operation: str) -> bool:
     """Whether the provider declares the operation; one without a readable declaration is tried for all."""
     capabilities = getattr(provider, "capabilities", None)
     if not callable(capabilities):

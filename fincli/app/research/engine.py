@@ -6,6 +6,7 @@ from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from fincli.app.providers.ai.base import AIRequest, BaseAIProvider
+from fincli.app.providers.market.base import fundamentals_provenance
 from fincli.app.research.models import (
     MissingDataItem,
     ResearchBrief,
@@ -115,7 +116,8 @@ def _brief_from_overview(
     ]
     if fundamentals is not None:
         decision_points.append(
-            f"Fundamentals: P/E {fundamentals.pe_ratio}, EPS {fundamentals.eps}, sector {fundamentals.sector or 'N/A'}."
+            f"Fundamentals: P/E {fundamentals.pe_ratio}, EPS {fundamentals.eps}, sector {fundamentals.sector or 'N/A'} "
+            f"({fundamentals_provenance(fundamentals)})."
         )
     if overview.news:
         decision_points.append(f"Latest news: {overview.news[0].title} ({overview.news[0].source}).")

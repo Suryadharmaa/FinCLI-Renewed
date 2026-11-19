@@ -24,6 +24,7 @@ from fincli.app.modules.economic_calendar import (
     default_calendar_window,
 )
 from fincli.app.modules.session_history import relative_time
+from fincli.app.providers.market.base import fundamentals_provenance
 from fincli.app.providers.market.manager import MarketProviderManager
 from fincli.app.providers.market.symbols import SymbolResolver
 from fincli.app.providers.reliability import (
@@ -339,7 +340,8 @@ def _format_market_overview(overview: MarketOverview) -> Table:
         table.add_row(
             "Fundamentals",
             f"P/E {_fmt(overview.fundamentals.pe_ratio)} | EPS {_fmt(overview.fundamentals.eps)}",
-            f"Sector={overview.fundamentals.sector or 'N/A'}; Industry={overview.fundamentals.industry or 'N/A'}; Market Cap={_fmt(overview.fundamentals.market_cap)}",
+            f"Sector={overview.fundamentals.sector or 'N/A'}; Industry={overview.fundamentals.industry or 'N/A'}; "
+            f"Market Cap={_fmt(overview.fundamentals.market_cap)}; {fundamentals_provenance(overview.fundamentals)}",
         )
     else:
         table.add_row("Fundamentals", "N/A", "Provider did not return fundamentals.")
@@ -1082,7 +1084,7 @@ def _format_provider_compare(symbol: str, results: list[dict[str, object]]) -> T
         latency_str = f"{latency:.0f}ms" if latency is not None else "-"
         error = r["error"] or "-"
         status = str(r["status"])
-        style = "green" if status == "realtime" else "yellow" if status == "delayed" else "red"
+        style = "green" if status == "realtime" else "yellow" if status == "delayed" else "dim" if status == "not supported" else "red"
         table.add_row(
             str(r["provider"]),
             price_str,
@@ -1092,7 +1094,7 @@ def _format_provider_compare(symbol: str, results: list[dict[str, object]]) -> T
             str(error),
         )
 
-    table.caption = "Compare providers for same symbol. Lower latency = better."
+    table.caption = "Compare providers for same symbol. Lower latency = better. Not supported = the provider declares no quotes."
     return table
 
 
@@ -2506,6 +2508,7 @@ def _format_fundamental_context(snapshot: FundamentalSnapshot) -> str:
     return (
         "Fundamentals:\n"
         f"- Symbol: {snapshot.symbol}\n"
+        f"- Provenance: {fundamentals_provenance(snapshot)}\n"
         f"- Currency: {snapshot.currency}\n"
         f"- Market Cap: {_fmt(snapshot.market_cap)}\n"
         f"- P/E Ratio: {_fmt(snapshot.pe_ratio)}\n"

@@ -58,6 +58,18 @@ class FundamentalSnapshot:
     revenue_growth: float | None = None
 
 
+def fundamentals_provenance(snapshot: FundamentalSnapshot) -> str:
+    """Where a snapshot's figures come from: provider and currency, plus the filing period for as-reported figures.
+
+    A fallback snapshot can be in another currency and fiscal period than the quote beside it, so it is never shown unlabelled.
+    """
+    label = f"Source={snapshot.provider}; Currency={snapshot.currency}"
+    if snapshot.fiscal_period:
+        filed = f", filed {snapshot.filed_date}" if snapshot.filed_date else ""
+        label += f"; EPS/Revenue as reported for {snapshot.fiscal_period} (period end {snapshot.period_end}{filed})"
+    return label
+
+
 @dataclass(frozen=True, slots=True)
 class ProviderStatus:
     name: str

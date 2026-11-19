@@ -101,7 +101,15 @@ Browse available connectors:
 Equibles supplies `/fundamentals` data as reported in SEC filings. It is never used for quotes, history or news:
 its capability declaration lists only `fundamentals`, and FinCLI skips a provider for operations it does not declare.
 Selecting it (the `/news_model` picker, `/news_model equibles`, `/provider use equibles`) or saving its key appends it
-to the end of your provider chain, after yfinance, without changing the active market or news provider.
+to the end of your provider chain, after yfinance, without changing the active market or news provider. Changing the
+primary provider or picking a fallback preset keeps it there; remove it with an explicit `/provider priority` list,
+for example `/provider priority finnhub,yfinance`. `/provider compare` lists it as `not supported`, since it has no quotes.
+
+**It is a fallback only.** FinCLI asks Equibles for fundamentals only when every provider before it fails or returns
+a partial snapshot, and then keeps whichever snapshot scores higher. Figures from different providers are never combined
+into one snapshot. When an Equibles snapshot is shown, `/market` and the AI context label it with its source, currency,
+fiscal year and filing date, because it can differ from the quote beside it (a foreign filer reports in its own currency).
+`/screen` still computes revenue growth from yfinance statements and does not use Equibles.
 
 - **Fields:** `eps` (diluted) and `revenue` from the newest full fiscal year either one reports, `sector`, `industry`,
   and the reporting `currency`. A figure whose latest year is older than that year is left empty rather than shown as current,
@@ -113,7 +121,7 @@ to the end of your provider chain, after yfinance, without changing the active m
   and EPS is per ordinary share, not per ADR. EPS is left empty when its currency differs from revenue's.
   A symbol Equibles does not list (FX, crypto, non-SEC listings) returns an empty snapshot, not an error.
 - **Not provided:** `market_cap`, `pe_ratio` and `beta`, which derive from prices. FinCLI therefore marks an Equibles snapshot
-  as partial and prefers a complete snapshot from another provider. Equibles answers when the others fail or return less.
+  as partial (shown as `partial` in `/provider status` and the trust view) and these fields stay `N/A`.
 - **Usage:** one snapshot costs 3 requests (profile, revenue, diluted EPS) and is reused for 6 hours in the running process.
   The free tier allows 100 requests a day. A 429 response reports when requests resume.
 - **Terms:** each user brings their own key, and keys are personal (do not bundle or share one). Showing data to other people

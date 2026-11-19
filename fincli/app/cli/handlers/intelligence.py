@@ -33,6 +33,7 @@ from fincli.app.cli.handlers.common import (
 from fincli.app.cli.result import CommandResult
 from fincli.app.providers.ai.base import AIRequest, AIResponse
 from fincli.app.providers.ai.manager import AIProviderManager
+from fincli.app.providers.market.base import fundamentals_provenance
 from fincli.app.services.data_trust import build_data_trust_gate
 from fincli.app.services.market_overview import build_market_overview
 from fincli.app.services.web_research import (
@@ -379,7 +380,7 @@ class IntelligenceCommands:
             fundamentals = self._run_async(self.market_service.fundamentals(symbol))
             lines.append(
                 "Fundamentals: "
-                f"provider={fundamentals.provider}; market_cap={_fmt(fundamentals.market_cap)}; "
+                f"{fundamentals_provenance(fundamentals)}; market_cap={_fmt(fundamentals.market_cap)}; "
                 f"pe={_fmt(fundamentals.pe_ratio)}; eps={_fmt(fundamentals.eps)}; "
                 f"revenue={_fmt(fundamentals.revenue)}; sector={fundamentals.sector or 'N/A'}; "
                 f"industry={fundamentals.industry or 'N/A'}"

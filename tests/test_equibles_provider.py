@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import replace
 from datetime import date
 
@@ -8,7 +9,16 @@ import httpx
 import pytest
 
 from fincli.app.cli.router import CommandRouter
-from fincli.app.providers.market.base import FundamentalSnapshot, ProviderCapability, ProviderStatus, Quote
+from fincli.app.modules.reports import write_market_report
+from fincli.app.providers.ai.base import AIRequest, AIResponse
+from fincli.app.providers.market.base import (
+    Candle,
+    FundamentalSnapshot,
+    ProviderCapability,
+    ProviderStatus,
+    Quote,
+    fundamentals_provenance,
+)
 from fincli.app.providers.market.equibles_provider import EquiblesProvider, build_snapshot, revenue_growth
 from fincli.app.providers.reliability import (
     STATUS_AUTH_FAILED,
@@ -18,7 +28,9 @@ from fincli.app.providers.reliability import (
     STATUS_RATE_LIMITED,
     classify_provider_error,
 )
+from fincli.app.research.engine import ResearchEngine
 from fincli.app.services.market_data import MarketDataService, _fundamentals_from_payload, _fundamentals_to_payload
+from fincli.app.services.market_overview import build_market_overview
 from fincli.app.storage.config import ConfigManager
 from fincli.app.storage.database import FinCLIDatabase
 from fincli.app.tui.market_provider_selector import priority_presets, recommended_provider_priority
@@ -306,6 +318,120 @@ def test_the_service_never_routes_quotes_history_or_news_to_a_fundamentals_only_
     assert any(r.provider == "equibles" and r.status == STATUS_PARTIAL_DATA for r in service.recent_results(20))
 
 
+class _FundamentalsSource(_QuoteProvider):
+    """A full provider whose fundamentals answer is a given snapshot or error."""
+
+    def __init__(self, name: str, snapshot: FundamentalSnapshot | None = None) -> None:
+        self.name = name
+        self.snapshot = snapshot
+        self.calls = 0
+
+    async def fundamentals(self, symbol: str) -> FundamentalSnapshot:
+        self.calls += 1
+        if self.snapshot is None:
+            raise ProviderError("fundamentals unavailable")
+        return self.snapshot
+
+
+COMPLETE = FundamentalSnapshot(
+    symbol="AAPL", provider="upstream", currency="USD", market_cap=3.9e12, pe_ratio=34.0, eps=7.5, revenue=4.2e11,
+    sector="Technology", industry="Consumer Electronics",
+)
+
+
+@pytest.mark.parametrize(
+    ("upstream", "winner"),
+    [
+        (COMPLETE, "upstream"),  # complete: returned before Equibles is asked
+        (None, "equibles"),  # failed: Equibles' partial snapshot is the answer
+        (replace(COMPLETE, pe_ratio=None), "upstream"),  # partial, scores 80 against Equibles' 45
+        (replace(COMPLETE, pe_ratio=None, eps=None, revenue=None, sector=None), "equibles"),  # partial, scores 25
+        (replace(COMPLETE, market_cap=None, pe_ratio=None), "upstream"),  # same score as Equibles: the earlier one stays
+    ],
+)
+def test_equibles_is_a_fundamentals_fallback_and_snapshots_are_never_combined(upstream, winner) -> None:
+    first = _FundamentalsSource("upstream", upstream)
+    equibles = _SpyEquibles()
+    service = MarketDataService([first, equibles])
+
+    snapshot = asyncio.run(service.fundamentals("AAPL"))
+
+    assert equibles.calls == ([] if upstream is COMPLETE else ["fundamentals"])
+    expected = upstream if winner == "upstream" else build_snapshot("AAPL", AAPL_PROFILE, AAPL_REVENUE, AAPL_EPS, today=TODAY)
+    assert snapshot == expected
+
+
+def test_fallback_figures_are_labelled_with_their_source_currency_and_filing_period() -> None:
+    label = fundamentals_provenance(build_snapshot("TSM", {}, TSM_REVENUE, TSM_EPS, today=TODAY))
+    assert label.startswith(TSM_LABEL + " (period end 2025-12-31")
+    assert fundamentals_provenance(COMPLETE) == "Source=upstream; Currency=USD"
+
+
+TSM_REVENUE = {"unit": "TWD", "annual": [_row("FY2025", 3.8e12, "2025-12-31")]}
+TSM_EPS = {"unit": "TWD/shares", "annual": [_row("FY2025", 65.47, "2025-12-31")]}
+TSM_LABEL = "Source=equibles; Currency=TWD; EPS/Revenue as reported for FY2025"
+
+
+class _CandleStack(_QuoteProvider):
+    """Quotes, candles and news in USD; its fundamentals fail, so the chain falls back to Equibles."""
+
+    async def history(self, symbol: str, period: str = "6mo", interval: str = "1d") -> list[Candle]:
+        from datetime import datetime
+
+        return [Candle(datetime(2026, 1, 1 + i % 28), 100 + i, 102 + i, 99 + i, 101 + i, 1_000) for i in range(80)]
+
+
+class _TsmEquibles(_SpyEquibles):
+    async def fundamentals(self, symbol: str) -> FundamentalSnapshot:
+        return build_snapshot(symbol, {}, TSM_REVENUE, TSM_EPS, today=TODAY)
+
+
+class _CaptureAI:
+    name = "capture"
+
+    def __init__(self) -> None:
+        self.prompts: list[str] = []
+
+    async def complete(self, request: AIRequest) -> AIResponse:
+        self.prompts.append(request.prompt)
+        return AIResponse(provider=self.name, model=request.model, content="ok")
+
+
+def test_research_labels_fallback_fundamentals_in_the_brief_and_the_ai_prompt() -> None:
+    ai = _CaptureAI()
+    engine = ResearchEngine(MarketDataService([_CandleStack(), _TsmEquibles()]), ai_provider=ai)
+
+    brief = asyncio.run(engine.build("TSM", mode="report"))
+
+    assert any(TSM_LABEL in point for point in brief.decision_points if point.startswith("Fundamentals:"))
+    assert TSM_LABEL in ai.prompts[-1]
+
+
+def test_market_reports_label_fallback_fundamentals(tmp_path) -> None:
+    overview = asyncio.run(build_market_overview("TSM", MarketDataService([_CandleStack(), _TsmEquibles()])))
+
+    payload = json.loads(write_market_report(overview, "json", tmp_path / "report.json").read_text(encoding="utf-8"))
+    markdown = write_market_report(overview, "md", tmp_path / "report.md").read_text(encoding="utf-8")
+
+    fundamentals = payload["fundamentals"]
+    assert (fundamentals["provider"], fundamentals["currency"], fundamentals["fiscal_period"]) == ("equibles", "TWD", "FY2025")
+    assert (fundamentals["period_end"], fundamentals["filed_date"]) == ("2025-12-31", "2026-11-03")
+    assert f"- Source: {TSM_LABEL}" in markdown
+
+
+def test_provider_compare_lists_a_fundamentals_only_provider_as_not_supported(tmp_path) -> None:
+    router = CommandRouter(config=ConfigManager(tmp_path / "config.json"), db=FinCLIDatabase(tmp_path / "fincli.db"))
+    equibles = _SpyEquibles()
+    router.market_service = MarketDataService([_QuoteProvider(), equibles])
+
+    table = router.route("/provider compare AAPL").renderable
+    rows = {provider: status for provider, status in zip(table.columns[0]._cells, table.columns[3]._cells, strict=True)}
+
+    assert equibles.calls == []
+    assert "not supported" in rows["equibles"]
+    assert "delayed" in rows["fullstack"]
+
+
 def test_the_cache_round_trip_keeps_the_filing_provenance() -> None:
     snapshot = build_snapshot("AAPL", AAPL_PROFILE, AAPL_REVENUE, AAPL_EPS, today=TODAY)
     assert _fundamentals_from_payload(_fundamentals_to_payload(snapshot)) == snapshot
@@ -323,6 +449,43 @@ def test_equibles_is_appended_to_the_current_chain_and_never_leads_it() -> None:
     assert recommended_provider_priority("finnhub", ["polygon"])[0] == "finnhub"
     minimal = next(preset for preset in priority_presets("equibles") if preset.label == "Primary + yfinance")
     assert minimal.providers == ("yfinance", "equibles")
+
+
+def test_changing_the_primary_provider_or_preset_keeps_equibles_last() -> None:
+    current = ["finnhub", "yfinance", "equibles"]
+    assert recommended_provider_priority("twelvedata", current)[-1] == "equibles"
+    assert recommended_provider_priority("yfinance", current) == ("yfinance", "equibles")
+    presets = priority_presets("finnhub", current)
+    for preset in presets:
+        assert preset.providers[-1] == "equibles" and preset.providers.count("equibles") == 1, preset.label
+    yfinance_only = next(preset for preset in presets if preset.label == "YFinance only")
+    assert yfinance_only.providers == ("yfinance", "equibles")
+    assert "no API key required" not in yfinance_only.description
+    untouched = next(preset for preset in priority_presets("finnhub", ["finnhub", "yfinance"]) if preset.label == "YFinance only")
+    assert untouched.providers == ("yfinance",)
+
+
+@pytest.mark.parametrize("command", ["/provider use twelvedata", "/news_model twelvedata", "/news_model key twelvedata test-td"])
+def test_choosing_another_primary_provider_keeps_equibles_last(tmp_path, monkeypatch, command) -> None:
+    monkeypatch.setattr("fincli.app.storage.secrets.SECRETS_FILE", tmp_path / "secrets.env")
+    for key in ("EQUIBLES_API_KEY", "FINNHUB_API_KEY", "TWELVE_DATA_API_KEY"):
+        monkeypatch.setenv(key, "test-key")
+    router = CommandRouter(config=ConfigManager(tmp_path / "config.json"), db=FinCLIDatabase(tmp_path / "fincli.db"))
+    router.route("/provider priority finnhub,equibles,yfinance")
+
+    assert router.route(command).status == "ready"
+    assert router.config.settings.market_provider_priority == ["twelvedata", "finnhub", "yfinance", "equibles"]
+
+
+def test_an_explicit_priority_list_removes_equibles_until_it_is_added_again(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("fincli.app.storage.secrets.SECRETS_FILE", tmp_path / "secrets.env")
+    for key in ("EQUIBLES_API_KEY", "FINNHUB_API_KEY", "TWELVE_DATA_API_KEY"):
+        monkeypatch.setenv(key, "test-key")
+    router = CommandRouter(config=ConfigManager(tmp_path / "config.json"), db=FinCLIDatabase(tmp_path / "fincli.db"))
+    router.route("/provider priority finnhub,yfinance,equibles")
+    router.route("/provider priority finnhub,yfinance")
+    router.route("/provider use twelvedata")
+    assert router.config.settings.market_provider_priority == ["twelvedata", "finnhub", "yfinance"]
 
 
 @pytest.mark.parametrize("command", ["/news_model equibles", "/provider use equibles"])

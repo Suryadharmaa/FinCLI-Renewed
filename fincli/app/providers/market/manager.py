@@ -274,8 +274,8 @@ class MarketProviderManager:
                 capabilities=("fundamentals",),
                 limitations=(
                     "Requires EQUIBLES_API_KEY; free keys allow 100 requests a day (3 per snapshot, reused for 6 hours).",
-                    "No market_cap, pe_ratio or beta (they derive from prices), so snapshots are partial "
-                    "and a complete snapshot from another provider takes precedence.",
+                    "Fallback only: asked for fundamentals when the providers before it fail or return a partial snapshot.",
+                    "No market_cap, pe_ratio or beta (they derive from prices), so its snapshots are partial.",
                     "Foreign filers report in their own currency and per ordinary share, not per ADR.",
                 ),
             ),
