@@ -7,6 +7,7 @@ import os
 from typing import TYPE_CHECKING, Any
 
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 
 from fincli.app.cli.handlers.common import (
@@ -34,6 +35,7 @@ from fincli.app.connectors.news_connectors import (
 from fincli.app.providers.market.base import supports_operation
 from fincli.app.providers.market.symbols import search_symbol_catalog
 from fincli.app.services.market_data import MarketDataService
+from fincli.app.storage.config import market_provider_problem
 from fincli.app.storage.secrets import save_secret
 from fincli.app.utils.errors import CommandError, FinCLIError
 
@@ -256,7 +258,6 @@ class ProvidersCommands:
                 "twelvedata": "TWELVE_DATA_API_KEY",
                 "alphavantage": "ALPHA_VANTAGE_API_KEY",
                 "polygon": "POLYGON_API_KEY",
-                "iex": "IEX_CLOUD_API_KEY",
                 "equibles": "EQUIBLES_API_KEY",
                 "custom": "MARKET_DATA_API_KEY",
             }
@@ -285,6 +286,7 @@ class ProvidersCommands:
             if len(args) < 2:
                 raise CommandError("Format: /provider use <provider>")
             provider = args[1].lower()
+            _check_market_providers([provider])
             if self._append_supplementary_provider(provider):
                 self.cache.clear()
                 return CommandResult(
@@ -301,7 +303,9 @@ class ProvidersCommands:
         if args and args[0].lower() == "priority":
             if len(args) < 2:
                 raise CommandError("Format: /provider priority finnhub,yfinance")
-            providers, note = _quote_capable_priority([p.strip() for p in args[1].split(",") if p.strip()])
+            names = [p.strip() for p in args[1].split(",") if p.strip()]
+            _check_market_providers(names)
+            providers, note = _quote_capable_priority(names)
             self.config.set_market_provider_priority(providers)
             self._refresh_market_service()
             self.cache.clear()
@@ -328,6 +332,9 @@ class ProvidersCommands:
                 f"AI provider    : {settings.ai_provider} (active: {self.ai_provider.name})\n"
                 f"{provider_status}\n\n{circuit_text}"
             )
+            notices = getattr(self.config, "notices", [])
+            if notices:
+                text += "\n\n" + "\n".join(f"Notice: {escape(notice)}" for notice in notices)
             return CommandResult(Panel(text, title="Provider Status", border_style="yellow"))
         if args and args[0].lower() == "test":
             if len(args) < 2:
@@ -500,6 +507,13 @@ class ProvidersCommands:
                 f"Unknown news provider: {', '.join(unknown)}",
                 "Use /news_model list or /news_model search <query> to see available providers.",
             )
+
+
+def _check_market_providers(names: list[str]) -> None:
+    """Refuse a provider FinCLI can't build before it is saved: a saved unknown name would stop the next start."""
+    problems = [problem for name in names if (problem := market_provider_problem(name))]
+    if problems:
+        raise CommandError(" ".join(problems))
 
 
 def _quote_capable_priority(providers: list[str]) -> tuple[list[str], str]:

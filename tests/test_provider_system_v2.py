@@ -11,7 +11,6 @@ from fincli.app.providers.market.base import (
     ProviderCapability,
     Quote,
 )
-from fincli.app.providers.market.iex_provider import IEXProvider
 from fincli.app.providers.market.manager import MarketProviderManager
 from fincli.app.providers.market.polygon_provider import PolygonProvider
 from fincli.app.providers.market.symbols import SymbolResolver
@@ -242,16 +241,14 @@ class TestPerOperationMetrics:
 # --- Provider System v3 catalog tests ---
 
 
-def test_market_manager_lists_polygon_and_iex() -> None:
+def test_market_manager_lists_polygon() -> None:
     names = {provider.name for provider in MarketProviderManager().list_providers()}
     assert "polygon" in names
-    assert "iex" in names
 
 
-def test_market_manager_creates_polygon_and_iex() -> None:
+def test_market_manager_creates_polygon() -> None:
     manager = MarketProviderManager()
     assert manager.create("polygon").name == "polygon"
-    assert manager.create("iex").name == "iex"
 
 
 def test_polygon_contract_surface() -> None:
@@ -264,16 +261,6 @@ def test_polygon_contract_surface() -> None:
     assert "history" in capability.operations
     assert "news" in capability.operations
     assert "fundamentals" in capability.operations
-
-
-def test_iex_contract_surface() -> None:
-    provider = IEXProvider(api_key="demo", client=None)
-    assert provider.name == "iex"
-    assert callable(provider.capabilities)
-    assert callable(provider.news)
-    capability = provider.capabilities()
-    assert capability.asset_classes == ("stock",)
-    assert "news" in capability.operations
 
 
 # --- Version test ---

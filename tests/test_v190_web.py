@@ -405,7 +405,6 @@ def test_api_secrets_list_endpoint(monkeypatch: object) -> None:
     market_env_keys = {item["env_key"] for item in data["market_keys"]}
     assert "FINNHUB_API_KEY" in market_env_keys
     assert "POLYGON_API_KEY" in market_env_keys
-    assert "IEX_CLOUD_API_KEY" in market_env_keys
     # yfinance has no key requirement, should not appear
     market_providers = {item["provider"] for item in data["market_keys"]}
     assert "yfinance" not in market_providers or all(item["env_key"] != "-" for item in data["market_keys"])

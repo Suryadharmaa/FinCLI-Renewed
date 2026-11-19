@@ -511,7 +511,7 @@ Local price alerts with conditional triggers and background daemon.
 
 Provider diagnostics, status, key management, fallback priority, and provider comparison.
 
-Supported market providers: yfinance, Finnhub, Twelve Data, Alpha Vantage, Polygon.io, IEX Cloud, custom REST providers, and Equibles (fundamentals only).
+Supported market providers: yfinance, Finnhub, Twelve Data, Alpha Vantage, Polygon.io, custom REST providers, and Equibles (fundamentals only).
 
 ```
 /provider status

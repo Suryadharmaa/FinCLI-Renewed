@@ -32,6 +32,9 @@ def _run_web_command(args: list[str]) -> None:
     from fincli.app.web.manager import WebServerManager
 
     manager = WebServerManager()
+    # `start` saves the config before the server process reads it, so a removal notice is shown here.
+    for notice in manager.config.notices:
+        print(f"Notice: {notice}")
     action = args[0].lower() if args else "status"
     if action == "start":
         status = manager.start()
