@@ -6,7 +6,7 @@ import os
 from dataclasses import dataclass
 
 from fincli.app.providers.market.alphavantage_provider import AlphaVantageProvider
-from fincli.app.providers.market.base import BaseMarketProvider, ProviderEntitlement
+from fincli.app.providers.market.base import BaseMarketProvider, ProviderEntitlement, supports_operation
 from fincli.app.providers.market.custom_provider import CustomMarketProvider
 from fincli.app.providers.market.equibles_provider import EquiblesProvider
 from fincli.app.providers.market.finnhub_provider import FinnhubProvider
@@ -119,8 +119,9 @@ class MarketProviderManager:
                 continue
             providers.append(self.create(normalized))
             seen.add(normalized)
-        if not providers:
-            providers.append(self.create("yfinance"))
+        if not any(supports_operation(provider, "quote") for provider in providers):
+            # A chain of only fundamentals-only providers (a hand-edited config, say) still needs quotes, history and news.
+            providers.insert(0, self.create("yfinance"))
         return providers
 
     def key_status(self) -> list[dict[str, str]]:

@@ -103,7 +103,8 @@ its capability declaration lists only `fundamentals`, and FinCLI skips a provide
 Selecting it (the `/news_model` picker, `/news_model equibles`, `/provider use equibles`) or saving its key appends it
 to the end of your provider chain, after yfinance, without changing the active market or news provider. Changing the
 primary provider or picking a fallback preset keeps it there; remove it with an explicit `/provider priority` list,
-for example `/provider priority finnhub,yfinance`. `/provider compare` lists it as `not supported`, since it has no quotes.
+for example `/provider priority finnhub,yfinance`. An explicit list also puts it after the providers that serve quotes,
+and `/provider priority equibles` on its own becomes `yfinance,equibles`, since FinCLI always needs a quote provider. `/provider compare` lists it as `not supported`, since it has no quotes.
 
 **It is a fallback only.** FinCLI asks Equibles for fundamentals only when every provider before it fails or returns
 a partial snapshot, and then keeps whichever snapshot scores higher. Figures from different providers are never combined
@@ -119,7 +120,8 @@ fiscal year and filing date, because it can differ from the quote beside it (a f
   either value is absent, or the prior value is zero or negative. Short transition fiscal years are skipped.
 - **Coverage:** companies that file 10-K, 20-F or 40-F reports with the SEC. Foreign filers report in their own currency,
   and EPS is per ordinary share, not per ADR. EPS is left empty when its currency differs from revenue's.
-  A symbol Equibles does not list (FX, crypto, non-SEC listings) returns an empty snapshot, not an error.
+  A symbol Equibles does not list (FX, crypto, non-SEC listings) is reported as unavailable (`empty_data`), not as
+  a provider failure: it doesn't count toward the circuit breaker and isn't asked again for 6 hours.
 - **Not provided:** `market_cap`, `pe_ratio` and `beta`, which derive from prices. FinCLI therefore marks an Equibles snapshot
   as partial (shown as `partial` in `/provider status` and the trust view) and these fields stay `N/A`.
 - **Usage:** one snapshot costs 3 requests (profile, revenue, diluted EPS) and is reused for 6 hours in the running process.

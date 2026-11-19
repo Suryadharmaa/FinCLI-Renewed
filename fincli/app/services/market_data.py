@@ -18,6 +18,7 @@ from fincli.app.providers.market.base import (
     NewsItem,
     ProviderStatus,
     Quote,
+    supports_operation,
 )
 from fincli.app.providers.market.symbols import SymbolResolver
 from fincli.app.providers.reliability import (
@@ -30,7 +31,7 @@ from fincli.app.providers.reliability import (
     classify_provider_error,
     score_quality,
 )
-from fincli.app.utils.errors import ProviderError
+from fincli.app.utils.errors import DataUnavailableError, ProviderError
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable
@@ -215,7 +216,9 @@ class MarketDataService:
                 latency_ms = (perf_counter() - started) * 1000
                 errors.append(f"{provider_name}: {exc}")
                 self._record_provider_metric(provider_name, operation=method_name, success=False, latency_ms=latency_ms, fallback=True)
-                self._record_circuit_failure(provider_name)
+                if not isinstance(exc, DataUnavailableError):
+                    # A provider saying it has no data for this symbol is healthy; only failures open its circuit.
+                    self._record_circuit_failure(provider_name)
                 self._record_provider_result(
                     provider=provider_name,
                     operation=method_name,
@@ -433,17 +436,6 @@ def _fundamentals_from_payload(payload: dict[str, Any]) -> FundamentalSnapshot:
         filed_date=None if payload.get("filed_date") is None else str(payload.get("filed_date")),
         revenue_growth=_optional_float(payload.get("revenue_growth")),
     )
-
-
-def supports_operation(provider: BaseMarketProvider, operation: str) -> bool:
-    """Whether the provider declares the operation; one without a readable declaration is tried for all."""
-    capabilities = getattr(provider, "capabilities", None)
-    if not callable(capabilities):
-        return True
-    try:
-        return operation in capabilities().operations
-    except Exception:  # noqa: BLE001 - a broken declaration must not hide the provider
-        return True
 
 
 def _parse_datetime(value: object) -> datetime:

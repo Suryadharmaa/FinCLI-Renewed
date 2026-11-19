@@ -29,7 +29,7 @@ from fincli.app.providers.market.base import (
     ProviderStatus,
     Quote,
 )
-from fincli.app.utils.errors import ProviderError, RateLimitError
+from fincli.app.utils.errors import DataUnavailableError, ProviderError, RateLimitError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -63,7 +63,8 @@ class EquiblesProvider:
         self._cache_ttl_seconds = cache_ttl_seconds
         self._clock = clock
         self._today = today or (lambda: datetime.now(UTC).date())
-        self._cache: dict[str, tuple[float, FundamentalSnapshot]] = {}
+        # None marks a symbol Equibles does not list, so it is not asked again within the window.
+        self._cache: dict[str, tuple[float, FundamentalSnapshot | None]] = {}
 
     async def fundamentals(self, symbol: str) -> FundamentalSnapshot:
         ticker = symbol.strip().upper()
@@ -71,17 +72,17 @@ class EquiblesProvider:
             raise ProviderError("Equibles needs a ticker symbol.")
         cached = self._cache.get(ticker)
         if cached is not None and self._clock() - cached[0] < self._cache_ttl_seconds:
+            if cached[1] is None:
+                raise _not_listed(ticker)
             return cached[1]
 
         path = f"/stocks/{url_quote(ticker, safe='')}"
         try:
             profile = await self._get(path)
-        except _NotFoundError:
-            # A symbol Equibles does not list (FX, crypto, a non-SEC listing) is an empty answer, not a
-            # provider failure: it must not count toward the circuit breaker or be asked again within the window.
-            snapshot = FundamentalSnapshot(symbol=ticker, provider=self.name, currency="USD")
-            self._cache[ticker] = (self._clock(), snapshot)
-            return snapshot
+        except _NotFoundError as exc:
+            # A symbol Equibles does not list (FX, crypto, a non-SEC listing) is unavailable data, not a provider failure.
+            self._cache[ticker] = (self._clock(), None)
+            raise _not_listed(ticker) from exc
         revenue, eps = await asyncio.gather(
             self._get_facts(f"{path}/financial-facts/revenue"),
             self._get_facts(f"{path}/financial-facts/eps-diluted"),
@@ -154,8 +155,14 @@ class EquiblesProvider:
                 await client.aclose()
 
 
-class _NotFoundError(ProviderError):
+class _NotFoundError(DataUnavailableError):
     """HTTP 404: an unknown ticker, or a concept the company does not report."""
+
+
+def _not_listed(ticker: str) -> DataUnavailableError:
+    return DataUnavailableError(
+        f"Equibles has no data for {ticker}: it covers stocks of SEC filers, not FX, crypto or other listings."
+    )
 
 
 def build_snapshot(

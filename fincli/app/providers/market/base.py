@@ -70,6 +70,17 @@ def fundamentals_provenance(snapshot: FundamentalSnapshot) -> str:
     return label
 
 
+def supports_operation(provider: object, operation: str) -> bool:
+    """Whether the provider declares the operation; one without a readable declaration is tried for all."""
+    capabilities = getattr(provider, "capabilities", None)
+    if not callable(capabilities):
+        return True
+    try:
+        return operation in capabilities().operations
+    except Exception:  # noqa: BLE001 - a broken declaration must not hide the provider
+        return True
+
+
 @dataclass(frozen=True, slots=True)
 class ProviderStatus:
     name: str

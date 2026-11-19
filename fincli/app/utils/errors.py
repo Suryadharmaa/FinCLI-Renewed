@@ -35,6 +35,10 @@ class RateLimitError(ProviderError):
     """Raised when a provider is rate-limited."""
 
 
+class DataUnavailableError(ProviderError):
+    """The provider answered but has no data for the request, such as a symbol it does not cover; not an outage."""
+
+
 class SecurityError(FinCLIError):
     """Raised when a security violation is detected."""
     pass

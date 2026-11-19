@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Generic, TypeVar
 
-from fincli.app.utils.errors import RateLimitError
+from fincli.app.utils.errors import DataUnavailableError, RateLimitError
 
 T = TypeVar("T")
 
@@ -115,6 +115,8 @@ def classify_provider_error(exc: BaseException) -> str:
     """Classify provider failures into stable user-facing reliability statuses."""
     if isinstance(exc, RateLimitError):
         return STATUS_RATE_LIMITED
+    if isinstance(exc, DataUnavailableError):
+        return STATUS_EMPTY_DATA
 
     text = f"{exc} {getattr(exc, 'help_text', '') or ''}".lower()
     if "429" in text or "rate limit" in text or "too many request" in text:

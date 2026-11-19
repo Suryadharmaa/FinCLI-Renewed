@@ -20,8 +20,10 @@ from fincli.app.providers.market.base import (
     fundamentals_provenance,
 )
 from fincli.app.providers.market.equibles_provider import EquiblesProvider, build_snapshot, revenue_growth
+from fincli.app.providers.market.manager import MarketProviderManager
 from fincli.app.providers.reliability import (
     STATUS_AUTH_FAILED,
+    STATUS_EMPTY_DATA,
     STATUS_ENTITLEMENT_MISSING,
     STATUS_NETWORK_ERROR,
     STATUS_PARTIAL_DATA,
@@ -34,7 +36,7 @@ from fincli.app.services.market_overview import build_market_overview
 from fincli.app.storage.config import ConfigManager
 from fincli.app.storage.database import FinCLIDatabase
 from fincli.app.tui.market_provider_selector import priority_presets, recommended_provider_priority
-from fincli.app.utils.errors import ProviderError, RateLimitError
+from fincli.app.utils.errors import DataUnavailableError, ProviderError, RateLimitError
 
 # Trimmed from live responses (AAPL, 2026-11-19).
 TODAY = date(2026, 11, 19)
@@ -170,13 +172,29 @@ def test_figures_from_a_year_that_ended_over_two_years_ago_are_not_shown_as_curr
     assert snapshot.sector == "Technology"
 
 
-def test_an_unlisted_symbol_is_an_empty_answer_asked_once_per_window() -> None:
+def test_an_unlisted_symbol_is_unavailable_data_asked_once_per_window() -> None:
     seen: list[httpx.Request] = []
     provider = _provider({}, seen)
-    first = asyncio.run(provider.fundamentals("EURUSD=X"))
-    second = asyncio.run(provider.fundamentals("EURUSD=X"))
-    assert first == second == FundamentalSnapshot(symbol="EURUSD=X", provider="equibles", currency="USD")
+    for _ in range(2):
+        with pytest.raises(DataUnavailableError) as caught:
+            asyncio.run(provider.fundamentals("EURUSD=X"))
+        assert classify_provider_error(caught.value) == STATUS_EMPTY_DATA
     assert len(seen) == 1
+    assert classify_provider_error(DataUnavailableError("Unlisted.")) == STATUS_EMPTY_DATA
+
+
+def test_an_unlisted_symbol_is_reported_unavailable_and_never_opens_the_circuit() -> None:
+    seen: list[httpx.Request] = []
+    equibles = _provider({}, seen, cache_ttl_seconds=0)
+    service = MarketDataService([_FundamentalsSource("upstream", None), equibles], circuit_breaker_failure_threshold=1)
+
+    for _ in range(2):
+        with pytest.raises(ProviderError):
+            asyncio.run(service.fundamentals("EURUSD=X"))
+
+    assert len(seen) == 2
+    assert not service.provider_metrics["equibles"].circuit_open
+    assert [r.status for r in service.recent_results(10) if r.provider == "equibles"] == [STATUS_EMPTY_DATA] * 2
 
 
 def test_a_concept_the_company_does_not_report_leaves_that_field_empty() -> None:
@@ -475,6 +493,32 @@ def test_choosing_another_primary_provider_keeps_equibles_last(tmp_path, monkeyp
 
     assert router.route(command).status == "ready"
     assert router.config.settings.market_provider_priority == ["twelvedata", "finnhub", "yfinance", "equibles"]
+
+
+@pytest.mark.parametrize(
+    ("command", "chain"),
+    [
+        ("/provider priority equibles", ["yfinance", "equibles"]),
+        ("/provider priority equibles,finnhub", ["finnhub", "equibles"]),
+    ],
+)
+def test_an_explicit_priority_always_keeps_a_quote_provider_first(tmp_path, monkeypatch, command, chain) -> None:
+    monkeypatch.setattr("fincli.app.storage.secrets.SECRETS_FILE", tmp_path / "secrets.env")
+    for key in ("EQUIBLES_API_KEY", "FINNHUB_API_KEY"):
+        monkeypatch.setenv(key, "test-key")
+    router = CommandRouter(config=ConfigManager(tmp_path / "config.json"), db=FinCLIDatabase(tmp_path / "fincli.db"))
+
+    assert router.route(command).status == "ready"
+
+    assert router.config.settings.market_provider_priority == chain
+    assert router.config.settings.market_provider == chain[0]
+    assert router.market_service.primary_provider.name == chain[0]
+
+
+def test_a_chain_of_only_fundamentals_providers_gains_yfinance_for_quotes(monkeypatch) -> None:
+    monkeypatch.setenv("EQUIBLES_API_KEY", "test-key")
+    names = [provider.name for provider in MarketProviderManager().create_many(["equibles"])]
+    assert names == ["yfinance", "equibles"]
 
 
 def test_an_explicit_priority_list_removes_equibles_until_it_is_added_again(tmp_path, monkeypatch) -> None:

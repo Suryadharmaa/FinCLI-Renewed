@@ -31,8 +31,9 @@ from fincli.app.cli.result import CommandResult
 from fincli.app.connectors.news_connectors import (
     news_connector_secret_key,
 )
+from fincli.app.providers.market.base import supports_operation
 from fincli.app.providers.market.symbols import search_symbol_catalog
-from fincli.app.services.market_data import MarketDataService, supports_operation
+from fincli.app.services.market_data import MarketDataService
 from fincli.app.storage.secrets import save_secret
 from fincli.app.utils.errors import CommandError, FinCLIError
 
@@ -297,11 +298,11 @@ class ProvidersCommands:
         if args and args[0].lower() == "priority":
             if len(args) < 2:
                 raise CommandError("Format: /provider priority finnhub,yfinance")
-            providers = [provider.strip() for provider in args[1].split(",") if provider.strip()]
+            providers, note = _quote_capable_priority([p.strip() for p in args[1].split(",") if p.strip()])
             self.config.set_market_provider_priority(providers)
             self._refresh_market_service()
             self.cache.clear()
-            return CommandResult(Panel(f"Provider priority: {', '.join(providers)}", title="Provider Priority"))
+            return CommandResult(Panel(f"Provider priority: {', '.join(providers)}{note}", title="Provider Priority"))
         if args and args[0].lower() == "reset":
             if len(args) < 2:
                 raise CommandError("Format: /provider reset <provider_name>")
@@ -496,3 +497,17 @@ class ProvidersCommands:
                 f"Unknown news provider: {', '.join(unknown)}",
                 "Use /news_model list or /news_model search <query> to see available providers.",
             )
+
+
+def _quote_capable_priority(providers: list[str]) -> tuple[list[str], str]:
+    """An explicit chain with fundamentals-only providers last; one made of only those gains yfinance for quotes."""
+    from fincli.app.tui.market_provider_selector import SUPPLEMENTARY_PROVIDERS
+
+    names = list(dict.fromkeys(p.lower() for p in providers))
+    full = [p for p in names if p not in SUPPLEMENTARY_PROVIDERS]
+    supplementary = [p for p in names if p in SUPPLEMENTARY_PROVIDERS]
+    if supplementary and not full:
+        return ["yfinance", *supplementary], (
+            f"\n{', '.join(supplementary)} serves fundamentals only, so yfinance was added for quotes, history and news."
+        )
+    return [*full, *supplementary], ""
