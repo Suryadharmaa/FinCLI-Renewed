@@ -36,6 +36,14 @@ if TYPE_CHECKING:
 
 API_BASE_URL = "https://api.equibles.com/v1"
 API_KEYS_URL = "https://equibles.com/dashboard/apikeys"
+# FinCLI's Equibles referral link (code FINCLI). It appears only where paid plans come up, always with its disclosure,
+# and never replaces the free key link above.
+PAID_PLANS_URL = "https://equibles.com/pricing?ref=FINCLI"
+PAID_PLANS_NOTE = (
+    f"Paid plans with higher limits: {PAID_PLANS_URL} (referral link: eligible subscriptions support FinCLI, "
+    "and eligible new customers get 10% off their plan)."
+)
+KEY_HELP = (f"Create a free key (100 requests a day): {API_KEYS_URL}", PAID_PLANS_NOTE)
 # Annual filings change at most a few times a year; one snapshot costs three requests of a
 # free key's 100 a day, so a process reuses it for six hours.
 DEFAULT_CACHE_TTL_SECONDS = 6 * 60 * 60
@@ -283,7 +291,7 @@ def _raise_for_status(response: httpx.Response) -> None:
     if code == 429:
         reset = response.headers.get("X-RateLimit-Reset")
         when = f" Resets at {reset}." if reset else ""
-        raise RateLimitError(f"Equibles HTTP 429: daily request limit reached.{when} {detail}".strip())
+        raise RateLimitError(f"Equibles HTTP 429: daily request limit reached.{when} {detail}".strip(), PAID_PLANS_NOTE)
     if code >= 500:
         raise ProviderError(f"Equibles HTTP {code}: service unavailable.")
     raise ProviderError(f"Equibles HTTP {code}: {detail or 'request refused'}")

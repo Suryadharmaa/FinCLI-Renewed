@@ -125,7 +125,12 @@ fiscal year and filing date, because it can differ from the quote beside it (a f
 - **Not provided:** `market_cap`, `pe_ratio` and `beta`, which derive from prices. FinCLI therefore marks an Equibles snapshot
   as partial (shown as `partial` in `/provider status` and the trust view) and these fields stay `N/A`.
 - **Usage:** one snapshot costs 3 requests (profile, revenue, diluted EPS) and is reused for 6 hours in the running process.
-  The free tier allows 100 requests a day. A 429 response reports when requests resume.
+  The free tier allows 100 requests a day; create a free key at https://equibles.com/dashboard/apikeys.
+  A 429 response reports when requests resume.
+- **Paid plans:** plans with higher daily limits are listed at [equibles.com/pricing](https://equibles.com/pricing?ref=FINCLI).
+  That is FinCLI's referral link: eligible subscriptions through it support FinCLI, and eligible new customers get 10% off
+  eligible invoices on their original plan, after any introductory month. FinCLI shows it only where paid plans come up
+  (the key step and the daily-limit message), never in place of the free key link.
 - **Terms:** each user brings their own key, and keys are personal (do not bundle or share one). Showing data to other people
   is governed by the [Equibles Terms of Service](https://equibles.com/legal/terms).
 

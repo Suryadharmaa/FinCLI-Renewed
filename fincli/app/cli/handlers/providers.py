@@ -174,10 +174,13 @@ class ProvidersCommands:
     def _news_model_select_provider(self, provider: str, con: Console) -> CommandResult:
         """Select a news/market provider, prompting for API key if needed."""
         # Check if it's a market provider
-        if self.market_manager.get(provider) is not None:
+        info = self.market_manager.get(provider)
+        if info is not None:
             env_keys = _market_provider_secret_keys(provider)
             if env_keys and not any(os.getenv(k) for k in env_keys):
                 con.print(f"\n[yellow]API key not set for [bold]{provider}[/bold].[/yellow]")
+                for line in info.key_help:
+                    con.print(line, style="dim", markup=False)
                 for key in env_keys:
                     if key.endswith("_BASE_URL"):
                         val = _interactive_prompt(f"Paste {key} (URL)")
