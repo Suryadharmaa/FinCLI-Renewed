@@ -18,6 +18,7 @@ from fincli.app.providers.market.base import (
     NewsItem,
     ProviderStatus,
     Quote,
+    supports_operation,
 )
 from fincli.app.providers.market.symbols import SymbolResolver
 from fincli.app.providers.reliability import (
@@ -30,7 +31,7 @@ from fincli.app.providers.reliability import (
     classify_provider_error,
     score_quality,
 )
-from fincli.app.utils.errors import ProviderError
+from fincli.app.utils.errors import DataUnavailableError, ProviderError
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable
@@ -73,7 +74,8 @@ class MarketDataService:
 
     @property
     def primary_provider(self) -> BaseMarketProvider:
-        return self.providers[0]
+        """The first provider that serves quotes, so a fundamentals-only provider never becomes the active one."""
+        return next((provider for provider in self.providers if supports_operation(provider, "quote")), self.providers[0])
 
     async def quote(self, symbol: str) -> Quote:
         cache_key = self._cache_key(symbol)
@@ -135,6 +137,11 @@ class MarketDataService:
         degraded_response: ProviderResponse[Any] | None = None
         for provider in self.providers:
             provider_name = getattr(provider, "name", "unknown")
+            if not supports_operation(provider, method_name):
+                # Not a failure: no metric or circuit-breaker count, or a fundamentals-only
+                # provider's circuit would open on quote calls and block its fundamentals.
+                errors.append(f"{provider_name}: does not provide {method_name}")
+                continue
             if self._is_circuit_open(provider_name):
                 message = (
                     f"{provider_name}: circuit open; skipped {method_name} for "
@@ -209,7 +216,9 @@ class MarketDataService:
                 latency_ms = (perf_counter() - started) * 1000
                 errors.append(f"{provider_name}: {exc}")
                 self._record_provider_metric(provider_name, operation=method_name, success=False, latency_ms=latency_ms, fallback=True)
-                self._record_circuit_failure(provider_name)
+                if not isinstance(exc, DataUnavailableError):
+                    # A provider saying it has no data for this symbol is healthy; only failures open its circuit.
+                    self._record_circuit_failure(provider_name)
                 self._record_provider_result(
                     provider=provider_name,
                     operation=method_name,
@@ -422,6 +431,10 @@ def _fundamentals_from_payload(payload: dict[str, Any]) -> FundamentalSnapshot:
         beta=_optional_float(payload.get("beta")),
         sector=None if payload.get("sector") is None else str(payload.get("sector")),
         industry=None if payload.get("industry") is None else str(payload.get("industry")),
+        fiscal_period=None if payload.get("fiscal_period") is None else str(payload.get("fiscal_period")),
+        period_end=None if payload.get("period_end") is None else str(payload.get("period_end")),
+        filed_date=None if payload.get("filed_date") is None else str(payload.get("filed_date")),
+        revenue_growth=_optional_float(payload.get("revenue_growth")),
     )
 
 

@@ -56,6 +56,7 @@ Market providers power quotes, technical analysis, history, news, fundamentals, 
 | Alpha Vantage | `/news_model key alphavantage <api_key>` | https://www.alphavantage.co | Free tier: 25 requests/day |
 | yfinance | No key needed | -- | Default delayed fallback, always available |
 | Custom | `/news_model key custom <api_key> <base_url>` | -- | For self-hosted market data APIs |
+| Equibles | `/news_model key equibles <api_key>` | https://equibles.com/docs/api | Fundamentals only; free tier: 100 requests/day. See below |
 
 **Recommended starting point:** Finnhub (free tier covers stocks, forex, crypto, news, calendar, insider, IPO).
 
@@ -94,6 +95,39 @@ Browse available connectors:
 ```
 
 ---
+
+### Equibles (fundamentals only)
+
+Equibles supplies `/fundamentals` data as reported in SEC filings. It is never used for quotes, history or news:
+its capability declaration lists only `fundamentals`, and FinCLI skips a provider for operations it does not declare.
+Selecting it (the `/news_model` picker, `/news_model equibles`, `/provider use equibles`) or saving its key appends it
+to the end of your provider chain, after yfinance, without changing the active market or news provider. Changing the
+primary provider or picking a fallback preset keeps it there; remove it with an explicit `/provider priority` list,
+for example `/provider priority finnhub,yfinance`. An explicit list also puts it after the providers that serve quotes,
+and `/provider priority equibles` on its own becomes `yfinance,equibles`, since FinCLI always needs a quote provider. `/provider compare` lists it as `not supported`, since it has no quotes.
+
+**It is a fallback only.** FinCLI asks Equibles for fundamentals only when every provider before it fails or returns
+a partial snapshot, and then keeps whichever snapshot scores higher. Figures from different providers are never combined
+into one snapshot. When an Equibles snapshot is shown, `/market` and the AI context label it with its source, currency,
+fiscal year and filing date, because it can differ from the quote beside it (a foreign filer reports in its own currency).
+`/screen` still computes revenue growth from yfinance statements and does not use Equibles.
+
+- **Fields:** `eps` (diluted) and `revenue` from the newest full fiscal year either one reports, `sector`, `industry`,
+  and the reporting `currency`. A figure whose latest year is older than that year is left empty rather than shown as current,
+  and both are left empty when that year ended more than two years ago (a filer that stopped reporting).
+  Each snapshot also carries `fiscal_period` (e.g. `FY2026`), `period_end`, `filed_date`, and `revenue_growth`:
+  the percent change from the prior fiscal year, matched by fiscal-year label. It is empty when the prior year is missing,
+  either value is absent, or the prior value is zero or negative. Short transition fiscal years are skipped.
+- **Coverage:** companies that file 10-K, 20-F or 40-F reports with the SEC. Foreign filers report in their own currency,
+  and EPS is per ordinary share, not per ADR. EPS is left empty when its currency differs from revenue's.
+  A symbol Equibles does not list (FX, crypto, non-SEC listings) is reported as unavailable (`empty_data`), not as
+  a provider failure: it doesn't count toward the circuit breaker and isn't asked again for 6 hours.
+- **Not provided:** `market_cap`, `pe_ratio` and `beta`, which derive from prices. FinCLI therefore marks an Equibles snapshot
+  as partial (shown as `partial` in `/provider status` and the trust view) and these fields stay `N/A`.
+- **Usage:** one snapshot costs 3 requests (profile, revenue, diluted EPS) and is reused for 6 hours in the running process.
+  The free tier allows 100 requests a day. A 429 response reports when requests resume.
+- **Terms:** each user brings their own key, and keys are personal (do not bundle or share one). Showing data to other people
+  is governed by the [Equibles Terms of Service](https://equibles.com/legal/terms).
 
 ## Provider Priority
 

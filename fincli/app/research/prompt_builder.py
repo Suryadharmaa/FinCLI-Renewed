@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from fincli.app.providers.market.base import fundamentals_provenance
+
 if TYPE_CHECKING:
     from fincli.app.research.models import ResearchBrief
 
@@ -35,6 +37,7 @@ def build_research_prompt(brief: ResearchBrief) -> str:
         "No fundamentals."
         if fundamentals is None
         else (
+            f"{fundamentals_provenance(fundamentals)}; "
             f"market_cap={fundamentals.market_cap}; pe={fundamentals.pe_ratio}; eps={fundamentals.eps}; "
             f"revenue={fundamentals.revenue}; sector={fundamentals.sector}; industry={fundamentals.industry}"
         )

@@ -50,6 +50,35 @@ class FundamentalSnapshot:
     beta: float | None = None
     sector: str | None = None
     industry: str | None = None
+    # Provenance for providers that report filed figures (None elsewhere): the fiscal period
+    # eps/revenue cover, its end date, the filing date, and revenue growth versus the prior fiscal year in percent.
+    fiscal_period: str | None = None
+    period_end: str | None = None
+    filed_date: str | None = None
+    revenue_growth: float | None = None
+
+
+def fundamentals_provenance(snapshot: FundamentalSnapshot) -> str:
+    """Where a snapshot's figures come from: provider and currency, plus the filing period for as-reported figures.
+
+    A fallback snapshot can be in another currency and fiscal period than the quote beside it, so it is never shown unlabelled.
+    """
+    label = f"Source={snapshot.provider}; Currency={snapshot.currency}"
+    if snapshot.fiscal_period:
+        filed = f", filed {snapshot.filed_date}" if snapshot.filed_date else ""
+        label += f"; EPS/Revenue as reported for {snapshot.fiscal_period} (period end {snapshot.period_end}{filed})"
+    return label
+
+
+def supports_operation(provider: object, operation: str) -> bool:
+    """Whether the provider declares the operation; one without a readable declaration is tried for all."""
+    capabilities = getattr(provider, "capabilities", None)
+    if not callable(capabilities):
+        return True
+    try:
+        return operation in capabilities().operations
+    except Exception:  # noqa: BLE001 - a broken declaration must not hide the provider
+        return True
 
 
 @dataclass(frozen=True, slots=True)

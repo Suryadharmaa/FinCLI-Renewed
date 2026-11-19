@@ -31,6 +31,7 @@ from fincli.app.cli.result import CommandResult
 from fincli.app.connectors.news_connectors import (
     news_connector_secret_key,
 )
+from fincli.app.providers.market.base import supports_operation
 from fincli.app.providers.market.symbols import search_symbol_catalog
 from fincli.app.services.market_data import MarketDataService
 from fincli.app.storage.secrets import save_secret
@@ -107,19 +108,25 @@ class ProvidersCommands:
                 save_secret("CUSTOM_NEWS_BASE_URL", args[3])
             elif provider == "custom" and len(args) >= 4:
                 save_secret("MARKET_DATA_BASE_URL", args[3])
-            if self.market_manager.get(provider) is not None:
+            supplementary = self._append_supplementary_provider(provider)
+            if not supplementary and self.market_manager.get(provider) is not None:
                 self.config.set_market_provider_priority([provider, *self._priority_tail(provider)])
                 self.config.set_news_provider(provider)
                 self._refresh_market_service()
-            else:
+            elif not supplementary:
                 self.config.set_news_provider_priority([provider, *self._news_priority_tail(provider)])
             self.cache.clear()
             extra = "\nCustom base URL also saved." if provider in {"custom", "custom_news"} and len(args) >= 4 else ""
+            active_line = (
+                f"{provider} added after your market providers as a fundamentals fallback: it answers only when they fail or return less.\n"
+                if supplementary
+                else f"Active news provider saved: {provider}.\n"
+            )
             return CommandResult(
                 Panel(
                     (
                         f"Market/news API key for {provider} saved globally in ~/.fincli/secrets.env.{extra}\n"
-                        f"Active news provider saved: {provider}.\n"
+                        f"{active_line}"
                         "Key is not displayed in terminal and persists across sessions."
                     ),
                     title="News API Key Saved",
@@ -181,6 +188,16 @@ class ProvidersCommands:
                         con.print(f"[green]✓ {key} saved.[/green]")
                     else:
                         con.print(f"[dim]Skipped {key}.[/dim]")
+            if self._append_supplementary_provider(provider):
+                self.cache.clear()
+                return CommandResult(
+                    Panel(
+                        f"{provider} added after your market providers as a fundamentals fallback: it answers only when they fail or return less.\n"
+                        f"Active market provider unchanged: [bold]{self.config.settings.market_provider}[/bold]",
+                        title="Provider Updated",
+                        border_style="green",
+                    )
+                )
             self.config.set_market_provider(provider)
             self.config.set_news_provider(provider)
             self.config.set_market_provider_priority([provider, *self._priority_tail(provider)])
@@ -237,6 +254,7 @@ class ProvidersCommands:
                 "alphavantage": "ALPHA_VANTAGE_API_KEY",
                 "polygon": "POLYGON_API_KEY",
                 "iex": "IEX_CLOUD_API_KEY",
+                "equibles": "EQUIBLES_API_KEY",
                 "custom": "MARKET_DATA_API_KEY",
             }
             key_name = secret_keys.get(provider)
@@ -264,6 +282,15 @@ class ProvidersCommands:
             if len(args) < 2:
                 raise CommandError("Format: /provider use <provider>")
             provider = args[1].lower()
+            if self._append_supplementary_provider(provider):
+                self.cache.clear()
+                return CommandResult(
+                    Panel(
+                        f"{provider} serves fundamentals only, so it was added after your market providers as a fallback. "
+                        f"Active market provider: {self.config.settings.market_provider}",
+                        title="Provider Updated",
+                    )
+                )
             self.config.set_market_provider_priority([provider, *self._priority_tail(provider)])
             self._refresh_market_service()
             self.cache.clear()
@@ -271,11 +298,11 @@ class ProvidersCommands:
         if args and args[0].lower() == "priority":
             if len(args) < 2:
                 raise CommandError("Format: /provider priority finnhub,yfinance")
-            providers = [provider.strip() for provider in args[1].split(",") if provider.strip()]
+            providers, note = _quote_capable_priority([p.strip() for p in args[1].split(",") if p.strip()])
             self.config.set_market_provider_priority(providers)
             self._refresh_market_service()
             self.cache.clear()
-            return CommandResult(Panel(f"Provider priority: {', '.join(providers)}", title="Provider Priority"))
+            return CommandResult(Panel(f"Provider priority: {', '.join(providers)}{note}", title="Provider Priority"))
         if args and args[0].lower() == "reset":
             if len(args) < 2:
                 raise CommandError("Format: /provider reset <provider_name>")
@@ -365,6 +392,12 @@ class ProvidersCommands:
 
         results: list[dict[str, object]] = []
         for provider in self.market_service.providers:
+            if not supports_operation(provider, "quote"):
+                # A provider that declares no quotes (fundamentals-only) is not asked, and is not shown as failing.
+                results.append(
+                    {"provider": provider.name, "price": None, "currency": "-", "status": "not supported", "latency_ms": None, "error": None}
+                )
+                continue
             start = monotonic()
             try:
                 quote = self._run_async(provider.quote(symbol))
@@ -421,13 +454,28 @@ class ProvidersCommands:
         self.market_service = self._build_market_service()
         self.market_provider = self.market_service.primary_provider
 
+    def _append_supplementary_provider(self, provider: str) -> bool:
+        """Append a fundamentals-only provider after the current chain, leaving the active provider; False for others."""
+        from fincli.app.tui.market_provider_selector import SUPPLEMENTARY_PROVIDERS, recommended_provider_priority
+
+        if provider not in SUPPLEMENTARY_PROVIDERS:
+            return False
+        settings = self.config.settings
+        current = settings.market_provider_priority or [settings.market_provider]
+        self.config.set_market_provider_priority(list(recommended_provider_priority(provider, current)))
+        self._refresh_market_service()
+        return True
+
     def _priority_tail(self, active_provider: str) -> list[str]:
+        """The rest of the current chain after a new active provider; fundamentals-only providers stay, last."""
+        from fincli.app.tui.market_provider_selector import SUPPLEMENTARY_PROVIDERS
+
         active = active_provider.lower()
         existing = self.config.settings.market_provider_priority or ["yfinance"]
         tail = [provider for provider in existing if provider != active]
         if active != "yfinance" and "yfinance" not in tail:
             tail.append("yfinance")
-        return tail
+        return [p for p in tail if p not in SUPPLEMENTARY_PROVIDERS] + [p for p in tail if p in SUPPLEMENTARY_PROVIDERS]
 
     def _news_priority_tail(self, active_provider: str) -> list[str]:
         active = active_provider.lower()
@@ -449,3 +497,17 @@ class ProvidersCommands:
                 f"Unknown news provider: {', '.join(unknown)}",
                 "Use /news_model list or /news_model search <query> to see available providers.",
             )
+
+
+def _quote_capable_priority(providers: list[str]) -> tuple[list[str], str]:
+    """An explicit chain with fundamentals-only providers last; one made of only those gains yfinance for quotes."""
+    from fincli.app.tui.market_provider_selector import SUPPLEMENTARY_PROVIDERS
+
+    names = list(dict.fromkeys(p.lower() for p in providers))
+    full = [p for p in names if p not in SUPPLEMENTARY_PROVIDERS]
+    supplementary = [p for p in names if p in SUPPLEMENTARY_PROVIDERS]
+    if supplementary and not full:
+        return ["yfinance", *supplementary], (
+            f"\n{', '.join(supplementary)} serves fundamentals only, so yfinance was added for quotes, history and news."
+        )
+    return [*full, *supplementary], ""

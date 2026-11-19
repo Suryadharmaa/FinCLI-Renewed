@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from fincli.app.providers.market.base import fundamentals_provenance
 from fincli.app.utils.errors import CommandError
 
 if TYPE_CHECKING:
@@ -78,6 +79,10 @@ def _overview_payload(overview: MarketOverview) -> dict[str, Any]:
         else {
             "provider": overview.fundamentals.provider,
             "currency": overview.fundamentals.currency,
+            "provenance": fundamentals_provenance(overview.fundamentals),
+            "fiscal_period": overview.fundamentals.fiscal_period,
+            "period_end": overview.fundamentals.period_end,
+            "filed_date": overview.fundamentals.filed_date,
             "market_cap": overview.fundamentals.market_cap,
             "pe_ratio": overview.fundamentals.pe_ratio,
             "eps": overview.fundamentals.eps,
@@ -137,6 +142,7 @@ def _overview_markdown(overview: MarketOverview) -> str:
             "",
             "## Fundamentals",
             "",
+            f"- Source: {fundamentals.get('provenance', 'N/A')}",
             f"- Sector / Industry: {fundamentals.get('sector', 'N/A')} / {fundamentals.get('industry', 'N/A')}",
             f"- Market Cap: {fundamentals.get('market_cap', 'N/A')}",
             f"- P/E / EPS: {fundamentals.get('pe_ratio', 'N/A')} / {fundamentals.get('eps', 'N/A')}",

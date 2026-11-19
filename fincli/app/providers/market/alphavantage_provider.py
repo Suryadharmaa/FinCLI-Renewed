@@ -160,7 +160,7 @@ class AlphaVantageProvider:
         return ProviderCapability(
             name=self.name,
             realtime=False,
-            operations=("quote", "history", "fundamentals"),
+            operations=("quote", "history", "news", "fundamentals"),
             asset_classes=("stock", "forex", "crypto", "commodity"),
             rate_limit_note="Free tier: 25 calls/day.",
         )

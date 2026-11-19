@@ -259,7 +259,7 @@ Strategies: sma_cross, rsi_reversion, momentum, bollinger_squeeze, macd_divergen
 /news_model                         # Interactive market/news provider picker
 ```
 
-Supported data providers: yfinance (delayed fallback), Finnhub, Twelve Data, Alpha Vantage, Polygon.io, IEX Cloud, custom provider schema.
+Supported data providers: yfinance (delayed fallback), Finnhub, Twelve Data, Alpha Vantage, Polygon.io, IEX Cloud, custom provider schema, Equibles (fundamentals only, as reported in SEC filings; see [setup](docs/setup.md#equibles-fundamentals-only)).
 
 Provider System v3 features: formal capability declarations, first-class Polygon/IEX wiring, `ProviderResponse` envelope with quality scoring (0–100), per-operation metrics, circuit breaker with manual reset, proactive health warnings on latency/error rate spikes.
 
