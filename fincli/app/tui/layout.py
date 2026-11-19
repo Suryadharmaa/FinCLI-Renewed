@@ -8,6 +8,7 @@ from threading import Lock
 from typing import TYPE_CHECKING
 
 from rich.console import Console
+from rich.markup import escape
 from textual.app import App, ComposeResult, SystemCommand
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.css.query import NoMatches, QueryError
@@ -100,6 +101,8 @@ class FinCLIApp(App[None]):
             "[#d97757]/provider trust[/]  [#d97757]/market BTC-USD 1d[/]",
         )
         write_output_entry(output, "[#7a7a7a]Animations stay async and low-noise; Esc interrupts pending work.[/]")
+        for notice in getattr(self.router.config, "notices", []):
+            write_output_entry(output, f"[yellow]{escape(notice)}[/]")
 
         # Initialize session state and check for recovery
         self._session_state.init_session(self.router.session_id)

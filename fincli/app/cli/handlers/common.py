@@ -1705,7 +1705,6 @@ def _market_provider_secret_keys(provider: str) -> tuple[str, ...]:
         "twelvedata": ("TWELVE_DATA_API_KEY",),
         "alphavantage": ("ALPHA_VANTAGE_API_KEY",),
         "polygon": ("POLYGON_API_KEY",),
-        "iex": ("IEX_CLOUD_API_KEY",),
         "equibles": ("EQUIBLES_API_KEY",),
     }.get(provider.lower(), ())
 

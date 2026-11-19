@@ -42,7 +42,6 @@ API_KEY_NEWS_CONNECTORS: tuple[NewsConnectorSpec, ...] = (
     NewsConnectorSpec("tiingo_news", "Tiingo News", "free-tier", "market-news", "TIINGO_API_KEY"),
     NewsConnectorSpec("fmp_news", "Financial Modeling Prep News", "free-tier", "market-news", "FMP_API_KEY"),
     NewsConnectorSpec("eodhd_news", "EOD Historical Data News", "free-tier", "market-news", "EODHD_API_KEY"),
-    NewsConnectorSpec("iex_news", "IEX Cloud News", "api-key", "market-news", "IEX_CLOUD_API_KEY"),
     NewsConnectorSpec("intrinio_news", "Intrinio News", "api-key", "market-news", "INTRINIO_API_KEY"),
     NewsConnectorSpec("twelvedata_news", "Twelve Data News", "api-key", "market-news", "TWELVE_DATA_API_KEY"),
     NewsConnectorSpec("custom_news", "Custom News API", "custom", "custom", "CUSTOM_NEWS_API_KEY"),

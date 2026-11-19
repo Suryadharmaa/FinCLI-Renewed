@@ -91,7 +91,6 @@ CONNECTORS: tuple[Connector, ...] = (
     _c("Yahoo Finance", "market", "fallback/free", "stocks forex crypto indices commodities ETFs"),
     _c("Alpha Vantage Core APIs", "market", "api-key/free-tier"),
     _c("Barchart OnDemand", "market"),
-    _c("IEX Cloud", "market"),
     _c("Algoseek", "market"),
     _c("Twelve Data", "market", "api-key/free-tier"),
     _c("Intrinio", "market"),

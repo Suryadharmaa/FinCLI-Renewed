@@ -11,7 +11,6 @@ from fincli.app.providers.market.custom_provider import CustomMarketProvider
 from fincli.app.providers.market.equibles_provider import KEY_HELP as EQUIBLES_KEY_HELP
 from fincli.app.providers.market.equibles_provider import EquiblesProvider
 from fincli.app.providers.market.finnhub_provider import FinnhubProvider
-from fincli.app.providers.market.iex_provider import IEXProvider
 from fincli.app.providers.market.polygon_provider import PolygonProvider
 from fincli.app.providers.market.twelvedata_provider import TwelveDataProvider
 from fincli.app.providers.market.yfinance_provider import YFinanceProvider
@@ -65,12 +64,6 @@ MARKET_PROVIDERS: dict[str, MarketProviderInfo] = {
         status="configured",
         notes="Polygon.io adapter for stocks, forex, and crypto. Requires POLYGON_API_KEY.",
     ),
-    "iex": MarketProviderInfo(
-        name="iex",
-        realtime=True,
-        status="configured",
-        notes="IEX Cloud adapter for US equities. Requires IEX_CLOUD_API_KEY.",
-    ),
     "equibles": MarketProviderInfo(
         name="equibles",
         realtime=False,
@@ -108,8 +101,6 @@ class MarketProviderManager:
             return AlphaVantageProvider(api_key=os.getenv("ALPHA_VANTAGE_API_KEY"))
         if provider_name == "polygon":
             return PolygonProvider(api_key=os.getenv("POLYGON_API_KEY"))
-        if provider_name == "iex":
-            return IEXProvider(api_key=os.getenv("IEX_CLOUD_API_KEY"))
         if provider_name == "equibles":
             return EquiblesProvider(api_key=os.getenv("EQUIBLES_API_KEY"))
         raise ValueError(f"Unknown market provider: {name}")
@@ -166,12 +157,6 @@ class MarketProviderManager:
                 "key": "POLYGON_API_KEY",
                 "status": _mask_status(os.getenv("POLYGON_API_KEY")),
                 "source": secret_source("POLYGON_API_KEY"),
-            },
-            {
-                "provider": "iex",
-                "key": "IEX_CLOUD_API_KEY",
-                "status": _mask_status(os.getenv("IEX_CLOUD_API_KEY")),
-                "source": secret_source("IEX_CLOUD_API_KEY"),
             },
             {
                 "provider": "equibles",
@@ -257,18 +242,6 @@ class MarketProviderManager:
                     "Requires POLYGON_API_KEY.",
                     "Free plans are delayed and rate-limited.",
                     "Realtime access depends on Polygon plan and exchange entitlement.",
-                ),
-            ),
-            ProviderEntitlement(
-                provider="iex",
-                status="configured" if os.getenv("IEX_CLOUD_API_KEY") else "missing key",
-                realtime_label="realtime/plan-dependent",
-                asset_classes=("stocks",),
-                capabilities=("quote", "history", "news", "fundamentals"),
-                limitations=(
-                    "Requires IEX_CLOUD_API_KEY.",
-                    "Coverage is focused on US equities.",
-                    "Realtime availability depends on IEX Cloud plan and market hours.",
                 ),
             ),
             ProviderEntitlement(

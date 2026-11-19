@@ -98,7 +98,6 @@ def test_provider_key_status_masks_and_lists_market_keys(tmp_path: Path, monkeyp
     assert result.status == "ready"
     assert "FINNHUB_API_KEY" in output
     assert "POLYGON_API_KEY" in output
-    assert "IEX_CLOUD_API_KEY" in output
     assert "abc1...6789" in output
     assert "abc123456789" not in output
 

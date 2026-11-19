@@ -46,7 +46,6 @@ PROVIDER_LABELS = {
     "twelvedata": "Twelve Data",
     "alphavantage": "Alpha Vantage",
     "polygon": "Polygon.io",
-    "iex": "IEX Cloud",
     "equibles": "Equibles (fundamentals only)",
 }
 PROVIDER_ENV_KEYS = {
@@ -56,13 +55,12 @@ PROVIDER_ENV_KEYS = {
     "twelvedata": ("TWELVE_DATA_API_KEY",),
     "alphavantage": ("ALPHA_VANTAGE_API_KEY",),
     "polygon": ("POLYGON_API_KEY",),
-    "iex": ("IEX_CLOUD_API_KEY",),
     "equibles": ("EQUIBLES_API_KEY",),
 }
 # Providers that serve only some operations go after yfinance, so a complete answer from a
 # full provider never spends their quota and they are never the active (quote) provider.
 SUPPLEMENTARY_PROVIDERS = ("equibles",)
-DEFAULT_FALLBACK_ORDER = ("twelvedata", "finnhub", "alphavantage", "polygon", "iex", "custom", "yfinance")
+DEFAULT_FALLBACK_ORDER = ("twelvedata", "finnhub", "alphavantage", "polygon", "custom", "yfinance")
 
 
 def market_provider_choices() -> tuple[MarketProviderChoice, ...]:
