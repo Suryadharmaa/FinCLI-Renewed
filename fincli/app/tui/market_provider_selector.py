@@ -300,6 +300,9 @@ class MarketProviderSelectorScreen(ModalScreen[tuple[str, ...] | None]):
             env_key = self.pending_env_keys[0] if self.pending_env_keys else "API_KEY"
             text.append(f"Paste {env_key} above, then press Enter.\n", style="bold")
             text.append("The value is stored locally and will not be printed in output.\n", style="dim")
+            info = MarketProviderManager().get(self.selected_provider)
+            for line in info.key_help if info else ():
+                text.append(f"{line}\n", style="dim")
             return text
         text.append("Providers\n" if self.mode == "provider" else "Fallback presets\n", style="bold dim")
         for index, item in enumerate(items):

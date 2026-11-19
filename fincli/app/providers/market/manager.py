@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from fincli.app.providers.market.alphavantage_provider import AlphaVantageProvider
 from fincli.app.providers.market.base import BaseMarketProvider, ProviderEntitlement, supports_operation
 from fincli.app.providers.market.custom_provider import CustomMarketProvider
+from fincli.app.providers.market.equibles_provider import KEY_HELP as EQUIBLES_KEY_HELP
 from fincli.app.providers.market.equibles_provider import EquiblesProvider
 from fincli.app.providers.market.finnhub_provider import FinnhubProvider
 from fincli.app.providers.market.iex_provider import IEXProvider
@@ -23,6 +24,8 @@ class MarketProviderInfo:
     realtime: bool
     status: str
     notes: str
+    # Lines shown while the user is asked for this provider's key, such as where to create one.
+    key_help: tuple[str, ...] = ()
 
 
 MARKET_PROVIDERS: dict[str, MarketProviderInfo] = {
@@ -74,6 +77,7 @@ MARKET_PROVIDERS: dict[str, MarketProviderInfo] = {
         status="configured",
         notes="Fundamentals only: as-reported revenue and diluted EPS from SEC filings, sector, industry. "
         "Never used for quotes, history or news. Requires EQUIBLES_API_KEY.",
+        key_help=EQUIBLES_KEY_HELP,
     ),
 }
 

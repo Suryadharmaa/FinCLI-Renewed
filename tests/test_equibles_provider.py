@@ -19,7 +19,13 @@ from fincli.app.providers.market.base import (
     Quote,
     fundamentals_provenance,
 )
-from fincli.app.providers.market.equibles_provider import EquiblesProvider, build_snapshot, revenue_growth
+from fincli.app.providers.market.equibles_provider import (
+    KEY_HELP,
+    PAID_PLANS_NOTE,
+    EquiblesProvider,
+    build_snapshot,
+    revenue_growth,
+)
 from fincli.app.providers.market.manager import MarketProviderManager
 from fincli.app.providers.reliability import (
     STATUS_AUTH_FAILED,
@@ -250,6 +256,15 @@ def test_a_rate_limit_says_when_requests_resume() -> None:
     response = httpx.Response(429, headers={"X-RateLimit-Reset": "2026-11-20T00:00:00Z"}, json={})
     with pytest.raises(RateLimitError, match="Resets at 2026-11-20T00:00:00Z"):
         asyncio.run(_provider({"/v1/stocks/AAPL": response}, seen).fundamentals("AAPL"))
+
+
+def test_a_rate_limit_points_to_paid_plans_through_the_disclosed_referral_link() -> None:
+    seen: list[httpx.Request] = []
+    response = httpx.Response(429, json={})
+    with pytest.raises(RateLimitError) as caught:
+        asyncio.run(_provider({"/v1/stocks/AAPL": response}, seen).fundamentals("AAPL"))
+    assert caught.value.help_text == PAID_PLANS_NOTE
+    assert "https://equibles.com/pricing?ref=FINCLI" in PAID_PLANS_NOTE and "referral link" in PAID_PLANS_NOTE
 
 
 def test_a_timeout_is_a_network_error() -> None:
@@ -564,3 +579,18 @@ def test_saving_an_equibles_key_keeps_the_active_market_and_news_providers(tmp_p
     assert router.config.settings.news_provider == news_before
     assert router.market_service.primary_provider.name == "finnhub"
     assert "eq_test_secret" not in str(result.renderable)
+
+
+def test_the_key_step_shows_the_free_key_link_plain_and_the_referral_link_disclosed(tmp_path, monkeypatch, capsys) -> None:
+    monkeypatch.setattr("fincli.app.storage.secrets.SECRETS_FILE", tmp_path / "secrets.env")
+    monkeypatch.delenv("EQUIBLES_API_KEY", raising=False)
+    monkeypatch.setattr("fincli.app.cli.handlers.providers._interactive_prompt", lambda *args, **kwargs: None)
+    router = CommandRouter(config=ConfigManager(tmp_path / "config.json"), db=FinCLIDatabase(tmp_path / "fincli.db"))
+    capsys.readouterr()
+
+    router.route("/news_model equibles")
+
+    out = " ".join(capsys.readouterr().out.split())
+    free_key_line, paid_plans_line = KEY_HELP
+    assert free_key_line in out and "dashboard/apikeys" in free_key_line and "ref=" not in free_key_line
+    assert paid_plans_line in out and "support FinCLI" in paid_plans_line
