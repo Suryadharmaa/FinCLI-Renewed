@@ -50,6 +50,12 @@ class FundamentalSnapshot:
     beta: float | None = None
     sector: str | None = None
     industry: str | None = None
+    # Provenance for providers that report filed figures (None elsewhere): the fiscal period
+    # eps/revenue cover, its end date, the filing date, and revenue growth versus the prior fiscal year in percent.
+    fiscal_period: str | None = None
+    period_end: str | None = None
+    filed_date: str | None = None
+    revenue_growth: float | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -56,6 +56,7 @@ Market providers power quotes, technical analysis, history, news, fundamentals, 
 | Alpha Vantage | `/news_model key alphavantage <api_key>` | https://www.alphavantage.co | Free tier: 25 requests/day |
 | yfinance | No key needed | -- | Default delayed fallback, always available |
 | Custom | `/news_model key custom <api_key> <base_url>` | -- | For self-hosted market data APIs |
+| Equibles | `/news_model key equibles <api_key>` | https://equibles.com/docs/api | Fundamentals only; free tier: 100 requests/day. See below |
 
 **Recommended starting point:** Finnhub (free tier covers stocks, forex, crypto, news, calendar, insider, IPO).
 
@@ -94,6 +95,25 @@ Browse available connectors:
 ```
 
 ---
+
+### Equibles (fundamentals only)
+
+Equibles supplies `/fundamentals` data as reported in SEC filings. It is never used for quotes, history or news:
+its capability declaration lists only `fundamentals`, and FinCLI skips a provider for operations it does not declare.
+Saving its key appends it to the end of your provider chain, after yfinance, without changing the active provider.
+
+- **Fields:** `eps` (diluted) and `revenue` from the latest full fiscal year, `sector`, `industry`, and the reporting `currency`.
+  Each snapshot also carries `fiscal_period` (e.g. `FY2026`), `period_end`, `filed_date`, and `revenue_growth`:
+  the percent change from the prior fiscal year, matched by fiscal-year label. It is empty when the prior year is missing,
+  either value is absent, or the prior value is zero or negative. Short transition fiscal years are skipped.
+- **Coverage:** companies that file 10-K, 20-F or 40-F reports with the SEC. Foreign filers report in their own currency,
+  and EPS is per ordinary share, not per ADR. EPS is left empty when it is from a different year or currency than revenue.
+- **Not provided:** `market_cap`, `pe_ratio` and `beta`, which derive from prices. FinCLI therefore marks an Equibles snapshot
+  as partial and prefers a complete snapshot from another provider. Equibles answers when the others fail or return less.
+- **Usage:** one snapshot costs 3 requests (profile, revenue, diluted EPS) and is reused for 6 hours in the running process.
+  The free tier allows 100 requests a day. A 429 response reports when requests resume.
+- **Terms:** each user brings their own key, and keys are personal (do not bundle or share one). Showing data to other people
+  is governed by the [Equibles Terms of Service](https://equibles.com/legal/terms).
 
 ## Provider Priority
 

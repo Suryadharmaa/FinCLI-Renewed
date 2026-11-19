@@ -73,7 +73,8 @@ class MarketDataService:
 
     @property
     def primary_provider(self) -> BaseMarketProvider:
-        return self.providers[0]
+        """The first provider that serves quotes, so a fundamentals-only provider never becomes the active one."""
+        return next((provider for provider in self.providers if _supports(provider, "quote")), self.providers[0])
 
     async def quote(self, symbol: str) -> Quote:
         cache_key = self._cache_key(symbol)
@@ -135,6 +136,11 @@ class MarketDataService:
         degraded_response: ProviderResponse[Any] | None = None
         for provider in self.providers:
             provider_name = getattr(provider, "name", "unknown")
+            if not _supports(provider, method_name):
+                # Not a failure: no metric or circuit-breaker count, or a fundamentals-only
+                # provider's circuit would open on quote calls and block its fundamentals.
+                errors.append(f"{provider_name}: does not provide {method_name}")
+                continue
             if self._is_circuit_open(provider_name):
                 message = (
                     f"{provider_name}: circuit open; skipped {method_name} for "
@@ -422,7 +428,22 @@ def _fundamentals_from_payload(payload: dict[str, Any]) -> FundamentalSnapshot:
         beta=_optional_float(payload.get("beta")),
         sector=None if payload.get("sector") is None else str(payload.get("sector")),
         industry=None if payload.get("industry") is None else str(payload.get("industry")),
+        fiscal_period=None if payload.get("fiscal_period") is None else str(payload.get("fiscal_period")),
+        period_end=None if payload.get("period_end") is None else str(payload.get("period_end")),
+        filed_date=None if payload.get("filed_date") is None else str(payload.get("filed_date")),
+        revenue_growth=_optional_float(payload.get("revenue_growth")),
     )
+
+
+def _supports(provider: BaseMarketProvider, operation: str) -> bool:
+    """Whether the provider declares the operation; one without a readable declaration is tried for all."""
+    capabilities = getattr(provider, "capabilities", None)
+    if not callable(capabilities):
+        return True
+    try:
+        return operation in capabilities().operations
+    except Exception:  # noqa: BLE001 - a broken declaration must not hide the provider
+        return True
 
 
 def _parse_datetime(value: object) -> datetime:

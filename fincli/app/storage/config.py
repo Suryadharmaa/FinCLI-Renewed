@@ -94,6 +94,7 @@ class FinCLISettings:
             "benzinga": mask_secret(os.getenv("BENZINGA_API_KEY")),
             "polygon": mask_secret(os.getenv("POLYGON_API_KEY")),
             "iex": mask_secret(os.getenv("IEX_CLOUD_API_KEY")),
+            "equibles": mask_secret(os.getenv("EQUIBLES_API_KEY")),
             "tiingo": mask_secret(os.getenv("TIINGO_API_KEY")),
             "fmp": mask_secret(os.getenv("FMP_API_KEY")),
             "eodhd": mask_secret(os.getenv("EODHD_API_KEY")),

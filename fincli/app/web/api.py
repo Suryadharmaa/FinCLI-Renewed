@@ -36,7 +36,7 @@ from fincli.app.web.store import WebStore
 logger = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).with_name("static")
 VALID_SECRET_KEYS: set[str] = {info.env_key for info in AI_PROVIDERS.values() if info.env_key} | {
-    "FINNHUB_API_KEY", "TWELVE_DATA_API_KEY", "ALPHA_VANTAGE_API_KEY", "POLYGON_API_KEY", "IEX_CLOUD_API_KEY",
+    "FINNHUB_API_KEY", "TWELVE_DATA_API_KEY", "ALPHA_VANTAGE_API_KEY", "POLYGON_API_KEY", "IEX_CLOUD_API_KEY", "EQUIBLES_API_KEY",
     "MARKET_DATA_API_KEY", "NEWS_DATA_API_KEY", "MARKETAUX_API_KEY", "NEWSAPI_API_KEY", "GNEWS_API_KEY",
     "STOCKNEWSAPI_API_KEY", "APITUBE_API_KEY", "BENZINGA_API_KEY", "TIINGO_API_KEY", "FMP_API_KEY", "EODHD_API_KEY",
     "CUSTOM_NEWS_API_KEY",

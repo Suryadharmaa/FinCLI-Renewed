@@ -16,7 +16,7 @@ from fincli.app.storage.secrets import save_secret
 from fincli.app.utils.formatting import mask_secret
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
     from textual.app import ComposeResult
     from textual.events import Key
@@ -47,6 +47,7 @@ PROVIDER_LABELS = {
     "alphavantage": "Alpha Vantage",
     "polygon": "Polygon.io",
     "iex": "IEX Cloud",
+    "equibles": "Equibles (fundamentals only)",
 }
 PROVIDER_ENV_KEYS = {
     "yfinance": (),
@@ -56,7 +57,11 @@ PROVIDER_ENV_KEYS = {
     "alphavantage": ("ALPHA_VANTAGE_API_KEY",),
     "polygon": ("POLYGON_API_KEY",),
     "iex": ("IEX_CLOUD_API_KEY",),
+    "equibles": ("EQUIBLES_API_KEY",),
 }
+# Providers that serve only some operations go after yfinance, so a complete answer from a
+# full provider never spends their quota and they are never the active (quote) provider.
+SUPPLEMENTARY_PROVIDERS = ("equibles",)
 DEFAULT_FALLBACK_ORDER = ("twelvedata", "finnhub", "alphavantage", "polygon", "iex", "custom", "yfinance")
 
 
@@ -75,9 +80,17 @@ def market_provider_choices() -> tuple[MarketProviderChoice, ...]:
     return tuple(choices)
 
 
-def recommended_provider_priority(primary: str) -> tuple[str, ...]:
-    """Build a conservative fallback chain with yfinance as final fallback."""
+def recommended_provider_priority(primary: str, current: Sequence[str] = ()) -> tuple[str, ...]:
+    """Build a conservative fallback chain with yfinance as the last full provider.
+
+    A fundamentals-only provider is appended to the `current` chain instead of replacing it.
+    """
     normalized = primary.lower().strip()
+    if normalized in SUPPLEMENTARY_PROVIDERS:
+        chain = [p.lower().strip() for p in current if p.lower().strip() not in SUPPLEMENTARY_PROVIDERS] or ["yfinance"]
+        if "yfinance" not in chain:
+            chain.append("yfinance")
+        return _supplementary_last(dict.fromkeys([*chain, *current, normalized]))
     if normalized == "yfinance":
         return ("yfinance",)
     priority = [normalized] if normalized else ["yfinance"]
@@ -86,19 +99,26 @@ def recommended_provider_priority(primary: str) -> tuple[str, ...]:
             priority.append(provider)
     if "yfinance" not in priority:
         priority.append("yfinance")
-    return tuple(priority)
+    return _supplementary_last(priority)
 
 
-def priority_presets(primary: str) -> tuple[PriorityChoice, ...]:
+def priority_presets(primary: str, current: Sequence[str] = ()) -> tuple[PriorityChoice, ...]:
     """Return selectable fallback presets for a primary provider."""
-    recommended = recommended_provider_priority(primary)
-    minimal = tuple(dict.fromkeys((primary.lower(), "yfinance")))
+    recommended = recommended_provider_priority(primary, current)
+    minimal = _supplementary_last(dict.fromkeys((primary.lower(), "yfinance")))
     all_data_first = tuple(provider for provider in DEFAULT_FALLBACK_ORDER if provider in recommended)
     return (
         PriorityChoice("Recommended fallback", recommended, "Primary provider first, then other providers, yfinance last."),
         PriorityChoice("Primary + yfinance", minimal, "Use selected provider and delayed yfinance fallback only."),
         PriorityChoice("Data API priority", all_data_first, "Try realtime-capable providers before yfinance."),
         PriorityChoice("YFinance only", ("yfinance",), "Delayed fallback only, no API key required."),
+    )
+
+
+def _supplementary_last(providers) -> tuple[str, ...]:
+    ordered = tuple(providers)
+    return tuple(p for p in ordered if p not in SUPPLEMENTARY_PROVIDERS) + tuple(
+        p for p in ordered if p in SUPPLEMENTARY_PROVIDERS
     )
 
 
@@ -201,6 +221,10 @@ class MarketProviderSelectorScreen(ModalScreen[tuple[str, ...] | None]):
     def action_cancel(self) -> None:
         self.dismiss(None)
 
+    def _current_priority(self) -> list[str]:
+        settings = self.config.settings
+        return list(settings.market_provider_priority or [settings.market_provider])
+
     def _set_mode(self, mode: str) -> None:
         self.mode = mode
         self.selected_index = 0
@@ -222,7 +246,7 @@ class MarketProviderSelectorScreen(ModalScreen[tuple[str, ...] | None]):
         if self.mode == "key":
             return []
         if self.mode == "priority":
-            presets = list(priority_presets(self.selected_provider))
+            presets = list(priority_presets(self.selected_provider, self._current_priority()))
             if self.search:
                 presets = [
                     preset
@@ -302,7 +326,7 @@ class MarketProviderSelectorScreen(ModalScreen[tuple[str, ...] | None]):
         if self.pending_env_keys:
             self._set_mode("key")
         else:
-            providers = recommended_provider_priority(self.selected_provider)
+            providers = recommended_provider_priority(self.selected_provider, self._current_priority())
             self.config.set_market_provider_priority(list(providers))
             self.on_selected(providers)
             self._set_mode("priority")

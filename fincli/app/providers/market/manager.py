@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from fincli.app.providers.market.alphavantage_provider import AlphaVantageProvider
 from fincli.app.providers.market.base import BaseMarketProvider, ProviderEntitlement
 from fincli.app.providers.market.custom_provider import CustomMarketProvider
+from fincli.app.providers.market.equibles_provider import EquiblesProvider
 from fincli.app.providers.market.finnhub_provider import FinnhubProvider
 from fincli.app.providers.market.iex_provider import IEXProvider
 from fincli.app.providers.market.polygon_provider import PolygonProvider
@@ -67,6 +68,13 @@ MARKET_PROVIDERS: dict[str, MarketProviderInfo] = {
         status="configured",
         notes="IEX Cloud adapter for US equities. Requires IEX_CLOUD_API_KEY.",
     ),
+    "equibles": MarketProviderInfo(
+        name="equibles",
+        realtime=False,
+        status="configured",
+        notes="Fundamentals only: as-reported revenue and diluted EPS from SEC filings, sector, industry. "
+        "Never used for quotes, history or news. Requires EQUIBLES_API_KEY.",
+    ),
 }
 
 
@@ -98,6 +106,8 @@ class MarketProviderManager:
             return PolygonProvider(api_key=os.getenv("POLYGON_API_KEY"))
         if provider_name == "iex":
             return IEXProvider(api_key=os.getenv("IEX_CLOUD_API_KEY"))
+        if provider_name == "equibles":
+            return EquiblesProvider(api_key=os.getenv("EQUIBLES_API_KEY"))
         raise ValueError(f"Unknown market provider: {name}")
 
     def create_many(self, names: list[str]) -> list[BaseMarketProvider]:
@@ -157,6 +167,12 @@ class MarketProviderManager:
                 "key": "IEX_CLOUD_API_KEY",
                 "status": _mask_status(os.getenv("IEX_CLOUD_API_KEY")),
                 "source": secret_source("IEX_CLOUD_API_KEY"),
+            },
+            {
+                "provider": "equibles",
+                "key": "EQUIBLES_API_KEY",
+                "status": _mask_status(os.getenv("EQUIBLES_API_KEY")),
+                "source": secret_source("EQUIBLES_API_KEY"),
             },
         ]
 
@@ -248,6 +264,19 @@ class MarketProviderManager:
                     "Requires IEX_CLOUD_API_KEY.",
                     "Coverage is focused on US equities.",
                     "Realtime availability depends on IEX Cloud plan and market hours.",
+                ),
+            ),
+            ProviderEntitlement(
+                provider="equibles",
+                status="configured" if os.getenv("EQUIBLES_API_KEY") else "missing key",
+                realtime_label="as reported in filings",
+                asset_classes=("stocks of SEC filers",),
+                capabilities=("fundamentals",),
+                limitations=(
+                    "Requires EQUIBLES_API_KEY; free keys allow 100 requests a day (3 per snapshot, reused for 6 hours).",
+                    "No market_cap, pe_ratio or beta (they derive from prices), so snapshots are partial "
+                    "and a complete snapshot from another provider takes precedence.",
+                    "Foreign filers report in their own currency and per ordinary share, not per ADR.",
                 ),
             ),
         ]

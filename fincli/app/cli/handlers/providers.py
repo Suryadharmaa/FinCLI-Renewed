@@ -107,7 +107,14 @@ class ProvidersCommands:
                 save_secret("CUSTOM_NEWS_BASE_URL", args[3])
             elif provider == "custom" and len(args) >= 4:
                 save_secret("MARKET_DATA_BASE_URL", args[3])
-            if self.market_manager.get(provider) is not None:
+            from fincli.app.tui.market_provider_selector import SUPPLEMENTARY_PROVIDERS, recommended_provider_priority
+
+            supplementary = provider in SUPPLEMENTARY_PROVIDERS
+            if supplementary:
+                current = self.config.settings.market_provider_priority or [self.config.settings.market_provider]
+                self.config.set_market_provider_priority(list(recommended_provider_priority(provider, current)))
+                self._refresh_market_service()
+            elif self.market_manager.get(provider) is not None:
                 self.config.set_market_provider_priority([provider, *self._priority_tail(provider)])
                 self.config.set_news_provider(provider)
                 self._refresh_market_service()
@@ -115,11 +122,16 @@ class ProvidersCommands:
                 self.config.set_news_provider_priority([provider, *self._news_priority_tail(provider)])
             self.cache.clear()
             extra = "\nCustom base URL also saved." if provider in {"custom", "custom_news"} and len(args) >= 4 else ""
+            active_line = (
+                f"{provider} added after your market providers; it serves fundamentals only.\n"
+                if supplementary
+                else f"Active news provider saved: {provider}.\n"
+            )
             return CommandResult(
                 Panel(
                     (
                         f"Market/news API key for {provider} saved globally in ~/.fincli/secrets.env.{extra}\n"
-                        f"Active news provider saved: {provider}.\n"
+                        f"{active_line}"
                         "Key is not displayed in terminal and persists across sessions."
                     ),
                     title="News API Key Saved",
@@ -237,6 +249,7 @@ class ProvidersCommands:
                 "alphavantage": "ALPHA_VANTAGE_API_KEY",
                 "polygon": "POLYGON_API_KEY",
                 "iex": "IEX_CLOUD_API_KEY",
+                "equibles": "EQUIBLES_API_KEY",
                 "custom": "MARKET_DATA_API_KEY",
             }
             key_name = secret_keys.get(provider)
