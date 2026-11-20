@@ -41,14 +41,15 @@ def _with_equibles(router, routes=AAPL_ROUTES) -> list[httpx.Request]:
     return seen
 
 
-def _one_statement_year(period: str):
+def _one_statement_year(period: str, currency: str = "USD", asset_class: str = "EQUITY"):
     """yfinance statements for a single fiscal year, so its own revenue growth is missing."""
 
     def loader(symbol):
         data = company_data(symbol)
+        data["instrument"]["asset_class"] = asset_class
         for rows in data["statements"].values():
             del rows[1:]
-            rows[0]["period"] = period
+            rows[0].update(period=period, currency=currency)
         data["ratios"] = ratios(data["statements"])
         return data
 
@@ -83,7 +84,8 @@ def test_equibles_fills_a_missing_growth_figure_for_the_same_fiscal_year_and_lab
     assert "Equibles" in output["provenance"]["source"]
     console = Console(width=400, record=True)
     console.print(render_result(output))
-    assert f"revenue_growth={row['metrics']['revenue_growth']} (Equibles FY2026, as filed) > 10.0" in console.export_text()
+    label = f"revenue_growth={row['metrics']['revenue_growth']} (Equibles FY2026, USD, filed 2026-11-03) > 10.0"
+    assert label in console.export_text()
     assert len(seen) == 3
 
     book = load_workbook(io.BytesIO(router.workspace_service.excel_bytes(output["data"]["id"])))
@@ -94,12 +96,14 @@ def test_equibles_fills_a_missing_growth_figure_for_the_same_fiscal_year_and_lab
 def test_a_growth_figure_for_another_fiscal_year_is_withheld(router):
     _with_equibles(router)
     router.workspace_service.company.loader = _one_statement_year("2025-09-30")
-    row = router.workspace_service.screen(["AAPL"], "revenue_growth > 10%")["data"]["rows"][0]
+    output = router.workspace_service.screen(["AAPL"], "revenue_growth > 10%")
+    row = output["data"]["rows"][0]
 
     assert row["metrics"]["revenue_growth"] is None
     assert row["missing_fields"] == ["revenue_growth"] and not row["passed"]
     assert row["metric_sources"] == {}
     assert any("not the yfinance period 2025-09-30; withheld" in w for w in row["warnings"])
+    assert any(w.startswith("AAPL: Equibles revenue growth is for FY2026") for w in output["warnings"])
 
 
 def test_a_row_without_yfinance_statements_takes_the_equibles_fiscal_year(router):
@@ -126,10 +130,12 @@ def test_an_equibles_failure_is_reported_once_and_not_retried_in_the_same_run(ro
         router, {"/v1/stocks/AAPL": httpx.Response(429, json={"error": {"message": "Daily limit reached."}})}
     )
     router.workspace_service.company.loader = _one_statement_year("2026-09-30")
-    first, second = router.workspace_service.screen(["AAPL", "MSFT"], "revenue_growth > 10%")["data"]["rows"]
+    output = router.workspace_service.screen(["AAPL", "MSFT"], "revenue_growth > 10%")
+    first, second = output["data"]["rows"]
 
     assert len(seen) == 1, "MSFT is not sent to Equibles after AAPL hit the daily limit"
     assert any("Equibles revenue growth unavailable for this run (RateLimitError" in w for w in first["warnings"])
+    assert [w[:45] for w in output["warnings"]] == ["AAPL: Equibles revenue growth unavailable for"]
     assert not any("Equibles" in w for w in second["warnings"])
     assert first["metrics"]["revenue_growth"] is None and second["metrics"]["revenue_growth"] is None
 
@@ -142,3 +148,32 @@ def test_a_symbol_equibles_does_not_list_is_skipped_quietly_and_the_next_one_is_
     assert unlisted["metric_sources"] == {} and not any("Equibles" in w for w in unlisted["warnings"])
     assert aapl["metrics"]["revenue_growth"] == pytest.approx(AAPL_FY2026_GROWTH)
     assert [r.url.path for r in seen][0] == "/v1/stocks/XYZQ"
+
+
+def test_a_growth_figure_in_another_currency_than_the_yfinance_statements_is_withheld(router):
+    seen = _with_equibles(router)
+    router.workspace_service.company.loader = _one_statement_year("2026-09-30", currency="EUR")
+    output = router.workspace_service.screen(["AAPL"], "revenue_growth > 10%")
+    row = output["data"]["rows"][0]
+
+    assert row["metrics"]["revenue_growth"] is None and row["metric_sources"] == {}
+    assert output["warnings"] == ["AAPL: Equibles revenue growth is in USD, not the yfinance statements' EUR; withheld."]
+    assert len(seen) == 3
+
+
+def test_a_row_yfinance_identifies_as_an_etf_or_crypto_is_not_sent_to_equibles(router):
+    seen = _with_equibles(router)
+    for asset_class in ("ETF", "CRYPTOCURRENCY"):
+        router.workspace_service.company.loader = _one_statement_year("2026-09-30", asset_class=asset_class)
+        row = router.workspace_service.screen(["AAPL"], "revenue_growth > 10%")["data"]["rows"][0]
+        assert row["metric_sources"] == {}
+    assert seen == []
+
+
+def test_an_exchange_prefixed_symbol_is_sent_to_equibles_as_its_ticker(router):
+    seen = _with_equibles(router)
+    router.workspace_service.company.loader = _one_statement_year("2026-09-30")
+    row = router.workspace_service.screen(["NASDAQ:AAPL"], "revenue_growth > 10%")["data"]["rows"][0]
+
+    assert row["metrics"]["revenue_growth"] == pytest.approx(AAPL_FY2026_GROWTH)
+    assert seen[0].url.path == "/v1/stocks/AAPL"

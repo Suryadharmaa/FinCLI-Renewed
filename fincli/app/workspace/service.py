@@ -134,6 +134,8 @@ class WorkspaceService:
         rows = []
         # Equibles is asked only when the expression needs revenue_growth; a failure (no key, daily limit) stops it for the run.
         filed_growth = self._equibles_provider() if "revenue_growth" in parsed.fields else None
+        # Withheld and failed Equibles notes go to the run's warnings too, which the terminal prints under the table.
+        run_warnings: list[str] = []
         for index, symbol in enumerate(symbols):
             if context:
                 context.checkpoint(int(index / len(symbols) * 90), f"Screening {symbol}")
@@ -146,14 +148,22 @@ class WorkspaceService:
             warnings = list(company["warnings"])
             sources = {"company": company["provenance"]}
             metric_sources: dict[str, Any] = {}
-            if filed_growth is not None and finite(metrics.get("revenue_growth")) is None:
-                source, warning, failed = self._filed_revenue_growth(filed_growth, symbol, metrics.get("period"))
+            if (
+                filed_growth is not None
+                and finite(metrics.get("revenue_growth")) is None
+                and _may_be_a_stock(data.get("instrument"))
+            ):
+                source, warning, failed = self._filed_revenue_growth(
+                    filed_growth, symbol, metrics.get("period"), metrics.get("currency")
+                )
                 if source is not None:
                     metrics["revenue_growth"] = source.pop("value")
                     metrics["period"] = metrics.get("period") or source["period_end"]
                     metric_sources["revenue_growth"] = source
                 if warning:
                     warnings.append(warning)
+                    if source is None:
+                        run_warnings.append(f"{symbol}: {warning}")
                 if failed:
                     filed_growth = None
             try:
@@ -185,6 +195,7 @@ class WorkspaceService:
                 "passing": [r["symbol"] for r in rows if r["passed"]],
             },
             source="configured providers / yfinance" + ("; revenue_growth fallback: Equibles, as filed" if filed else ""),
+            warnings=run_warnings,
             status="partial" if any(row["missing_fields"] for row in rows) else "ok",
         )
         if context:
@@ -196,18 +207,19 @@ class WorkspaceService:
         return next((p for p in self.router.market_service.providers if getattr(p, "name", None) == "equibles"), None)
 
     def _filed_revenue_growth(
-        self, provider: Any, symbol: str, period: str | None
+        self, provider: Any, symbol: str, period: str | None, currency: str | None
     ) -> tuple[dict[str, Any] | None, str | None, bool]:
         """Equibles' as-filed annual revenue growth for a row whose yfinance figure is missing: (source, warning, failed).
 
-        It fills only the yfinance row's own fiscal year, or a row with no yfinance statements at all, so a row never
-        mixes fiscal years. `failed` means Equibles itself failed and is not asked again in this run.
+        It fills only the yfinance row's own fiscal year and currency, or a row with no yfinance statements at all, so a
+        row never mixes fiscal years or currencies. `failed` means Equibles itself failed and is not asked again in this run.
         """
         from fincli.app.utils.errors import DataUnavailableError
 
         timeout = self.router.market_service.provider_timeout_seconds
         try:
-            snapshot = self.router.market_service.run(asyncio.wait_for(provider.fundamentals(symbol), timeout))
+            ticker = Instrument.parse(symbol).provider_symbol
+            snapshot = self.router.market_service.run(asyncio.wait_for(provider.fundamentals(ticker), timeout))
         except DataUnavailableError:
             return None, None, False
         except Exception as exc:  # noqa: BLE001 - the field stays missing, as it would without Equibles
@@ -220,6 +232,12 @@ class WorkspaceService:
                 None,
                 f"Equibles revenue growth is for {snapshot.fiscal_period} (period end {snapshot.period_end}), "
                 f"not the yfinance period {period}; withheld.",
+                False,
+            )
+        if currency and snapshot.currency and currency.upper() != snapshot.currency.upper():
+            return (
+                None,
+                f"Equibles revenue growth is in {snapshot.currency}, not the yfinance statements' {currency}; withheld.",
                 False,
             )
         filed = f", filed {snapshot.filed_date}" if snapshot.filed_date else ""
@@ -530,6 +548,12 @@ class WorkspaceService:
         else:
             raise ValueError("Export to .json or .xlsx.")
         return str(target)
+
+
+def _may_be_a_stock(instrument: Any) -> bool:
+    """Equibles covers stocks only, so a row yfinance identifies as an ETF, fund, index, currency or crypto is not sent."""
+    asset_class = instrument.get("asset_class") if isinstance(instrument, dict) else None
+    return str(asset_class or "unknown").upper() in {"EQUITY", "UNKNOWN"}
 
 
 def _same_fiscal_year(first: str, second: str) -> bool:

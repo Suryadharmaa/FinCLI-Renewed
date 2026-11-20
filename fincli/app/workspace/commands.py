@@ -103,11 +103,12 @@ def render_result(output: dict[str, Any]) -> Any:
 
 
 def _metric_source_label(source: dict[str, Any] | None) -> str:
-    """' (Equibles FY2025, as filed)' for a figure that did not come from the row's yfinance statements."""
+    """' (Equibles FY2026, USD, filed 2026-11-03)' for a figure that did not come from the row's yfinance statements."""
     if not source:
         return ""
-    label = " ".join(str(part) for part in (str(source.get("provider") or "").title(), source.get("fiscal_period")) if part)
-    return f" ({label}, as filed)"
+    name = " ".join(str(part) for part in (str(source.get("provider") or "").title(), source.get("fiscal_period")) if part)
+    filed = f"filed {source['filed_date']}" if source.get("filed_date") else "as filed"
+    return " (" + ", ".join(str(part) for part in (name, source.get("currency"), filed) if part) + ")"
 
 
 def handle(router, root: str, args: list[str]):
