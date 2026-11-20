@@ -110,7 +110,13 @@ and `/provider priority equibles` on its own becomes `yfinance,equibles`, since 
 a partial snapshot, and then keeps whichever snapshot scores higher. Figures from different providers are never combined
 into one snapshot. When an Equibles snapshot is shown, `/market` and the AI context label it with its source, currency,
 fiscal year and filing date, because it can differ from the quote beside it (a foreign filer reports in its own currency).
-`/screen` still computes revenue growth from yfinance statements and does not use Equibles.
+`/screen` computes revenue growth from yfinance statements. When yfinance has none for a symbol and the expression
+uses `revenue_growth`, it takes Equibles' annual growth as filed, but only for the same fiscal year as that row's
+yfinance statements (or for a row with no yfinance statements at all); a growth figure for another year is withheld
+with a note. The row names the source (for example `revenue_growth=15.06 (Equibles FY2026, as filed)`), its
+`metric_sources` field and the Excel export's Metric sources column carry the fiscal year and filing date, and only
+revenue growth is filled. Equibles is not asked for other expressions, and after one failure (no key, daily limit)
+it is not asked again in that run.
 
 - **Fields:** `eps` (diluted) and `revenue` from the newest full fiscal year either one reports, `sector`, `industry`,
   and the reporting `currency`. A figure whose latest year is older than that year is left empty rather than shown as current,

@@ -86,18 +86,28 @@ def render_result(output: dict[str, Any]) -> Any:
         for c in ("Symbol", "Passed", "Period", "Missing", "Reasons"):
             table.add_column(c)
         for row in data["rows"]:
+            sources = row.get("metric_sources") or {}
             table.add_row(
                 row["symbol"],
                 str(row["passed"]),
                 str(row["period"] or "N/A"),
                 ", ".join(row["missing_fields"]),
                 "; ".join(
-                    f"{r['field']}={r['value']} {r['operator']} {r['threshold']}: {r['passed']}"
+                    f"{r['field']}={r['value']}{_metric_source_label(sources.get(r['field']))} "
+                    f"{r['operator']} {r['threshold']}: {r['passed']}"
                     for r in row["comparisons"]
                 ),
             )
         return table
     return Panel(Text(json.dumps(data, indent=2, ensure_ascii=False)), title=kind.replace("_", " ").title())
+
+
+def _metric_source_label(source: dict[str, Any] | None) -> str:
+    """' (Equibles FY2025, as filed)' for a figure that did not come from the row's yfinance statements."""
+    if not source:
+        return ""
+    label = " ".join(str(part) for part in (str(source.get("provider") or "").title(), source.get("fiscal_period")) if part)
+    return f" ({label}, as filed)"
 
 
 def handle(router, root: str, args: list[str]):

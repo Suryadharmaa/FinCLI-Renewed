@@ -52,6 +52,10 @@ class ScreenExpression:
         if sum(map(len, self.groups)) > 20:
             raise ValueError("At most 20 comparisons are supported.")
 
+    @property
+    def fields(self) -> set[str]:
+        return {field for group in self.groups for field, _, _ in group}
+
     def evaluate(self, row: dict[str, Any]) -> dict[str, Any]:
         reasons, missing, passing = [], set(), False
         for group in self.groups:
