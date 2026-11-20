@@ -435,6 +435,7 @@ def _fundamentals_from_payload(payload: dict[str, Any]) -> FundamentalSnapshot:
         period_end=None if payload.get("period_end") is None else str(payload.get("period_end")),
         filed_date=None if payload.get("filed_date") is None else str(payload.get("filed_date")),
         revenue_growth=_optional_float(payload.get("revenue_growth")),
+        revenue_currency=None if payload.get("revenue_currency") is None else str(payload.get("revenue_currency")),
     )
 
 

@@ -124,6 +124,14 @@ def test_snapshot_takes_the_latest_fiscal_year_with_its_period_and_filing_date()
     assert all("eq_test_secret" not in str(request.url) for request in seen)
 
 
+def test_revenue_currency_is_the_revenue_unit_and_none_when_the_unit_is_missing() -> None:
+    assert build_snapshot("AAPL", AAPL_PROFILE, AAPL_REVENUE, AAPL_EPS, today=TODAY).revenue_currency == "USD"
+    unitless = {key: value for key, value in AAPL_REVENUE.items() if key != "unit"}
+    snapshot = build_snapshot("AAPL", AAPL_PROFILE, unitless, AAPL_EPS, today=TODAY)
+    assert snapshot.revenue_currency is None
+    assert snapshot.currency == "USD", "the displayed currency keeps its listing-currency fallback"
+
+
 def test_revenue_growth_matches_fiscal_years_by_label_not_position() -> None:
     rows = [_row("FY2023", 100.0, "2023-09-30"), _row("FY2025", 130.0, "2025-09-27")]
     assert revenue_growth(rows) is None, "FY2024 is missing, so FY2023 is not the prior year"

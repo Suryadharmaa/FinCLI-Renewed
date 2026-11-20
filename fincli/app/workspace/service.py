@@ -11,6 +11,7 @@ from datetime import date
 from typing import Any, cast
 
 from fincli.app.providers.ai.base import AIRequest
+from fincli.app.providers.market.symbols import FOREX_CURRENCIES
 from fincli.app.workspace.company import CompanyService, dcf
 from fincli.app.workspace.documents import DocumentService
 from fincli.app.workspace.jobs import JobContext, JobManager
@@ -151,7 +152,7 @@ class WorkspaceService:
             if (
                 filed_growth is not None
                 and finite(metrics.get("revenue_growth")) is None
-                and _may_be_a_stock(data.get("instrument"), symbol, self.router.market_service.symbol_resolver)
+                and _may_be_a_stock(data.get("instrument"), symbol)
             ):
                 source, warning, failed = self._filed_revenue_growth(
                     filed_growth, symbol, metrics.get("period"), metrics.get("currency")
@@ -216,6 +217,13 @@ class WorkspaceService:
         """
         from fincli.app.utils.errors import DataUnavailableError
 
+        if period and not currency:
+            # Checked before the request: nothing Equibles returns could be matched to this row.
+            return (
+                None,
+                f"Equibles revenue growth withheld: the yfinance statements for {period} carry no currency to match.",
+                False,
+            )
         timeout = self.router.market_service.provider_timeout_seconds
         try:
             ticker = Instrument.parse(symbol).provider_symbol
@@ -234,17 +242,18 @@ class WorkspaceService:
                 f"not the yfinance period {period}; withheld.",
                 False,
             )
-        if period and not (currency and snapshot.currency):
+        filed_currency = snapshot.revenue_currency
+        if currency and not filed_currency:
             return (
                 None,
-                f"Equibles revenue growth withheld: the currency of the yfinance statements for {period} or of the Equibles "
-                "figure is unknown, so the two cannot be matched.",
+                "Equibles revenue growth withheld: Equibles does not state the currency of its revenue figures, so it "
+                f"cannot be matched to the yfinance statements' {currency}.",
                 False,
             )
-        if currency and snapshot.currency and currency.upper() != snapshot.currency.upper():
+        if currency and filed_currency and currency.upper() != filed_currency.upper():
             return (
                 None,
-                f"Equibles revenue growth is in {snapshot.currency}, not the yfinance statements' {currency}; withheld.",
+                f"Equibles revenue growth is in {filed_currency}, not the yfinance statements' {currency}; withheld.",
                 False,
             )
         filed = f", filed {snapshot.filed_date}" if snapshot.filed_date else ""
@@ -255,7 +264,7 @@ class WorkspaceService:
             "fiscal_period": snapshot.fiscal_period,
             "period_end": snapshot.period_end,
             "filed_date": snapshot.filed_date,
-            "currency": snapshot.currency,
+            "currency": filed_currency,
         }
         note = (
             f"revenue_growth from Equibles: {snapshot.fiscal_period} versus the prior fiscal year, as filed "
@@ -559,22 +568,27 @@ class WorkspaceService:
 
 # yfinance's crypto pairs (BTC-USD, DOGE-USD); a share-class suffix such as BRK-B never matches.
 _CRYPTO_PAIR = re.compile(r"-(USD|USDT|USDC|EUR|GBP|BTC|ETH)$")
+_METALS = {"XAU", "XAG", "XPT", "XPD"}
 
 
-def _may_be_a_stock(instrument: Any, symbol: str, resolver: Any) -> bool:
+def _may_be_a_stock(instrument: Any, symbol: str) -> bool:
     """Equibles covers stocks only, so it is asked only for a row yfinance classes as an equity, or that yfinance could
-    not class and whose symbol does not read as an index, currency, metal or crypto pair (^GSPC, EURUSD, XAUUSD, BTC-USD).
+    not class and whose symbol is not shaped like an index, currency, metal or crypto pair (^GSPC, EURUSD, XAUUSD,
+    BTC-USD, BTC/USD, BTCUSDT).
 
-    yfinance's class wins when it has one: NYSE's GOLD is Barrick Gold although the resolver reads GOLD as the metal.
+    Only the symbol's shape counts, never a name alias: GOLD and DOW are tickers (Barrick Gold, Dow Inc.) as well as
+    aliases for the metal and the index, and a wrong guess costs one cached 404 at most.
     """
     raw = instrument.get("asset_class") if isinstance(instrument, dict) else getattr(instrument, "asset_class", None)
     asset_class = str(raw or "unknown").upper()
     if asset_class != "UNKNOWN":
         return asset_class == "EQUITY"
     ticker = Instrument.parse(symbol).provider_symbol
-    if _CRYPTO_PAIR.search(ticker):
+    if ticker.startswith("^") or "/" in ticker or _CRYPTO_PAIR.search(ticker) or ticker.endswith("USDT"):
         return False
-    return all(resolver.resolve(ticker, provider=provider).asset_class == "stock" for provider in ("yfinance", "custom"))
+    if ticker.endswith("USD") and ticker[:-3] in {"BTC", "ETH", "SOL", "BNB"}:
+        return False
+    return not (len(ticker) == 6 and ticker[:3] in FOREX_CURRENCIES | _METALS and ticker[3:] in FOREX_CURRENCIES)
 
 
 def _same_fiscal_year(first: str, second: str) -> bool:

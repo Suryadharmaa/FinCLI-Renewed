@@ -113,12 +113,14 @@ fiscal year and filing date, because it can differ from the quote beside it (a f
 `/screen` computes revenue growth from yfinance statements. When yfinance has none for a stock and the expression
 uses `revenue_growth`, it takes Equibles' annual growth as filed, but only for the same fiscal year and currency as
 that row's yfinance statements (or for a row with no yfinance statements at all); a figure for another year or
-currency, or one whose currency cannot be checked, is withheld, with a note under the table. The row names the source, for example
+currency, or one whose currency cannot be checked (the yfinance statements or Equibles' revenue figures state none),
+is withheld, with a note under the table. The row names the source, for example
 `revenue_growth=15.06 (Equibles FY2026, USD, filed 2026-11-03)`, and its `metric_sources` field and the Excel
 export's Metric sources column carry the fiscal year, period end, filing date and currency. Only revenue growth is
 filled. Equibles is not asked for other expressions, for rows yfinance identifies as ETFs, funds, indices,
-currencies or crypto, or, when yfinance is unavailable, for symbols that read as an index, currency, metal or crypto
-pair (`^GSPC`, `EURUSD`, `XAUUSD`, `BTC-USD`); after one failure (no key, daily limit) it is not asked again in that run.
+currencies or crypto, or, when yfinance is unavailable, for symbols shaped like an index, currency, metal or crypto
+pair (`^GSPC`, `EURUSD`, `XAUUSD`, `BTC-USD`, `BTC/USD`); a name such as `GOLD` or `DOW` is still asked, since it is
+also a stock ticker. After one failure (no key, daily limit) Equibles is not asked again in that run.
 
 - **Fields:** `eps` (diluted) and `revenue` from the newest full fiscal year either one reports, `sector`, `industry`,
   and the reporting `currency`. A figure whose latest year is older than that year is left empty rather than shown as current,
