@@ -151,7 +151,7 @@ class WorkspaceService:
             if (
                 filed_growth is not None
                 and finite(metrics.get("revenue_growth")) is None
-                and _may_be_a_stock(data.get("instrument"))
+                and _may_be_a_stock(data.get("instrument"), symbol, self.router.market_service.symbol_resolver)
             ):
                 source, warning, failed = self._filed_revenue_growth(
                     filed_growth, symbol, metrics.get("period"), metrics.get("currency")
@@ -232,6 +232,13 @@ class WorkspaceService:
                 None,
                 f"Equibles revenue growth is for {snapshot.fiscal_period} (period end {snapshot.period_end}), "
                 f"not the yfinance period {period}; withheld.",
+                False,
+            )
+        if period and not (currency and snapshot.currency):
+            return (
+                None,
+                f"Equibles revenue growth withheld: the currency of the yfinance statements for {period} or of the Equibles "
+                "figure is unknown, so the two cannot be matched.",
                 False,
             )
         if currency and snapshot.currency and currency.upper() != snapshot.currency.upper():
@@ -550,10 +557,24 @@ class WorkspaceService:
         return str(target)
 
 
-def _may_be_a_stock(instrument: Any) -> bool:
-    """Equibles covers stocks only, so a row yfinance identifies as an ETF, fund, index, currency or crypto is not sent."""
-    asset_class = instrument.get("asset_class") if isinstance(instrument, dict) else None
-    return str(asset_class or "unknown").upper() in {"EQUITY", "UNKNOWN"}
+# yfinance's crypto pairs (BTC-USD, DOGE-USD); a share-class suffix such as BRK-B never matches.
+_CRYPTO_PAIR = re.compile(r"-(USD|USDT|USDC|EUR|GBP|BTC|ETH)$")
+
+
+def _may_be_a_stock(instrument: Any, symbol: str, resolver: Any) -> bool:
+    """Equibles covers stocks only, so it is asked only for a row yfinance classes as an equity, or that yfinance could
+    not class and whose symbol does not read as an index, currency, metal or crypto pair (^GSPC, EURUSD, XAUUSD, BTC-USD).
+
+    yfinance's class wins when it has one: NYSE's GOLD is Barrick Gold although the resolver reads GOLD as the metal.
+    """
+    raw = instrument.get("asset_class") if isinstance(instrument, dict) else getattr(instrument, "asset_class", None)
+    asset_class = str(raw or "unknown").upper()
+    if asset_class != "UNKNOWN":
+        return asset_class == "EQUITY"
+    ticker = Instrument.parse(symbol).provider_symbol
+    if _CRYPTO_PAIR.search(ticker):
+        return False
+    return all(resolver.resolve(ticker, provider=provider).asset_class == "stock" for provider in ("yfinance", "custom"))
 
 
 def _same_fiscal_year(first: str, second: str) -> bool:

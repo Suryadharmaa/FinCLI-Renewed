@@ -10,10 +10,14 @@ from openpyxl import load_workbook
 from rich.console import Console
 
 from fincli.app.cli.router import CommandRouter
+from fincli.app.providers.market.base import FundamentalSnapshot
+from fincli.app.providers.market.symbols import SymbolResolver
 from fincli.app.storage.config import ConfigManager
 from fincli.app.storage.database import FinCLIDatabase
 from fincli.app.workspace.commands import render_result
 from fincli.app.workspace.company import ratios
+from fincli.app.workspace.models import Instrument
+from fincli.app.workspace.service import _may_be_a_stock
 from tests.test_command_smoke import SmokeAIProvider, SmokeMarketProvider
 from tests.test_equibles_provider import AAPL_ROUTES, _provider
 from tests.workspace_support import company_data
@@ -177,3 +181,63 @@ def test_an_exchange_prefixed_symbol_is_sent_to_equibles_as_its_ticker(router):
 
     assert row["metrics"]["revenue_growth"] == pytest.approx(AAPL_FY2026_GROWTH)
     assert seen[0].url.path == "/v1/stocks/AAPL"
+
+
+@pytest.mark.parametrize("currency", ["", None])
+def test_a_yfinance_period_without_a_currency_withholds_the_equibles_figure(router, currency):
+    _with_equibles(router)
+    router.workspace_service.company.loader = _one_statement_year("2026-09-30", currency=currency)
+    output = router.workspace_service.screen(["AAPL"], "revenue_growth > 10%")
+    row = output["data"]["rows"][0]
+
+    assert row["metrics"]["revenue_growth"] is None and row["metric_sources"] == {}
+    assert output["warnings"][0].startswith("AAPL: Equibles revenue growth withheld: the currency of the yfinance statements")
+
+
+class _NoCurrencyEquibles:
+    name = "equibles"
+
+    async def fundamentals(self, symbol):
+        return FundamentalSnapshot(
+            symbol=symbol,
+            provider="equibles",
+            currency="",
+            revenue_growth=12.0,
+            fiscal_period="FY2026",
+            period_end="2026-09-26",
+            filed_date="2026-11-03",
+        )
+
+
+def test_an_equibles_figure_without_a_currency_is_withheld_for_a_row_with_a_yfinance_period(router):
+    router.market_service.providers.append(_NoCurrencyEquibles())
+    router.workspace_service.company.loader = _one_statement_year("2026-09-30")
+    output = router.workspace_service.screen(["AAPL"], "revenue_growth > 10%")
+    assert output["data"]["rows"][0]["metrics"]["revenue_growth"] is None
+    assert "cannot be matched" in output["warnings"][0]
+
+
+def test_without_yfinance_symbols_that_read_as_indices_currencies_metals_or_crypto_are_not_sent(router):
+    seen = _with_equibles(router)
+    router.workspace_service.company.loader = _no_statements
+    symbols = ["^GSPC", "US500", "EURUSD", "XAUUSD", "BTC-USD", "DOGE-USD", "BTCUSD"]
+    rows = router.workspace_service.screen(symbols, "revenue_growth > 10%")["data"]["rows"]
+
+    assert seen == [] and all(row["metric_sources"] == {} for row in rows)
+    router.workspace_service.screen(["AAPL"], "revenue_growth > 10%")
+    assert [request.url.path for request in seen][0] == "/v1/stocks/AAPL", "a plain ticker is still asked"
+
+
+def test_a_yfinance_equity_class_wins_over_a_symbol_that_reads_like_a_commodity(router):
+    seen = _with_equibles(router)
+    router.workspace_service.company.loader = _one_statement_year("2026-09-30")
+    router.workspace_service.screen(["GOLD"], "revenue_growth > 10%")
+    assert seen[0].url.path == "/v1/stocks/GOLD", "NYSE: GOLD is Barrick Gold"
+
+
+def test_an_instrument_object_without_a_yfinance_class_is_judged_by_its_symbol():
+    resolver = SymbolResolver()
+    assert not _may_be_a_stock(Instrument.parse("BTC-USD"), "BTC-USD", resolver)
+    assert not _may_be_a_stock(Instrument(symbol="QQQ", asset_class="ETF"), "QQQ", resolver)
+    assert _may_be_a_stock(Instrument.parse("BRK-B"), "BRK-B", resolver)
+    assert _may_be_a_stock(Instrument.parse("NASDAQ:AAPL"), "NASDAQ:AAPL", resolver)
