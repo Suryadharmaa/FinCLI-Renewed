@@ -212,6 +212,7 @@ def build_snapshot(
         period_end=anchor.get("periodEnd") if anchor else None,
         filed_date=anchor.get("filedDate") if anchor else None,
         revenue_growth=revenue_growth(revenue_rows) if revenue_row else None,
+        revenue_currency=_currency(revenue_facts) if revenue_row else None,
     )
 
 

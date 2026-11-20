@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import uuid
 from dataclasses import asdict
+from datetime import date
 from typing import Any, cast
 
 from fincli.app.providers.ai.base import AIRequest
+from fincli.app.providers.market.symbols import FOREX_CURRENCIES
 from fincli.app.workspace.company import CompanyService, dcf
 from fincli.app.workspace.documents import DocumentService
 from fincli.app.workspace.jobs import JobContext, JobManager
@@ -19,6 +22,9 @@ from fincli.app.workspace.store import WorkspaceStore
 from fincli.app.workspace.tradingview import TradingViewBridge
 
 TOOLS = {"company", "peers", "market", "documents", "portfolio", "news", "backtest"}
+# Two fiscal-year ends this close are the same fiscal year: 52/53-week years end on different dates, and providers
+# label the same year by its exact end or by the month end.
+SAME_FISCAL_YEAR_DAYS = 14
 
 
 class WorkspaceService:
@@ -127,6 +133,10 @@ class WorkspaceService:
         if not 1 <= len(symbols) <= 50:
             raise ValueError("Screen 1-50 explicit symbols or watchlist holdings.")
         rows = []
+        # Equibles is asked only when the expression needs revenue_growth; a failure (no key, daily limit) stops it for the run.
+        filed_growth = self._equibles_provider() if "revenue_growth" in parsed.fields else None
+        # Withheld and failed Equibles notes go to the run's warnings too, which the terminal prints under the table.
+        run_warnings: list[str] = []
         for index, symbol in enumerate(symbols):
             if context:
                 context.checkpoint(int(index / len(symbols) * 90), f"Screening {symbol}")
@@ -138,6 +148,25 @@ class WorkspaceService:
             )
             warnings = list(company["warnings"])
             sources = {"company": company["provenance"]}
+            metric_sources: dict[str, Any] = {}
+            if (
+                filed_growth is not None
+                and finite(metrics.get("revenue_growth")) is None
+                and _may_be_a_stock(data.get("instrument"), symbol)
+            ):
+                source, warning, failed = self._filed_revenue_growth(
+                    filed_growth, symbol, metrics.get("period"), metrics.get("currency")
+                )
+                if source is not None:
+                    metrics["revenue_growth"] = source.pop("value")
+                    metrics["period"] = metrics.get("period") or source["period_end"]
+                    metric_sources["revenue_growth"] = source
+                if warning:
+                    warnings.append(warning)
+                    if source is None:
+                        run_warnings.append(f"{symbol}: {warning}")
+                if failed:
+                    filed_growth = None
             try:
                 market = self.market(symbol)
                 sources["market"] = market["provenance"]
@@ -153,9 +182,11 @@ class WorkspaceService:
                     **parsed.evaluate(metrics),
                     "warnings": warnings,
                     "sources": sources,
+                    "metric_sources": metric_sources,
                 }
             )
         run_id = uuid.uuid4().hex
+        filed = any(row["metric_sources"] for row in rows)
         output = result(
             "screen",
             {
@@ -164,13 +195,82 @@ class WorkspaceService:
                 "rows": rows,
                 "passing": [r["symbol"] for r in rows if r["passed"]],
             },
-            source="configured providers / yfinance",
+            source="configured providers / yfinance" + ("; revenue_growth fallback: Equibles, as filed" if filed else ""),
+            warnings=run_warnings,
             status="partial" if any(row["missing_fields"] for row in rows) else "ok",
         )
         if context:
             context.checkpoint(99, "Saving screen")
         self.store.save_run(run_id, "screen", output)
         return output
+
+    def _equibles_provider(self) -> Any | None:
+        return next((p for p in self.router.market_service.providers if getattr(p, "name", None) == "equibles"), None)
+
+    def _filed_revenue_growth(
+        self, provider: Any, symbol: str, period: str | None, currency: str | None
+    ) -> tuple[dict[str, Any] | None, str | None, bool]:
+        """Equibles' as-filed annual revenue growth for a row whose yfinance figure is missing: (source, warning, failed).
+
+        It fills only the yfinance row's own fiscal year and currency, or a row with no yfinance statements at all, so a
+        row never mixes fiscal years or currencies. `failed` means Equibles itself failed and is not asked again in this run.
+        """
+        from fincli.app.utils.errors import DataUnavailableError
+
+        if period and not currency:
+            # Checked before the request: nothing Equibles returns could be matched to this row.
+            return (
+                None,
+                f"Equibles revenue growth withheld: the yfinance statements for {period} carry no currency to match.",
+                False,
+            )
+        timeout = self.router.market_service.provider_timeout_seconds
+        try:
+            ticker = Instrument.parse(symbol).provider_symbol
+            snapshot = self.router.market_service.run(asyncio.wait_for(provider.fundamentals(ticker), timeout))
+        except DataUnavailableError:
+            return None, None, False
+        except Exception as exc:  # noqa: BLE001 - the field stays missing, as it would without Equibles
+            return None, f"Equibles revenue growth unavailable for this run ({type(exc).__name__}: {exc}).", True
+        growth = finite(snapshot.revenue_growth)
+        if growth is None or not snapshot.period_end:
+            return None, None, False
+        if period and not _same_fiscal_year(period, snapshot.period_end):
+            return (
+                None,
+                f"Equibles revenue growth is for {snapshot.fiscal_period} (period end {snapshot.period_end}), "
+                f"not the yfinance period {period}; withheld.",
+                False,
+            )
+        filed_currency = snapshot.revenue_currency
+        if currency and not filed_currency:
+            return (
+                None,
+                "Equibles revenue growth withheld: Equibles does not state the currency of its revenue figures, so it "
+                f"cannot be matched to the yfinance statements' {currency}.",
+                False,
+            )
+        if currency and filed_currency and currency.upper() != filed_currency.upper():
+            return (
+                None,
+                f"Equibles revenue growth is in {filed_currency}, not the yfinance statements' {currency}; withheld.",
+                False,
+            )
+        filed = f", filed {snapshot.filed_date}" if snapshot.filed_date else ""
+        source = {
+            "value": growth,
+            "provider": "equibles",
+            "basis": "annual, as filed",
+            "fiscal_period": snapshot.fiscal_period,
+            "period_end": snapshot.period_end,
+            "filed_date": snapshot.filed_date,
+            "currency": filed_currency,
+        }
+        note = (
+            f"revenue_growth from Equibles: {snapshot.fiscal_period} versus the prior fiscal year, as filed "
+            f"(period end {snapshot.period_end}{filed}); yfinance had none."
+        )
+        return source, note, False
 
     def request(
         self, action: str, params: dict[str, Any] | None = None, context: JobContext | None = None
@@ -431,7 +531,7 @@ class WorkspaceService:
         workbook = Workbook()
         sheet = workbook.active
         sheet.title = "Screen"
-        sheet.append(["Symbol", "Passed", "Period", "Missing fields", "Metrics", "Reasons"])
+        sheet.append(["Symbol", "Passed", "Period", "Missing fields", "Metrics", "Reasons", "Metric sources"])
         for row in output.get("data", {}).get("rows", []):
             values = [
                 row["symbol"],
@@ -440,6 +540,7 @@ class WorkspaceService:
                 ", ".join(row["missing_fields"]),
                 json.dumps(row["metrics"]),
                 json.dumps(row["comparisons"]),
+                json.dumps(row.get("metric_sources") or {}),
             ]
             sheet.append([("'" + v if isinstance(v, str) and v[:1] in {"=", "+", "-", "@"} else v) for v in values])
         sheet.freeze_panes = "A2"
@@ -463,3 +564,36 @@ class WorkspaceService:
         else:
             raise ValueError("Export to .json or .xlsx.")
         return str(target)
+
+
+# yfinance's crypto pairs (BTC-USD, DOGE-USD); a share-class suffix such as BRK-B never matches.
+_CRYPTO_PAIR = re.compile(r"-(USD|USDT|USDC|EUR|GBP|BTC|ETH)$")
+_METALS = {"XAU", "XAG", "XPT", "XPD"}
+
+
+def _may_be_a_stock(instrument: Any, symbol: str) -> bool:
+    """Equibles covers stocks only, so it is asked only for a row yfinance classes as an equity, or that yfinance could
+    not class and whose symbol is not shaped like an index, currency, metal or crypto pair (^GSPC, EURUSD, XAUUSD,
+    BTC-USD, BTC/USD, BTCUSDT).
+
+    Only the symbol's shape counts, never a name alias: GOLD and DOW are tickers (Barrick Gold, Dow Inc.) as well as
+    aliases for the metal and the index, and a wrong guess costs one cached 404 at most.
+    """
+    raw = instrument.get("asset_class") if isinstance(instrument, dict) else getattr(instrument, "asset_class", None)
+    asset_class = str(raw or "unknown").upper()
+    if asset_class != "UNKNOWN":
+        return asset_class == "EQUITY"
+    ticker = Instrument.parse(symbol).provider_symbol
+    if ticker.startswith("^") or "/" in ticker or _CRYPTO_PAIR.search(ticker) or ticker.endswith("USDT"):
+        return False
+    if ticker.endswith("USD") and ticker[:-3] in {"BTC", "ETH", "SOL", "BNB"}:
+        return False
+    return not (len(ticker) == 6 and ticker[:3] in FOREX_CURRENCIES | _METALS and ticker[3:] in FOREX_CURRENCIES)
+
+
+def _same_fiscal_year(first: str, second: str) -> bool:
+    try:
+        gap = abs((date.fromisoformat(first[:10]) - date.fromisoformat(second[:10])).days)
+    except ValueError:
+        return False
+    return gap <= SAME_FISCAL_YEAR_DAYS

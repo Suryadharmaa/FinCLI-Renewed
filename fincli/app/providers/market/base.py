@@ -56,6 +56,9 @@ class FundamentalSnapshot:
     period_end: str | None = None
     filed_date: str | None = None
     revenue_growth: float | None = None
+    # The revenue figures' own reporting currency (their unit), None when the source does not state it; `currency`
+    # may fall back to the listing currency, so comparisons that must not guess use this instead.
+    revenue_currency: str | None = None
 
 
 def fundamentals_provenance(snapshot: FundamentalSnapshot) -> str:
